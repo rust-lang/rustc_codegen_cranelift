@@ -26,7 +26,7 @@ ar = "0.6.1"
 bitflags = "1.0.3"
 byteorder = "1.2.6"
 cc = "1.0.25"
-libc = "0.2.43"
+libc = "0.2.44"
 tempfile = "3.0.4"
 
 # Uncomment to use local checkout of cranelift
