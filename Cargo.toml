@@ -24,7 +24,7 @@ target-lexicon = "0.2.0"
 ar = "0.6.1"
 bitflags = "1.0.3"
 byteorder = "1.2.6"
-libc = "0.2.45"
+libc = "0.2.46"
 tempfile = "3.0.4"
 env_logger = "0.6"
 
