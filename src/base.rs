@@ -113,7 +113,7 @@ fn trans_fn<'a, 'clif, 'tcx: 'a, B: Backend + 'static>(
 
     // Step 6. Codegen function
     with_unimpl_span(fx.mir.span, || {
-        crate::abi::codegen_fn_prelude(&mut fx, start_ebb);
+        crate::abi::codegen_fn_prelude(&mut fx, start_ebb, &mut debug_context);
         codegen_fn_content(&mut fx);
     });
     let source_info_set = fx.source_info_set.clone();

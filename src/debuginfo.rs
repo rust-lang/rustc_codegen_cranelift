@@ -3,15 +3,19 @@ extern crate gimli;
 use crate::prelude::*;
 
 use std::path::Path;
-use std::marker::PhantomData;
+
+use cranelift::codegen::{
+    ir::ValueLoc,
+    isa::{RegUnit, TargetIsa},
+};
 
 use gimli::write::{
     Address, AttributeValue, CompilationUnit, DebugAbbrev, DebugInfo, DebugLine, DebugRanges,
-    DebugRngLists, DebugStr, EndianVec, LineProgram, LineProgramId, LineProgramTable, Range,
-    RangeList, RangeListTable, Result, SectionId, StringTable, UnitEntryId, UnitId, UnitTable,
-    Writer, FileId,
+    DebugRngLists, DebugStr, EndianVec, Expression, FileId, LineProgram, LineProgramId,
+    LineProgramTable, Range, RangeList, RangeListTable, Result, SectionId, StringTable,
+    UnitEntryId, UnitId, UnitTable, Writer,
 };
-use gimli::{Encoding, Format, RunTimeEndian};
+use gimli::{Encoding, Format, Register, RunTimeEndian};
 
 use faerie::*;
 
@@ -26,13 +30,18 @@ fn target_endian(tcx: TyCtxt) -> RunTimeEndian {
 
 fn line_program_add_file<P: AsRef<Path>>(line_program: &mut LineProgram, file: P) -> FileId {
     let file = file.as_ref();
-    let dir_id =
-        line_program.add_directory(file.parent().unwrap().to_str().unwrap().as_bytes());
+    let dir_id = line_program.add_directory(file.parent().unwrap().to_str().unwrap().as_bytes());
     line_program.add_file(
         file.file_name().unwrap().to_str().unwrap().as_bytes(),
         dir_id,
         None,
     )
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum LocalPlace {
+    Var(Variable),
+    Stack(StackSlot),
 }
 
 struct DebugReloc {
@@ -47,6 +56,7 @@ pub struct DebugContext<'tcx> {
     endian: RunTimeEndian,
 
     symbols: indexmap::IndexSet<String>,
+    type_map: HashMap<Ty<'tcx>, UnitEntryId>,
 
     strings: StringTable,
     units: UnitTable,
@@ -56,8 +66,6 @@ pub struct DebugContext<'tcx> {
     unit_id: UnitId,
     global_line_program: LineProgramId,
     unit_range_list: RangeList,
-
-    _dummy: PhantomData<&'tcx ()>,
 }
 
 impl<'a, 'tcx: 'a> DebugContext<'tcx> {
@@ -128,6 +136,7 @@ impl<'a, 'tcx: 'a> DebugContext<'tcx> {
             endian: target_endian(tcx),
 
             symbols: indexmap::IndexSet::new(),
+            type_map: HashMap::new(),
 
             strings,
             units,
@@ -137,9 +146,135 @@ impl<'a, 'tcx: 'a> DebugContext<'tcx> {
             unit_id,
             global_line_program,
             unit_range_list: RangeList(Vec::new()),
-
-            _dummy: PhantomData,
         }
+    }
+
+    fn dwarf_type(&mut self, tcx: TyCtxt<'a, 'tcx, 'tcx>, ty: Ty<'tcx>) -> UnitEntryId {
+        if let Some(&type_id) = self.type_map.get(&ty) {
+            return type_id;
+        }
+
+        fn new_type(
+            unit: &mut CompilationUnit,
+            scope: UnitEntryId,
+            strings: &mut StringTable,
+            tag: gimli::DwTag,
+            name: &str,
+        ) -> UnitEntryId {
+            let type_id = unit.add(scope, tag);
+            let type_ = unit.get_mut(type_id);
+            let type_name = strings.add(name);
+            type_.set(gimli::DW_AT_name, AttributeValue::StringRef(type_name));
+            type_id
+        }
+
+        fn new_base_type(
+            unit: &mut CompilationUnit,
+            scope: UnitEntryId,
+            strings: &mut StringTable,
+            encoding: gimli::DwAte,
+            name: &str,
+        ) -> UnitEntryId {
+            let type_id = new_type(unit, scope, strings, gimli::DW_TAG_base_type, name);
+            let type_ = unit.get_mut(type_id);
+            type_.set(gimli::DW_AT_encoding, AttributeValue::Encoding(encoding));
+            type_id
+        }
+
+        let unit = self.units.get_mut(self.unit_id);
+        // FIXME: add to appropriate scope intead of root
+        let scope = unit.root();
+
+        let layout = tcx.layout_of(ParamEnv::reveal_all().and(ty)).unwrap();
+
+        let type_id = match ty.sty {
+            ty::Bool => new_base_type(
+                unit,
+                scope,
+                &mut self.strings,
+                gimli::DW_ATE_boolean,
+                "bool",
+            ),
+            ty::Char => new_base_type(unit, scope, &mut self.strings, gimli::DW_ATE_UTF, "char"),
+            ty::Int(int_ty) => new_base_type(
+                unit,
+                scope,
+                &mut self.strings,
+                gimli::DW_ATE_signed,
+                &int_ty.ty_to_string(),
+            ),
+            ty::Uint(uint_ty) => new_base_type(
+                unit,
+                scope,
+                &mut self.strings,
+                gimli::DW_ATE_unsigned,
+                &uint_ty.ty_to_string(),
+            ),
+            ty::Float(float_ty) => new_base_type(
+                unit,
+                scope,
+                &mut self.strings,
+                gimli::DW_ATE_float,
+                &float_ty.ty_to_string(),
+            ),
+            ty::Ref(_region, ty_inner, _mut) => new_type(
+                unit,
+                scope,
+                &mut self.strings,
+                gimli::DW_TAG_pointer_type,
+                "&_",
+            ),
+            ty::Adt(adt_def, substs) if adt_def.is_struct() => {
+                // mini_core_hello_world::take_unique::h005f69664121d4aa
+                let type_id = new_type(
+                    unit,
+                    scope,
+                    &mut self.strings,
+                    gimli::DW_TAG_structure_type,
+                    &tcx.item_name(adt_def.did).as_str(),
+                );
+                let variant = adt_def.non_enum_variant();
+
+                for (i, field) in variant.fields.iter().enumerate() {
+                    let member_name = self.strings.add(&*field.ident.as_str());
+                    let member_type_id = self.dwarf_type(tcx, field.ty(tcx, substs));
+
+                    let unit = self.units.get_mut(self.unit_id);
+                    let member_id = unit.add(type_id, gimli::DW_TAG_member);
+                    let member = unit.get_mut(member_id);
+
+                    member.set(gimli::DW_AT_name, AttributeValue::StringRef(member_name));
+                    member.set(
+                        gimli::DW_AT_type,
+                        AttributeValue::ThisUnitEntryRef(member_type_id),
+                    );
+                    member.set(
+                        gimli::DW_AT_data_member_location,
+                        AttributeValue::Data1(layout.fields.offset(i).bytes() as u8),
+                    )
+                }
+
+                type_id
+            }
+            _ => new_type(
+                unit,
+                scope,
+                &mut self.strings,
+                gimli::DW_TAG_structure_type,
+                "...",
+            ),
+        };
+
+        self.type_map.insert(ty, type_id);
+
+        let unit = self.units.get_mut(self.unit_id);
+        let type_ = unit.get_mut(type_id);
+        type_.set(
+            gimli::DW_AT_byte_size,
+            AttributeValue::Data1(layout.size.bytes() as u8),
+        ); // FIXME truncation
+
+        type_id
     }
 
     fn emit_location(&mut self, tcx: TyCtxt<'a, 'tcx, 'tcx>, entry_id: UnitEntryId, span: Span) {
@@ -184,11 +319,7 @@ impl<'a, 'tcx: 'a> DebugContext<'tcx> {
         let debug_str_offsets = self.strings.write(&mut debug_str).unwrap();
         let range_list_offsets = self
             .range_lists
-            .write(
-                &mut debug_ranges,
-                &mut debug_rnglists,
-                self.encoding
-            )
+            .write(&mut debug_ranges, &mut debug_rnglists, self.encoding)
             .unwrap();
         self.units
             .write(
@@ -267,6 +398,8 @@ pub struct FunctionDebugContext<'a, 'tcx> {
     entry_id: UnitEntryId,
     symbol: usize,
     mir_span: Span,
+    arg_map: HashMap<UnitEntryId, (Value, bool)>,
+    local_map: HashMap<UnitEntryId, LocalPlace>,
 }
 
 impl<'a, 'b, 'tcx: 'b> FunctionDebugContext<'a, 'tcx> {
@@ -286,14 +419,25 @@ impl<'a, 'b, 'tcx: 'b> FunctionDebugContext<'a, 'tcx> {
         let entry_id = unit.add(scope, gimli::DW_TAG_subprogram);
         let entry = unit.get_mut(entry_id);
         let name_id = debug_context.strings.add(name);
+        let dummy_name_id = debug_context.strings.add("dummy".to_string() + name);
+        // FIXME: use file index into unit's line table
+        // FIXME: specify directory too?
         entry.set(
             gimli::DW_AT_linkage_name,
             AttributeValue::StringRef(name_id),
         );
+        entry.set(gimli::DW_AT_name, AttributeValue::StringRef(dummy_name_id));
 
         entry.set(
             gimli::DW_AT_low_pc,
             AttributeValue::Address(Address::Relative { symbol, addend: 0 }),
+        );
+
+        entry.set(
+            gimli::DW_AT_frame_base,
+            AttributeValue::Exprloc(Expression(vec![
+                gimli::DW_OP_reg0.0 + gimli::X86_64::RBP.0 as u8,
+            ])),
         );
 
         debug_context.emit_location(tcx, entry_id, mir.span);
@@ -303,7 +447,56 @@ impl<'a, 'b, 'tcx: 'b> FunctionDebugContext<'a, 'tcx> {
             entry_id,
             symbol,
             mir_span: mir.span,
+            arg_map: HashMap::new(),
+            local_map: HashMap::new(),
         }
+    }
+
+    pub fn add_arg(
+        &mut self,
+        tcx: TyCtxt<'b, 'tcx, 'tcx>,
+        local_name: &str,
+        ty: Ty<'tcx>,
+        value: CValue<'tcx>,
+    ) {
+        let ty_id = self.debug_context.dwarf_type(tcx, ty);
+        let local_name = self.debug_context.strings.add(local_name);
+
+        let unit = self.debug_context.units.get_mut(self.debug_context.unit_id);
+        let param_id = unit.add(self.entry_id, gimli::DW_TAG_formal_parameter);
+        let param = unit.get_mut(param_id);
+
+        param.set(gimli::DW_AT_name, AttributeValue::StringRef(local_name));
+        param.set(gimli::DW_AT_type, AttributeValue::ThisUnitEntryRef(ty_id));
+
+        self.arg_map.insert(
+            param_id,
+            match value {
+                CValue::ByVal(val, _layout) => (val, false),
+                CValue::ByValPair(a, b, _layout) => unimplemented!(),
+                CValue::ByRef(addr, _layout) => (addr, true),
+            },
+        );
+    }
+
+    pub fn add_local(
+        &mut self,
+        tcx: TyCtxt<'b, 'tcx, 'tcx>,
+        local_name: &str,
+        ty: Ty<'tcx>,
+        place: LocalPlace,
+    ) {
+        let ty_id = self.debug_context.dwarf_type(tcx, ty);
+        let local_name = self.debug_context.strings.add(local_name);
+
+        let unit = self.debug_context.units.get_mut(self.debug_context.unit_id);
+        let param_id = unit.add(self.entry_id, gimli::DW_TAG_variable);
+        let param = unit.get_mut(param_id);
+
+        param.set(gimli::DW_AT_name, AttributeValue::StringRef(local_name));
+        param.set(gimli::DW_AT_type, AttributeValue::ThisUnitEntryRef(ty_id));
+
+        self.local_map.insert(param_id, place);
     }
 
     pub fn define(
@@ -318,7 +511,10 @@ impl<'a, 'b, 'tcx: 'b> FunctionDebugContext<'a, 'tcx> {
         let unit = self.debug_context.units.get_mut(self.debug_context.unit_id);
         // FIXME: add to appropriate scope intead of root
         let entry = unit.get_mut(self.entry_id);
-        entry.set(gimli::DW_AT_high_pc, AttributeValue::Data8(code_size as u64));
+        entry.set(
+            gimli::DW_AT_high_pc,
+            AttributeValue::Data8(code_size as u64),
+        );
 
         self.debug_context.unit_range_list.0.push(Range {
             begin: Address::Relative {
@@ -330,6 +526,46 @@ impl<'a, 'b, 'tcx: 'b> FunctionDebugContext<'a, 'tcx> {
                 addend: code_size as i64,
             },
         });
+
+        for (&local_id, &(val, is_addr)) in self.arg_map.iter() {
+            let reg = match context.func.locations[val] {
+                ValueLoc::Reg(reg_unit) => reg_unit,
+                _ => continue,
+            };
+
+            let reg_name = isa.register_info().display_regunit(reg).to_string();
+            println!("{} at {} ({})", val, reg_name, reg);
+
+            let mut expr = ExpressionBuilder::new(
+                self.debug_context.endian,
+                self.debug_context.encoding.format,
+            );
+            if !is_addr {
+                expr.reg(ExpressionBuilder::clif_reg(isa, reg));
+            } else {
+                expr.breg(ExpressionBuilder::clif_reg(isa, reg), 0);
+            }
+
+            let local_entry = unit.get_mut(local_id);
+            local_entry.set(gimli::DW_AT_location, AttributeValue::Exprloc(expr.build()));
+        }
+
+        for (&local_id, &place) in self.local_map.iter() {
+            match place {
+                LocalPlace::Var(_) => {}
+                LocalPlace::Stack(stack_slot) => {
+                    let stack_slot = &context.func.stack_slots[stack_slot];
+                    let local_entry = unit.get_mut(local_id);
+                    let mut expr = ExpressionBuilder::new(
+                        self.debug_context.endian,
+                        self.debug_context.encoding.format,
+                    );
+                    expr.fbreg(stack_slot.offset.unwrap() as i64);
+                    // FIXME add DW_AT_frame_base
+                    local_entry.set(gimli::DW_AT_location, AttributeValue::Exprloc(expr.build()))
+                }
+            }
+        }
 
         let line_program = self
             .debug_context
@@ -466,5 +702,113 @@ impl<'a, 'tcx> Writer for WriterRelocate<'a, 'tcx> {
             addend: val as i64,
         });
         self.write_word_at(offset, 0, size)
+    }
+}
+
+struct ExpressionBuilder(pub EndianVec<gimli::RunTimeEndian>, pub Format);
+
+impl ExpressionBuilder {
+    pub fn new(endian: gimli::RunTimeEndian, format: Format) -> Self {
+        ExpressionBuilder(EndianVec::new(endian), format)
+    }
+
+    pub fn build(self) -> Expression {
+        Expression(self.0.into_vec())
+    }
+
+    pub fn raw_op(&mut self, op: gimli::DwOp) {
+        self.0.write_u8(op.0);
+    }
+
+    pub fn addr(&mut self, addr: u64) {
+        self.raw_op(gimli::DW_OP_addr);
+        self.0.write_word(addr, self.1.word_size());
+    }
+
+    pub fn deref(&mut self) {
+        self.raw_op(gimli::DW_OP_deref);
+    }
+
+    pub fn constu(&mut self, val: u64) {
+        if val <= u8::max_value() as u64 {
+            self.raw_op(gimli::DW_OP_const1u);
+            self.0.write_u8(val as u8);
+        } else if val <= u16::max_value() as u64 {
+            self.raw_op(gimli::DW_OP_const2u);
+            self.0.write_u16(val as u16);
+        } else if val <= u32::max_value() as u64 {
+            self.raw_op(gimli::DW_OP_const4u);
+            self.0.write_u32(val as u32);
+        } else if val <= u64::max_value() as u64 {
+            self.raw_op(gimli::DW_OP_const8u);
+            self.0.write_u64(val as u64);
+        } else {
+            self.raw_op(gimli::DW_OP_constu);
+            self.0.write_uleb128(val);
+        }
+    }
+
+    pub fn consts(&mut self, val: i64) {
+        if val <= i8::max_value() as i64 {
+            self.raw_op(gimli::DW_OP_const1s);
+            self.0.write_u8(val as u8);
+        } else if val <= i16::max_value() as i64 {
+            self.raw_op(gimli::DW_OP_const2s);
+            self.0.write_u16(val as u16);
+        } else if val <= i32::max_value() as i64 {
+            self.raw_op(gimli::DW_OP_const4s);
+            self.0.write_u32(val as u32);
+        } else if val <= i64::max_value() as i64 {
+            self.raw_op(gimli::DW_OP_const8s);
+            self.0.write_u64(val as u64);
+        } else {
+            self.raw_op(gimli::DW_OP_consts);
+            self.0.write_sleb128(val);
+        }
+    }
+
+    pub fn dup(&mut self) {
+        self.raw_op(gimli::DW_OP_dup);
+    }
+
+    fn fbreg(&mut self, offset: i64) {
+        self.raw_op(gimli::DW_OP_fbreg);
+        self.0.write_sleb128(offset).unwrap();
+    }
+
+    fn reg(&mut self, reg: Register) {
+        if reg.0 < 32 {
+            self.0.write_u8(gimli::DW_OP_reg0.0 + reg.0 as u8);
+        } else {
+            unimplemented!();
+        }
+    }
+
+    fn breg(&mut self, reg: Register, offset: i64) {
+        if reg.0 < 32 {
+            self.0.write_u8(gimli::DW_OP_breg0.0 + reg.0 as u8);
+        } else {
+            unimplemented!();
+        }
+
+        self.0.write_sleb128(offset);
+    }
+}
+
+/// Rustc codegen cranelift specific methods
+impl ExpressionBuilder {
+    fn clif_reg(isa: &TargetIsa, reg: RegUnit) -> Register {
+        match &*isa.register_info().display_regunit(reg).to_string() {
+            "%rdi" => gimli::X86_64::RDI,
+            "%rsi" => gimli::X86_64::RSI,
+            "%rdx" => gimli::X86_64::RDX,
+            "%rcx" => gimli::X86_64::RCX,
+            "%r8" => gimli::X86_64::R8,
+            "%r9" => gimli::X86_64::R9,
+            "%r10" => gimli::X86_64::R10,
+            "%r11" => gimli::X86_64::R11,
+            "%xmm0" => gimli::X86_64::XMM0,
+            _ => panic!("unsupported reg"),
+        }
     }
 }

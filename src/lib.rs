@@ -100,7 +100,7 @@ mod prelude {
     pub use crate::abi::*;
     pub use crate::base::{trans_operand, trans_place};
     pub use crate::common::*;
-    pub use crate::debuginfo::{DebugContext, FunctionDebugContext};
+    pub use crate::debuginfo::{DebugContext, FunctionDebugContext, LocalPlace};
     pub use crate::trap::*;
     pub use crate::unimpl::{unimpl, with_unimpl_span};
     pub use crate::{Caches, CodegenCx};

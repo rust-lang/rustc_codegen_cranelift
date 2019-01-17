@@ -332,12 +332,19 @@ fn add_local_header_comment(fx: &mut FunctionCx<impl Backend>) {
 
 fn local_place<'a, 'tcx: 'a>(
     fx: &mut FunctionCx<'a, 'tcx, impl Backend>,
+    debug_context: &mut Option<FunctionDebugContext<'_, 'tcx>>,
     local: Local,
     layout: TyLayout<'tcx>,
     is_ssa: bool,
 ) -> CPlace<'tcx> {
     let place = if is_ssa {
         fx.bcx.declare_var(mir_var(local), fx.clif_type(layout.ty).unwrap());
+
+        debug_context.as_mut().map(|debug_context| {
+            let arg_name = fx.mir.local_decls[local].name.map(|n|n.as_str().to_string()).unwrap_or("<no name>".to_string());
+            debug_context.add_local(fx.tcx, &arg_name, layout.ty, LocalPlace::Var(mir_var(local)));
+        });
+
         CPlace::Var(local, layout)
     } else {
         let stack_slot = fx.bcx.create_stack_slot(StackSlotData {
@@ -355,6 +362,11 @@ fn local_place<'a, 'tcx: 'a>(
                 local, ty, size.bytes(), align.abi.bytes(), align.pref.bytes(),
             ));
         }
+
+        debug_context.as_mut().map(|debug_context| {
+            let arg_name = fx.mir.local_decls[local].name.map(|n|n.as_str().to_string()).unwrap_or("<no name>".to_string());
+            debug_context.add_local(fx.tcx, &arg_name, layout.ty, LocalPlace::Stack(stack_slot));
+        });
 
         CPlace::from_stack_slot(fx, stack_slot, layout.ty)
     };
@@ -390,6 +402,7 @@ fn cvalue_for_param<'a, 'tcx: 'a>(
 pub fn codegen_fn_prelude<'a, 'tcx: 'a>(
     fx: &mut FunctionCx<'a, 'tcx, impl Backend>,
     start_ebb: Ebb,
+    debug_context: &mut Option<FunctionDebugContext<'_, 'tcx>>,
 ) {
     let ssa_analyzed = crate::analyze::analyze(fx);
 
@@ -467,7 +480,7 @@ pub fn codegen_fn_prelude<'a, 'tcx: 'a>(
                 .unwrap()
                 .contains(crate::analyze::Flags::NOT_SSA);
 
-            local_place(fx, RETURN_PLACE, ret_layout, is_ssa);
+            local_place(fx, debug_context, RETURN_PLACE, ret_layout, is_ssa);
         }
         PassMode::ByRef => {
             fx.local_map.insert(
@@ -485,7 +498,20 @@ pub fn codegen_fn_prelude<'a, 'tcx: 'a>(
             .unwrap()
             .contains(crate::analyze::Flags::NOT_SSA);
 
-        let place = local_place(fx, local, layout, is_ssa);
+        let place = local_place(fx, debug_context, local, layout, is_ssa);
+
+        debug_context.as_mut().map(|debug_context| {
+            let mut arg_name = fx.mir.local_decls[local].name.map(|n|n.as_str().to_string()).unwrap_or("<no name>".to_string());
+            arg_name.push_str("_arg"); // param+local with same name gets ignored by gdb
+            match arg_kind {
+                ArgKind::Normal(param) => {
+                    debug_context.add_arg(fx.tcx, &arg_name, layout.ty, param);
+                }
+                ArgKind::Spread(ref _params) => {
+                    // FIXME implement spread args
+                }
+            }
+        });
 
         match arg_kind {
             ArgKind::Normal(param) => {
@@ -508,7 +534,7 @@ pub fn codegen_fn_prelude<'a, 'tcx: 'a>(
             .unwrap()
             .contains(crate::analyze::Flags::NOT_SSA);
 
-        local_place(fx, local, layout, is_ssa);
+        let place = local_place(fx, debug_context, local, layout, is_ssa);
     }
 
     fx.bcx
