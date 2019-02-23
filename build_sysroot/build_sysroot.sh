@@ -3,8 +3,8 @@ set -e
 cd $(dirname "$0")
 
 # Cleanup for previous run
-cargo clean
-rm Cargo.lock 2>/dev/null || true
+#cargo clean
+#rm Cargo.lock 2>/dev/null || true
 rm -r sysroot 2>/dev/null || true
 
 # FIXME find a better way to get the target triple

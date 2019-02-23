@@ -167,12 +167,12 @@ impl CodegenBackend for CraneliftCodegenBackend {
         }
         match sess.lto() {
             Lto::Fat | Lto::Thin | Lto::ThinLocal => {
-                sess.warn("Rustc codegen cranelift doesn't support lto");
+                //sess.warn("Rustc codegen cranelift doesn't support lto");
             }
             Lto::No => {}
         }
         if sess.opts.cg.rpath {
-            sess.err("rpath is not yet supported");
+            //sess.err("rpath is not yet supported");
         }
         if sess.opts.debugging_opts.pgo_gen.is_some() {
             sess.err("pgo is not supported");
@@ -478,11 +478,11 @@ fn codegen_mono_items<'a, 'tcx: 'a>(
 }
 
 fn time<R>(name: &str, f: impl FnOnce() -> R) -> R {
-    println!("[{}] start", name);
+    //println!("[{}] start", name);
     let before = ::std::time::Instant::now();
     let res = f();
     let after = ::std::time::Instant::now();
-    println!("[{}] end time: {:?}", name, after - before);
+    //println!("[{}] end time: {:?}", name, after - before);
     res
 }
 
