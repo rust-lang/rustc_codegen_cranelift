@@ -83,7 +83,7 @@ local-rebuild = true
 rustc = "/home/bjorn/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/bin/rustc"
 EOF
 
-rm -r build/x86_64-unknown-linux-gnu/test || true
-./x.py test --stage 0 src/test/run-pass \
+#rm -r build/x86_64-unknown-linux-gnu/test || true
+./x.py test --stage 0 src/test/run-pass/ \
     --rustc-args "-Zcodegen-backend=/home/bjorn/Documenten/rustc_codegen_cranelift/target/debug/librustc_codegen_cranelift.so --sysroot /home/bjorn/Documenten/rustc_codegen_cranelift/build_sysroot/sysroot -Cpanic=abort" \
     |& tee log.txt

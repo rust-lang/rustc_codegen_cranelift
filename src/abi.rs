@@ -79,7 +79,7 @@ fn adjust_arg_for_abi<'a, 'tcx: 'a>(
 fn clif_sig_from_fn_sig<'a, 'tcx: 'a>(tcx: TyCtxt<'a, 'tcx, 'tcx>, sig: FnSig<'tcx>) -> Signature {
     let (call_conv, inputs, output): (CallConv, Vec<Ty>, Ty) = match sig.abi {
         Abi::Rust => (CallConv::SystemV, sig.inputs().to_vec(), sig.output()),
-        Abi::C => (CallConv::SystemV, sig.inputs().to_vec(), sig.output()),
+        Abi::C | Abi::SysV64 => (CallConv::SystemV, sig.inputs().to_vec(), sig.output()),
         Abi::RustCall => {
             assert_eq!(sig.inputs().len(), 2);
             let extra_args = match sig.inputs().last().unwrap().sty {

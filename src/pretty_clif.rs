@@ -216,9 +216,9 @@ impl<'a, 'tcx: 'a, B: Backend + 'a> FunctionCx<'a, 'tcx, B> {
                 file.write(clif.as_bytes()).unwrap();
             }
             Err(e) => {
-                self.tcx
+                /*self.tcx
                     .sess
-                    .warn(&format!("err opening clif file: {:?}", e));
+                    .warn(&format!("err opening clif file: {:?}", e));*/
             }
         }
     }
