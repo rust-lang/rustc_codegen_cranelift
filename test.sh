@@ -80,8 +80,10 @@ cat > config.toml <<EOF
 enabled = false
 [build]
 local-rebuild = true
-rustc = "$HOME/.rustup/toolchains/nightly-x86_64-apple-darwin/bin/rustc"
+rustc = "$HOME/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/bin/rustc"
 EOF
+
+rm -r src/test/run-pass/{asm-*,abi-*,extern/,panic-runtime/,panics/,unsized-locals/,proc-macro/,threads-sendsync/,thinlto/}
 
 #rm -r build/x86_64-unknown-linux-gnu/test || true
 ./x.py test --stage 0 src/test/run-pass/ \
