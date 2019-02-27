@@ -114,7 +114,7 @@ dependencies = [
 [[package]]
 name = "cranelift"
 version = "0.28.0"
-source = "git+https://github.com/CraneStation/cranelift.git#fcd566c09dd6bd13c3bed1eceac4b0378fe7cc05"
+source = "git+https://github.com/CraneStation/cranelift.git#2a3b0467ed36a655608bac6eb067311e24a4d8f1"
 dependencies = [
  "cranelift-codegen 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
  "cranelift-frontend 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
@@ -123,7 +123,7 @@ dependencies = [
 [[package]]
 name = "cranelift-bforest"
 version = "0.28.0"
-source = "git+https://github.com/CraneStation/cranelift.git#fcd566c09dd6bd13c3bed1eceac4b0378fe7cc05"
+source = "git+https://github.com/CraneStation/cranelift.git#2a3b0467ed36a655608bac6eb067311e24a4d8f1"
 dependencies = [
  "cranelift-entity 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
 ]
@@ -131,7 +131,7 @@ dependencies = [
 [[package]]
 name = "cranelift-codegen"
 version = "0.28.0"
-source = "git+https://github.com/CraneStation/cranelift.git#fcd566c09dd6bd13c3bed1eceac4b0378fe7cc05"
+source = "git+https://github.com/CraneStation/cranelift.git#2a3b0467ed36a655608bac6eb067311e24a4d8f1"
 dependencies = [
  "cranelift-bforest 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
  "cranelift-codegen-meta 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
@@ -145,7 +145,7 @@ dependencies = [
 [[package]]
 name = "cranelift-codegen-meta"
 version = "0.28.0"
-source = "git+https://github.com/CraneStation/cranelift.git#fcd566c09dd6bd13c3bed1eceac4b0378fe7cc05"
+source = "git+https://github.com/CraneStation/cranelift.git#2a3b0467ed36a655608bac6eb067311e24a4d8f1"
 dependencies = [
  "cranelift-entity 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
 ]
@@ -153,25 +153,25 @@ dependencies = [
 [[package]]
 name = "cranelift-entity"
 version = "0.28.0"
-source = "git+https://github.com/CraneStation/cranelift.git#fcd566c09dd6bd13c3bed1eceac4b0378fe7cc05"
+source = "git+https://github.com/CraneStation/cranelift.git#2a3b0467ed36a655608bac6eb067311e24a4d8f1"
 
 [[package]]
 name = "cranelift-faerie"
 version = "0.28.0"
-source = "git+https://github.com/CraneStation/cranelift.git#fcd566c09dd6bd13c3bed1eceac4b0378fe7cc05"
+source = "git+https://github.com/CraneStation/cranelift.git#2a3b0467ed36a655608bac6eb067311e24a4d8f1"
 dependencies = [
  "cranelift-codegen 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
  "cranelift-module 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
- "faerie 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "faerie 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "goblin 0.0.19 (registry+https://github.com/rust-lang/crates.io-index)",
+ "goblin 0.0.21 (registry+https://github.com/rust-lang/crates.io-index)",
  "target-lexicon 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "cranelift-frontend"
 version = "0.28.0"
-source = "git+https://github.com/CraneStation/cranelift.git#fcd566c09dd6bd13c3bed1eceac4b0378fe7cc05"
+source = "git+https://github.com/CraneStation/cranelift.git#2a3b0467ed36a655608bac6eb067311e24a4d8f1"
 dependencies = [
  "cranelift-codegen 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -181,7 +181,7 @@ dependencies = [
 [[package]]
 name = "cranelift-module"
 version = "0.28.0"
-source = "git+https://github.com/CraneStation/cranelift.git#fcd566c09dd6bd13c3bed1eceac4b0378fe7cc05"
+source = "git+https://github.com/CraneStation/cranelift.git#2a3b0467ed36a655608bac6eb067311e24a4d8f1"
 dependencies = [
  "cranelift-codegen 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
  "cranelift-entity 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
@@ -192,7 +192,7 @@ dependencies = [
 [[package]]
 name = "cranelift-native"
 version = "0.28.0"
-source = "git+https://github.com/CraneStation/cranelift.git#fcd566c09dd6bd13c3bed1eceac4b0378fe7cc05"
+source = "git+https://github.com/CraneStation/cranelift.git#2a3b0467ed36a655608bac6eb067311e24a4d8f1"
 dependencies = [
  "cranelift-codegen 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
  "raw-cpuid 6.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -202,7 +202,7 @@ dependencies = [
 [[package]]
 name = "cranelift-simplejit"
 version = "0.28.0"
-source = "git+https://github.com/CraneStation/cranelift.git#fcd566c09dd6bd13c3bed1eceac4b0378fe7cc05"
+source = "git+https://github.com/CraneStation/cranelift.git#2a3b0467ed36a655608bac6eb067311e24a4d8f1"
 dependencies = [
  "cranelift-codegen 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
  "cranelift-module 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
@@ -275,6 +275,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "faerie"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "env_logger 0.5.13 (registry+https://github.com/rust-lang/crates.io-index)",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "goblin 0.0.21 (registry+https://github.com/rust-lang/crates.io-index)",
+ "indexmap 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "scroll 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "string-interner 0.6.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "structopt 0.2.14 (registry+https://github.com/rust-lang/crates.io-index)",
+ "structopt-derive 0.2.14 (registry+https://github.com/rust-lang/crates.io-index)",
+ "target-lexicon 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "failure"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -324,6 +341,16 @@ dependencies = [
 [[package]]
 name = "goblin"
 version = "0.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "plain 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "scroll 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "goblin"
+version = "0.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -882,6 +909,7 @@ dependencies = [
 "checksum errno 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)" = "c2a071601ed01b988f896ab14b95e67335d1eeb50190932a1320f7fe3cadc84e"
 "checksum errno-dragonfly 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "14ca354e36190500e1e1fb267c647932382b54053c50b14970856c0b00a35067"
 "checksum faerie 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)" = "142ee8f6d2864117a92855815e710b03087763df41ab3c6a97ca25e00e178b98"
+"checksum faerie 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f21446a5c7cc437e1dea1f74ac9288363fd4afeb1df313d1af2a623bbdc26cfb"
 "checksum failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "795bd83d3abeb9220f257e597aa0080a508b27533824adf336529648f6abf7e2"
 "checksum failure_derive 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "ea1063915fd7ef4309e222a5a07cf9c319fb9c7836b1f89b85458672dbb127e1"
 "checksum fallible-iterator 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "eb7217124812dc5672b7476d0c2d20cfe9f7c0f1ba0904b674a9762a0212f72e"
@@ -889,6 +917,7 @@ dependencies = [
 "checksum gcc 0.3.55 (registry+https://github.com/rust-lang/crates.io-index)" = "8f5f3913fa0bfe7ee1fd8248b6b9f42a5af4b9d65ec2dd2c3c26132b950ecfc2"
 "checksum gimli 0.17.0 (git+https://github.com/gimli-rs/gimli.git)" = "<none>"
 "checksum goblin 0.0.19 (registry+https://github.com/rust-lang/crates.io-index)" = "c65cd533b33e3d04c6e393225fa8919ddfcf5862ca8919c7f9a167c312ef41c2"
+"checksum goblin 0.0.21 (registry+https://github.com/rust-lang/crates.io-index)" = "6a4013e9182f2345c6b7829b9ef6e670bce0dfca12c6f974457ed2160c2c7fe9"
 "checksum heck 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "20564e78d53d2bb135c343b3f47714a56af2061f1c928fdb541dc7b9fdd94205"
 "checksum humantime 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "3ca7e5f2e110db35f93b837c81797f3714500b81d517bf20c431b16d3ca4f114"
 "checksum indexmap 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "7e81a7c05f79578dbc15793d8b619db9ba32b4577003ef3af1a91c416798c58d"
