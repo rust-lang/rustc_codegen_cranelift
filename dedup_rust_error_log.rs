@@ -33,7 +33,10 @@ fn main() {
     let mut known_error_count = std::collections::HashMap::new();
 
     let mut tests = split_tests_regex.captures_iter(&data);
-    let mut last_captures = tests.next().unwrap();
+    let mut last_captures = tests.next().unwrap_or_else(|| {
+        println!("no failed tests in log (yet)");
+        std::process::exit(0)
+    });
 
     'test_iter: for captures in tests {
         let test_output = data[last_captures.get(0).unwrap().start()..captures.get(0).unwrap().start()].to_string();
