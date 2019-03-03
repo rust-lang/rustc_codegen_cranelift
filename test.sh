@@ -27,6 +27,7 @@ time ./build_sysroot/build_sysroot.sh
 git clone https://github.com/rust-lang/rust.git --depth=1 || true
 cd rust
 git checkout -- .
+git pull
 export RUSTFLAGS=
 
 cat > the_patch.patch <<EOF
@@ -67,6 +68,13 @@ index b75e312d..aef8bc14 100644
  [submodule "src/doc/embedded-book"]
  	path = src/doc/embedded-book
  	url = https://github.com/rust-embedded/book.git
+--- a/src/tools/compiletest/src/main.rs
++++ b/src/tools/compiletest/src/main.rs
+@@ -503,3 +503,4 @@
+ pub fn test_opts(config: &Config) -> test::TestOpts {
+     test::TestOpts {
++        exclude_should_panic: false,
+         filter: config.filter.clone(),
 --
 2.11.0
 
@@ -78,13 +86,19 @@ rm config.toml || true
 cat > config.toml <<EOF
 [llvm]
 enabled = false
+[rust]
+codegen-backends = []
 [build]
 local-rebuild = true
-rustc = "$HOME/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/bin/rustc"
+rustc = "$HOME/.rustup/toolchains/nightly-x86_64-apple-darwin/bin/rustc"
 EOF
 
 rm -r src/test/run-pass/{asm-*,abi-*,extern/,panic-runtime/,panics/,unsized-locals/,proc-macro/,threads-sendsync/,thinlto/,simd/}
-sed -i "s/ignore-emscripten/ignore-test/" src/test/run-pass/**/*.rs
+for test in src/test/run-pass/**/*.rs; do
+    if grep "ignore-emscripten" $test 2>&1 >/dev/null; then
+        rm $test
+    fi
+done
 
 #rm -r build/x86_64-unknown-linux-gnu/test || true
 ./x.py test --stage 0 src/test/run-pass/ \
