@@ -44,20 +44,44 @@ fn main() {
 
         {
             let filter_captures = filter_test_regex.captures(&test_output).unwrap();
+            if &filter_captures["status"] == "signal: 4" {
+                *known_error_count.entry("status=signal 4").or_insert(0) += 1;
+                continue;
+            }
             if &filter_captures["status"] == "signal: 6" {
                 *known_error_count.entry("status=signal 6").or_insert(0) += 1;
                 continue;
             }
+            if &filter_captures["status"] == "signal: 11" {
+                *known_error_count.entry("status=signal 11").or_insert(0) += 1;
+                continue;
+            }
 
             for known_error in &[
-                "u128 and i128 are not yet supported.",
                 "the feature named `",
-                "Inline assembly is not supported",
-
-                "can't find crate for `",
                 "unsupported intrinsic",
-                "invalid ebb reference",
-                "Code shrinking during relaxation",
+                "error: Non int ty types::F64 for variadic call",
+                "panicked at 'assertion failed: !layout.is_unsized()',", // no support for unsized locals
+                " = WeakAny Default", // no support for weak functions
+                "not yet implemented: trans_ptr_binop(Le, <fat ptr>, <fat ptr>) not implemented",
+                "not yet implemented: trans_ptr_binop(Lt, <fat ptr>, <fat ptr>) not implemented",
+                "not yet implemented: unsupported abi ",
+
+                "can't find crate for `", // not sure
+                "expected to have type i32, got i64", // not sure
+                "DuplicateDefinition(\"vtable.Some(Binder(", // not sure
+
+                // no Cranelift/faerie support
+                "u128",
+                "i128",
+                "AtomicU128",
+                "Inline assembly is not supported",
+                "Unimplemented global asm mono item",
+                "faerie doesn't support addends in data section relocations yet",
+
+                "invalid ebb reference", // Rustc issue https://github.com/rust-lang/rust/issues/58892
+
+                "Code shrinking during relaxation", // Cranelift issue https://github.com/CraneStation/cranelift/issues/686
             ] {
                 if filter_captures["rest"].contains(known_error) {
                     *known_error_count.entry(known_error).or_insert(0) += 1;
