@@ -18,16 +18,19 @@ $RUSTC example/mini_core_hello_world.rs --crate-name mini_core_hello_world --cra
 ./target/out/mini_core_hello_world abc bcd
 
 echo "[AOT] arbitrary_self_types_pointers_and_wrappers"
-$RUSTC example/arbitrary_self_types_pointers_and_wrappers.rs --crate-name arbitrary_self_types_pointers_and_wrappers --crate-type bin
+$RUSTC example/arbitrary_self_types_pointers_and_wrappers.rs --crate-name arbitrary_self_types_pointers_and_wrappers --crate-type bin -Cpanic=abort
 ./target/out/arbitrary_self_types_pointers_and_wrappers
 
 echo "[BUILD] sysroot"
 time ./build_sysroot/build_sysroot.sh
 
+$RUSTC example/std_example.rs --crate-name std_example --crate-type bin
+./target/out/std_example
+
 git clone https://github.com/rust-lang/rust.git --depth=1 || true
 cd rust
-git checkout -- .
-git pull
+#git checkout -- .
+#git pull
 export RUSTFLAGS=
 
 cat > the_patch.patch <<EOF
@@ -79,7 +82,7 @@ index b75e312d..aef8bc14 100644
 2.11.0
 
 EOF
-git apply the_patch.patch
+#git apply the_patch.patch
 
 rm config.toml || true
 
@@ -93,7 +96,7 @@ local-rebuild = true
 rustc = "$HOME/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/bin/rustc"
 EOF
 
-rm -r src/test/run-pass/{asm-*,abi-*,extern/,panic-runtime/,panics/,unsized-locals/,proc-macro/,threads-sendsync/,thinlto/,simd/}
+rm -r src/test/run-pass/{asm-*,abi-*,extern/,panic-runtime/,panics/,unsized-locals/,proc-macro/,threads-sendsync/,thinlto/,simd/} || true
 for test in src/test/run-pass/**/*.rs; do
     if grep "ignore-emscripten" $test 2>&1 >/dev/null; then
         rm $test

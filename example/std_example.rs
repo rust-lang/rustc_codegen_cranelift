@@ -3,6 +3,8 @@
 use std::io::Write;
 
 fn main() {
+    //let mutex = std::sync::Mutex::new(0u32);
+    //mutex.lock().unwrap();
     let _ = ::std::iter::repeat('a' as u8).take(10).collect::<Vec<_>>();
     let stderr = ::std::io::stderr();
     let mut stderr = stderr.lock();
