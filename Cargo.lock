@@ -275,6 +275,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "faerie"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "env_logger 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "goblin 0.0.21 (registry+https://github.com/rust-lang/crates.io-index)",
+ "indexmap 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "scroll 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "string-interner 0.6.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "structopt 0.2.14 (registry+https://github.com/rust-lang/crates.io-index)",
+ "structopt-derive 0.2.14 (registry+https://github.com/rust-lang/crates.io-index)",
+ "target-lexicon 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "failure"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -324,6 +341,16 @@ dependencies = [
 [[package]]
 name = "goblin"
 version = "0.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "plain 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "scroll 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "goblin"
+version = "0.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -602,7 +629,7 @@ dependencies = [
  "cranelift-module 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
  "cranelift-simplejit 0.28.0 (git+https://github.com/CraneStation/cranelift.git)",
  "env_logger 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "faerie 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "faerie 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gimli 0.17.0 (git+https://github.com/gimli-rs/gimli.git)",
  "indexmap 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.50 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -732,6 +759,16 @@ dependencies = [
 [[package]]
 name = "target-lexicon"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "failure_derive 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.38 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "target-lexicon"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -882,6 +919,7 @@ dependencies = [
 "checksum errno 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)" = "c2a071601ed01b988f896ab14b95e67335d1eeb50190932a1320f7fe3cadc84e"
 "checksum errno-dragonfly 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "14ca354e36190500e1e1fb267c647932382b54053c50b14970856c0b00a35067"
 "checksum faerie 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)" = "142ee8f6d2864117a92855815e710b03087763df41ab3c6a97ca25e00e178b98"
+"checksum faerie 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8123d0cc482535ec5cd36e6499892dca38a4cf4b98c050385109726543d44930"
 "checksum failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "795bd83d3abeb9220f257e597aa0080a508b27533824adf336529648f6abf7e2"
 "checksum failure_derive 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "ea1063915fd7ef4309e222a5a07cf9c319fb9c7836b1f89b85458672dbb127e1"
 "checksum fallible-iterator 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "eb7217124812dc5672b7476d0c2d20cfe9f7c0f1ba0904b674a9762a0212f72e"
@@ -889,6 +927,7 @@ dependencies = [
 "checksum gcc 0.3.55 (registry+https://github.com/rust-lang/crates.io-index)" = "8f5f3913fa0bfe7ee1fd8248b6b9f42a5af4b9d65ec2dd2c3c26132b950ecfc2"
 "checksum gimli 0.17.0 (git+https://github.com/gimli-rs/gimli.git)" = "<none>"
 "checksum goblin 0.0.19 (registry+https://github.com/rust-lang/crates.io-index)" = "c65cd533b33e3d04c6e393225fa8919ddfcf5862ca8919c7f9a167c312ef41c2"
+"checksum goblin 0.0.21 (registry+https://github.com/rust-lang/crates.io-index)" = "6a4013e9182f2345c6b7829b9ef6e670bce0dfca12c6f974457ed2160c2c7fe9"
 "checksum heck 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "20564e78d53d2bb135c343b3f47714a56af2061f1c928fdb541dc7b9fdd94205"
 "checksum humantime 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "3ca7e5f2e110db35f93b837c81797f3714500b81d517bf20c431b16d3ca4f114"
 "checksum indexmap 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "7e81a7c05f79578dbc15793d8b619db9ba32b4577003ef3af1a91c416798c58d"
@@ -938,6 +977,7 @@ dependencies = [
 "checksum syn 0.15.27 (registry+https://github.com/rust-lang/crates.io-index)" = "525bd55255f03c816e5d7f615587bd13030c7103354fadb104993dcee6a788ec"
 "checksum synstructure 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)" = "73687139bf99285483c96ac0add482c3776528beac1d97d444f6e91f203a2015"
 "checksum target-lexicon 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4af5e2227f0b887d591d3724b796a96eff04226104d872f5b3883fcd427d64b9"
+"checksum target-lexicon 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d6923974ce4eb5bd28814756256d8ab71c28dd6e7483313fe7ab6614306bf633"
 "checksum tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)" = "b86c784c88d98c801132806dadd3819ed29d8600836c4088e855cdf3e178ed8a"
 "checksum termcolor 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "4096add70612622289f2fdcdbd5086dc81c1e2675e6ae58d6c4f62a16c6d7f2f"
 "checksum termion 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "689a3bdfaab439fd92bc87df5c4c78417d3cbe537487274e9b0b2dce76e92096"
