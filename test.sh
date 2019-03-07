@@ -18,13 +18,13 @@ $RUSTC example/mini_core_hello_world.rs --crate-name mini_core_hello_world --cra
 ./target/out/mini_core_hello_world abc bcd
 
 echo "[AOT] arbitrary_self_types_pointers_and_wrappers"
-$RUSTC example/arbitrary_self_types_pointers_and_wrappers.rs --crate-name arbitrary_self_types_pointers_and_wrappers --crate-type bin -Cpanic=abort
+$RUSTC example/arbitrary_self_types_pointers_and_wrappers.rs --crate-type bin -Cpanic=abort
 ./target/out/arbitrary_self_types_pointers_and_wrappers
 
 echo "[BUILD] sysroot"
 time ./build_sysroot/build_sysroot.sh
 
-$RUSTC example/std_example.rs --crate-name std_example --crate-type bin
+$RUSTC example/std_example.rs --crate-type bin --sysroot ./build_sysroot/sysroot
 ./target/out/std_example
 
 git clone https://github.com/rust-lang/rust.git --depth=1 || true
