@@ -78,6 +78,28 @@ index b75e312d..aef8bc14 100644
      test::TestOpts {
 +        exclude_should_panic: false,
          filter: config.filter.clone(),
+diff --git a/src/tools/compiletest/src/runtest.rs b/src/tools/compiletest/src/runtest.rs
+index bac41a7c57..50acb93010 100644
+--- a/src/tools/compiletest/src/runtest.rs
++++ b/src/tools/compiletest/src/runtest.rs
+@@ -1598,7 +1598,7 @@ impl<'test> TestCx<'test> {
+             create_dir_all(aux_cx.output_base_dir()).unwrap();
+             let mut aux_rustc = aux_cx.make_compile_args(&aux_testpaths.file, aux_output);
+
+-            let crate_type = if aux_props.no_prefer_dynamic {
++            let crate_type = if true || aux_props.no_prefer_dynamic {
+                 None
+             } else if self.config.target.contains("cloudabi")
+                 || self.config.target.contains("emscripten")
+@@ -1822,7 +1822,7 @@ impl<'test> TestCx<'test> {
+             if self.config.target == "wasm32-unknown-unknown" {
+                 // rustc.arg("-g"); // get any backtrace at all on errors
+             } else if !self.props.no_prefer_dynamic {
+-                rustc.args(&["-C", "prefer-dynamic"]);
++                // rustc.args(&["-C", "prefer-dynamic"]);
+             }
+         }
+
 --
 2.11.0
 
