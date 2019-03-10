@@ -39,11 +39,21 @@ fn main() {
     });
 
     'test_iter: for captures in tests {
-        let test_output = data[last_captures.get(0).unwrap().start()..captures.get(0).unwrap().start()].to_string();
+        let test_output = data[last_captures.get(0).expect("last_captures[0]").start()..captures.get(0).expect("captures[0]").start()].to_string();
         last_captures = captures;
 
         {
-            let filter_captures = filter_test_regex.captures(&test_output).unwrap();
+            let filter_captures = filter_test_regex.captures(&test_output).expect("filter_test_regex.captures");
+
+            // missing lib causing linker error
+            if &filter_captures["test_name"] == "run-pass/compiletest-skip-codegen.rs"
+                || &filter_captures["test_name"] == "run-pass/cross-crate/anon-extern-mod-cross-crate-2.rs"
+                || &filter_captures["test_name"] == "run-pass/foreign/foreign-dupe.rs"
+                || &filter_captures["test_name"] == "run-pass/issues/issue-25185.rs"
+                || &filter_captures["test_name"] == "run-pass/invoke-external-foreign.rs" {
+                continue;
+            }
+
             if &filter_captures["status"] == "signal: 4" {
                 *known_error_count.entry("status=signal 4").or_insert(0) += 1;
                 continue;
