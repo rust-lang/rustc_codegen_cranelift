@@ -43,7 +43,12 @@ fn main() {
         last_captures = captures;
 
         {
-            let filter_captures = filter_test_regex.captures(&test_output).expect("filter_test_regex.captures");
+            let filter_captures = filter_test_regex
+                .captures(&test_output)
+                .unwrap_or_else(|| {
+                    println!("======== err ========\n{}", test_output);
+                    panic!("filter_test_regex.captures");
+                });
 
             // missing lib causing linker error
             if &filter_captures["test_name"] == "run-pass/compiletest-skip-codegen.rs"
