@@ -70,6 +70,7 @@ unsafe impl Sync for isize {}
 unsafe impl Sync for char {}
 unsafe impl<'a, T: ?Sized> Sync for &'a T {}
 unsafe impl Sync for [u8; 16] {}
+unsafe impl<T: ?Sized> Sync for *const T {}
 
 #[lang = "freeze"]
 trait Freeze {}
