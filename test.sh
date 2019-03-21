@@ -83,9 +83,9 @@ index bac41a7c57..50acb93010 100644
 --- a/src/tools/compiletest/src/runtest.rs
 +++ b/src/tools/compiletest/src/runtest.rs
 @@ -1604,6 +1604,7 @@ impl<'test> TestCx<'test> {
-                 || self.config.target.contains("emscripten")
                  || (self.config.target.contains("musl") && !aux_props.force_host)
                  || self.config.target.contains("wasm32")
+                 || self.config.target.contains("nvptx")
 +                || true
              {
                  // We primarily compile all auxiliary libraries as dynamic libraries
@@ -108,8 +108,6 @@ EOF
 rm config.toml || true
 
 cat > config.toml <<EOF
-[llvm]
-enabled = false
 [rust]
 codegen-backends = []
 [build]
