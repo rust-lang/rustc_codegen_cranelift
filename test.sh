@@ -71,18 +71,92 @@ index b75e312d..aef8bc14 100644
  [submodule "src/doc/embedded-book"]
  	path = src/doc/embedded-book
  	url = https://github.com/rust-embedded/book.git
+diff --git a/src/tools/compiletest/src/common.rs b/src/tools/compiletest/src/common.rs
+index 80b8a8b728..c0f964c2a2 100644
+--- a/src/tools/compiletest/src/common.rs
++++ b/src/tools/compiletest/src/common.rs
+@@ -4,7 +4,7 @@ use std::fmt;
+ use std::path::{Path, PathBuf};
+ use std::str::FromStr;
+
+-use test::ColorConfig;
++use libtest::ColorConfig;
+ use crate::util::PathBufExt;
+
+ #[derive(Clone, Copy, PartialEq, Debug)]
+diff --git a/src/tools/compiletest/src/main.rs b/src/tools/compiletest/src/main.rs
+index 86cdadade1..857518908e 100644
 --- a/src/tools/compiletest/src/main.rs
 +++ b/src/tools/compiletest/src/main.rs
-@@ -503,3 +503,4 @@
+@@ -11,6 +11,7 @@ extern crate lazy_static;
+ #[macro_use]
+ extern crate serde_derive;
+ extern crate test;
++extern crate libtest;
+
+ use crate::common::CompareMode;
+ use crate::common::{expected_output_path, output_base_dir, output_relative_path, UI_EXTENSIONS};
+@@ -24,7 +25,7 @@ use std::fs;
+ use std::io::{self, ErrorKind};
+ use std::path::{Path, PathBuf};
+ use std::process::Command;
+-use test::ColorConfig;
++use libtest::ColorConfig;
+ use crate::util::logv;
+ use walkdir::WalkDir;
+ use env_logger;
+@@ -490,7 +491,7 @@ pub fn run_tests(config: &Config) {
+     // Let tests know which target they're running as
+     env::set_var("TARGET", &config.target);
+
+-    let res = test::run_tests_console(&opts, tests);
++    let res = libtest::run_tests_console(&opts, tests);
+     match res {
+         Ok(true) => {}
+         Ok(false) => panic!("Some tests failed"),
+@@ -502,6 +503,7 @@ pub fn run_tests(config: &Config) {
+
  pub fn test_opts(config: &Config) -> test::TestOpts {
      test::TestOpts {
 +        exclude_should_panic: false,
          filter: config.filter.clone(),
+         filter_exact: config.filter_exact,
+         run_ignored: if config.run_ignored {
+@@ -510,9 +512,9 @@ pub fn test_opts(config: &Config) -> test::TestOpts {
+             test::RunIgnored::No
+         },
+         format: if config.quiet {
+-            test::OutputFormat::Terse
++            libtest::OutputFormat::Terse
+         } else {
+-            test::OutputFormat::Pretty
++            libtest::OutputFormat::Pretty
+         },
+         logfile: config.logfile.clone(),
+         run_tests: true,
+@@ -789,7 +791,7 @@ fn make_test_closure(
+     ignore: Ignore,
+     testpaths: &TestPaths,
+     revision: Option<&String>,
+-) -> test::TestFn {
++) -> libtest::TestFn {
+     let mut config = config.clone();
+     if config.mode == DebugInfoBoth {
+         // If both gdb and lldb were ignored, then the test as a whole
+@@ -803,7 +805,7 @@ fn make_test_closure(
+
+     let testpaths = testpaths.clone();
+     let revision = revision.cloned();
+-    test::DynTestFn(Box::new(move || {
++    libtest::DynTestFn(Box::new(move || {
+         runtest::run(config, &testpaths, revision.as_ref().map(|s| s.as_str()))
+     }))
+ }
 diff --git a/src/tools/compiletest/src/runtest.rs b/src/tools/compiletest/src/runtest.rs
-index bac41a7c57..50acb93010 100644
+index 3e3499edf6..341acc3e9b 100644
 --- a/src/tools/compiletest/src/runtest.rs
 +++ b/src/tools/compiletest/src/runtest.rs
-@@ -1604,6 +1604,7 @@ impl<'test> TestCx<'test> {
+@@ -1608,6 +1608,7 @@ impl<'test> TestCx<'test> {
                  || (self.config.target.contains("musl") && !aux_props.force_host)
                  || self.config.target.contains("wasm32")
                  || self.config.target.contains("nvptx")
@@ -90,7 +164,7 @@ index bac41a7c57..50acb93010 100644
              {
                  // We primarily compile all auxiliary libraries as dynamic libraries
                  // to avoid code size bloat and large binaries as much as possible
-@@ -1822,7 +1822,7 @@ impl<'test> TestCx<'test> {
+@@ -1827,7 +1828,7 @@ impl<'test> TestCx<'test> {
              if self.config.target == "wasm32-unknown-unknown" {
                  // rustc.arg("-g"); // get any backtrace at all on errors
              } else if !self.props.no_prefer_dynamic {
