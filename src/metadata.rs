@@ -92,6 +92,7 @@ pub fn write_metadata<'a, 'gcx>(
         .write_all(&metadata.raw_data).unwrap();
 
     artifact.declare_with(".rustc", faerie::Decl::debug_section(), compressed).unwrap();
+    artifact.declare_with(".rustc.uses_clif", faerie::Decl::debug_section(), Vec::new()).unwrap();
 
     metadata
 }
