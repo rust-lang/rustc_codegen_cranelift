@@ -152,27 +152,6 @@ index 86cdadade1..857518908e 100644
          runtest::run(config, &testpaths, revision.as_ref().map(|s| s.as_str()))
      }))
  }
-diff --git a/src/tools/compiletest/src/runtest.rs b/src/tools/compiletest/src/runtest.rs
-index 3e3499edf6..341acc3e9b 100644
---- a/src/tools/compiletest/src/runtest.rs
-+++ b/src/tools/compiletest/src/runtest.rs
-@@ -1608,6 +1608,7 @@ impl<'test> TestCx<'test> {
-                 || (self.config.target.contains("musl") && !aux_props.force_host)
-                 || self.config.target.contains("wasm32")
-                 || self.config.target.contains("nvptx")
-+                || true
-             {
-                 // We primarily compile all auxiliary libraries as dynamic libraries
-                 // to avoid code size bloat and large binaries as much as possible
-@@ -1827,7 +1828,7 @@ impl<'test> TestCx<'test> {
-             if self.config.target == "wasm32-unknown-unknown" {
-                 // rustc.arg("-g"); // get any backtrace at all on errors
-             } else if !self.props.no_prefer_dynamic {
--                rustc.args(&["-C", "prefer-dynamic"]);
-+                // rustc.args(&["-C", "prefer-dynamic"]);
-             }
-         }
-
 --
 2.11.0
 
