@@ -40,37 +40,6 @@ Date: Sat, 23 Feb 2019 14:55:44 +0100
 Subject: [PATCH] Make suitable for cg_clif tests
 
 ---
- .gitmodules           | 10 ----------
- 1 files changed, 0 insertions(+), 10 deletions(-)
-
-diff --git a/.gitmodules b/.gitmodules
-index b75e312d..aef8bc14 100644
---- a/.gitmodules
-+++ b/.gitmodules
-@@ -25,12 +25,6 @@
- [submodule "src/tools/miri"]
- 	path = src/tools/miri
- 	url = https://github.com/rust-lang/miri.git
--[submodule "src/doc/rust-by-example"]
--	path = src/doc/rust-by-example
--	url = https://github.com/rust-lang/rust-by-example.git
--[submodule "src/llvm-emscripten"]
--	path = src/llvm-emscripten
--	url = https://github.com/rust-lang/llvm.git
- [submodule "src/stdsimd"]
- 	path = src/stdsimd
- 	url = https://github.com/rust-lang-nursery/stdsimd.git
-@@ -40,10 +34,6 @@
- [submodule "src/doc/edition-guide"]
- 	path = src/doc/edition-guide
- 	url = https://github.com/rust-lang-nursery/edition-guide.git
--[submodule "src/llvm-project"]
--	path = src/llvm-project
--	url = https://github.com/rust-lang/llvm-project.git
--	branch = rustc/8.0-2019-01-16
- [submodule "src/doc/embedded-book"]
- 	path = src/doc/embedded-book
- 	url = https://github.com/rust-embedded/book.git
 diff --git a/src/tools/compiletest/src/common.rs b/src/tools/compiletest/src/common.rs
 index 80b8a8b728..c0f964c2a2 100644
 --- a/src/tools/compiletest/src/common.rs
@@ -156,7 +125,41 @@ index 86cdadade1..857518908e 100644
 2.11.0
 
 EOF
-#git apply the_patch.patch
+git apply the_patch.patch
+
+cat > warning_patch.patch <<EOF
+From c5a651223f5bafb8e30e8ecad26b6b952e76a086 Mon Sep 17 00:00:00 2001
+From: Aaron Hill <aa1ronham@gmail.com>
+Date: Wed, 3 Apr 2019 22:23:18 -0400
+Subject: [PATCH] Fix bootstrap warning
+
+The latest nightly introduces a new lint, which causes compilation to
+fail with #![deny(warnings)]
+
+Signed-off-by: Aaron Hill <aa1ronham@gmail.com>
+---
+ src/bootstrap/lib.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/bootstrap/lib.rs b/src/bootstrap/lib.rs
+index 47ac04ba..3130cbf1 100644
+--- a/src/bootstrap/lib.rs
++++ b/src/bootstrap/lib.rs
+@@ -1122,7 +1122,7 @@ impl Build {
+     /// \`rust.save-toolstates\` in \`config.toml\`. If unspecified, nothing will be
+     /// done. The file is updated immediately after this function completes.
+     pub fn save_toolstate(&self, tool: &str, state: ToolState) {
+-        use std::io::{Seek, SeekFrom};
++
+ 
+         if let Some(ref path) = self.config.save_toolstates {
+             let mut file = t!(fs::OpenOptions::new()
+-- 
+2.21.0
+
+EOF
+
+git apply warning_patch.patch
 
 rm config.toml || true
 
@@ -174,6 +177,8 @@ for test in src/test/run-pass/*.rs src/test/run-pass/**/*.rs; do
         rm $test
     fi
 done
+
+echo "[TEST] run-pass"
 
 #rm -r build/x86_64-unknown-linux-gnu/test || true
 ./x.py test --stage 0 src/test/run-pass/ \
