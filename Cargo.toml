@@ -22,7 +22,7 @@ ar = "0.7.0"
 bitflags = "1.0.3"
 byteorder = "1.2.7"
 libc = "0.2.53"
-tempfile = "3.0.7"
+tempfile = "3.0.8"
 gimli = { git = "https://github.com/gimli-rs/gimli.git" }
 indexmap = "1.0.2"
 
