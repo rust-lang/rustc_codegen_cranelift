@@ -20,7 +20,7 @@ faerie = "0.10.0"
 #goblin = "0.0.17"
 ar = "0.7.0"
 bitflags = "1.1.0"
-byteorder = "1.2.7"
+byteorder = "1.3.2"
 libc = "0.2.53"
 tempfile = "3.0.7"
 gimli = { git = "https://github.com/gimli-rs/gimli.git" }
