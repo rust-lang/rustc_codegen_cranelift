@@ -130,6 +130,9 @@ pub struct FunctionCx<'a, 'tcx: 'a, B: Backend> {
     pub local_map: HashMap<Local, CPlace<'tcx>>,
 
     pub clif_comments: crate::pretty_clif::CommentWriter,
+    #[cfg(debug_assertions)]
+    pub current_block: mir::BasicBlock,
+
     pub constants: &'a mut crate::constant::ConstantCx,
     pub caches: &'a mut Caches<'tcx>,
     pub source_info_set: indexmap::IndexSet<SourceInfo>,

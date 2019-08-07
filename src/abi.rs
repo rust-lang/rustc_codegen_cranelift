@@ -3,6 +3,8 @@ use std::borrow::Cow;
 use rustc::ty::layout::{FloatTy, Integer, Primitive, Scalar};
 use rustc_target::spec::abi::Abi;
 
+use cranelift::codegen::ir::SigRef;
+
 use crate::prelude::*;
 
 #[derive(Copy, Clone, Debug)]
@@ -167,10 +169,22 @@ fn clif_sig_from_fn_sig<'tcx>(tcx: TyCtxt<'tcx>, sig: FnSig<'tcx>, is_vtable_fn:
         _ => unimplemented!("unsupported abi {:?}", sig.abi),
     };
 
+    let inputs_len = inputs.len();
+
     let inputs = inputs
         .into_iter()
         .enumerate()
         .map(|(i, ty)| {
+            if sig.c_variadic && i == inputs_len - 1 {
+                match ty.sty {
+                    ty::Adt(def, _) if tcx.lang_items().va_list() == Some(def.did) => {
+                        // The `VaList` will get expanded into the right arguments in `fixup_sig_for_varargs`.
+                        return Empty.into_iter();
+                    }
+                    _ => {}
+                }
+            }
+
             let mut layout = tcx.layout_of(ParamEnv::reveal_all().and(ty)).unwrap();
             if i == 0 && is_vtable_fn {
                 // Virtual calls turn their self param into a thin pointer.
@@ -784,18 +798,7 @@ fn codegen_call_inner<'a, 'tcx: 'a>(
             unimpl!("Variadic call for non-C abi {:?}", fn_sig.abi);
         }
         let sig_ref = fx.bcx.func.dfg.call_signature(call_inst).unwrap();
-        let abi_params = call_args
-            .into_iter()
-            .map(|arg| {
-                let ty = fx.bcx.func.dfg.value_type(arg);
-                if !ty.is_int() {
-                    // FIXME set %al to upperbound on float args once floats are supported
-                    unimpl!("Non int ty {:?} for variadic call", ty);
-                }
-                AbiParam::new(ty)
-            })
-            .collect::<Vec<AbiParam>>();
-        fx.bcx.func.dfg.signatures[sig_ref].params = abi_params;
+        fixup_sig_for_varargs(&mut fx.bcx.func, sig_ref, &call_args);
     }
 
     match output_pass_mode {
@@ -815,6 +818,22 @@ fn codegen_call_inner<'a, 'tcx: 'a>(
         }
         PassMode::ByRef => {}
     }
+}
+
+pub fn fixup_sig_for_varargs(func: &mut Function, sig_ref: SigRef, call_args: &[Value]) {
+    // FIXME check that the non varargs have the correct type for the original signature.
+    let abi_params = call_args
+        .into_iter()
+        .map(|&arg| {
+            let ty = func.dfg.value_type(arg);
+            if !ty.is_int() {
+                // FIXME set %al to upperbound on float args once floats are supported
+                unimpl!("Non int ty {:?} for variadic call", ty);
+            }
+            AbiParam::new(ty)
+        })
+        .collect::<Vec<AbiParam>>();
+    func.dfg.signatures[sig_ref].params = abi_params;
 }
 
 pub fn codegen_drop<'a, 'tcx: 'a>(

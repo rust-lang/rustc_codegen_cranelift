@@ -48,6 +48,8 @@ pub fn trans_fn<'a, 'clif, 'tcx: 'a, B: Backend + 'static>(
         local_map: HashMap::new(),
 
         clif_comments,
+        current_block: mir::START_BLOCK,
+
         constants: &mut cx.ccx,
         caches: &mut cx.caches,
         source_info_set: indexmap::IndexSet::new(),
@@ -115,6 +117,11 @@ fn codegen_fn_content<'a, 'tcx: 'a>(fx: &mut FunctionCx<'a, 'tcx, impl Backend>)
         if bb_data.is_cleanup {
             // Unwinding after panicking is not supported
             continue;
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            fx.current_block = bb;
         }
 
         let ebb = fx.get_ebb(bb);
