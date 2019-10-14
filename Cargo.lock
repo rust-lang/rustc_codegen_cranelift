@@ -61,7 +61,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "cranelift"
 version = "0.45.0"
-source = "git+https://github.com/CraneStation/cranelift.git#b5783cfe0a1fee31d1d9375d60f7a0d8828df133"
+source = "git+https://github.com/CraneStation/cranelift.git#995a877f1ace8369d73c625b3fcb33cfec72ca29"
 dependencies = [
  "cranelift-codegen 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
  "cranelift-frontend 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
@@ -70,7 +70,7 @@ dependencies = [
 [[package]]
 name = "cranelift-bforest"
 version = "0.45.0"
-source = "git+https://github.com/CraneStation/cranelift.git#b5783cfe0a1fee31d1d9375d60f7a0d8828df133"
+source = "git+https://github.com/CraneStation/cranelift.git#995a877f1ace8369d73c625b3fcb33cfec72ca29"
 dependencies = [
  "cranelift-entity 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
 ]
@@ -78,7 +78,7 @@ dependencies = [
 [[package]]
 name = "cranelift-codegen"
 version = "0.45.0"
-source = "git+https://github.com/CraneStation/cranelift.git#b5783cfe0a1fee31d1d9375d60f7a0d8828df133"
+source = "git+https://github.com/CraneStation/cranelift.git#995a877f1ace8369d73c625b3fcb33cfec72ca29"
 dependencies = [
  "cranelift-bforest 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
  "cranelift-codegen-meta 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
@@ -94,7 +94,7 @@ dependencies = [
 [[package]]
 name = "cranelift-codegen-meta"
 version = "0.45.0"
-source = "git+https://github.com/CraneStation/cranelift.git#b5783cfe0a1fee31d1d9375d60f7a0d8828df133"
+source = "git+https://github.com/CraneStation/cranelift.git#995a877f1ace8369d73c625b3fcb33cfec72ca29"
 dependencies = [
  "cranelift-codegen-shared 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
  "cranelift-entity 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
@@ -103,17 +103,17 @@ dependencies = [
 [[package]]
 name = "cranelift-codegen-shared"
 version = "0.45.0"
-source = "git+https://github.com/CraneStation/cranelift.git#b5783cfe0a1fee31d1d9375d60f7a0d8828df133"
+source = "git+https://github.com/CraneStation/cranelift.git#995a877f1ace8369d73c625b3fcb33cfec72ca29"
 
 [[package]]
 name = "cranelift-entity"
 version = "0.45.0"
-source = "git+https://github.com/CraneStation/cranelift.git#b5783cfe0a1fee31d1d9375d60f7a0d8828df133"
+source = "git+https://github.com/CraneStation/cranelift.git#995a877f1ace8369d73c625b3fcb33cfec72ca29"
 
 [[package]]
 name = "cranelift-faerie"
 version = "0.45.0"
-source = "git+https://github.com/CraneStation/cranelift.git#b5783cfe0a1fee31d1d9375d60f7a0d8828df133"
+source = "git+https://github.com/CraneStation/cranelift.git#995a877f1ace8369d73c625b3fcb33cfec72ca29"
 dependencies = [
  "cranelift-codegen 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
  "cranelift-module 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
@@ -126,7 +126,7 @@ dependencies = [
 [[package]]
 name = "cranelift-frontend"
 version = "0.45.0"
-source = "git+https://github.com/CraneStation/cranelift.git#b5783cfe0a1fee31d1d9375d60f7a0d8828df133"
+source = "git+https://github.com/CraneStation/cranelift.git#995a877f1ace8369d73c625b3fcb33cfec72ca29"
 dependencies = [
  "cranelift-codegen 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -137,7 +137,7 @@ dependencies = [
 [[package]]
 name = "cranelift-module"
 version = "0.45.0"
-source = "git+https://github.com/CraneStation/cranelift.git#b5783cfe0a1fee31d1d9375d60f7a0d8828df133"
+source = "git+https://github.com/CraneStation/cranelift.git#995a877f1ace8369d73c625b3fcb33cfec72ca29"
 dependencies = [
  "cranelift-codegen 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
  "cranelift-entity 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
@@ -148,7 +148,7 @@ dependencies = [
 [[package]]
 name = "cranelift-native"
 version = "0.45.0"
-source = "git+https://github.com/CraneStation/cranelift.git#b5783cfe0a1fee31d1d9375d60f7a0d8828df133"
+source = "git+https://github.com/CraneStation/cranelift.git#995a877f1ace8369d73c625b3fcb33cfec72ca29"
 dependencies = [
  "cranelift-codegen 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
  "raw-cpuid 6.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -158,7 +158,7 @@ dependencies = [
 [[package]]
 name = "cranelift-simplejit"
 version = "0.45.0"
-source = "git+https://github.com/CraneStation/cranelift.git#b5783cfe0a1fee31d1d9375d60f7a0d8828df133"
+source = "git+https://github.com/CraneStation/cranelift.git#995a877f1ace8369d73c625b3fcb33cfec72ca29"
 dependencies = [
  "cranelift-codegen 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
  "cranelift-module 0.45.0 (git+https://github.com/CraneStation/cranelift.git)",
