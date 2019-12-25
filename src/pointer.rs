@@ -129,7 +129,16 @@ impl Pointer {
             PointerBase::Stack(stack_slot) => if ty == types::I128 || ty.is_vector() {
                 // WORKAROUND for stack_load.i128 and stack_load.iXxY not being implemented
                 let base_addr = fx.bcx.ins().stack_addr(fx.pointer_type, stack_slot, 0);
-                fx.bcx.ins().load(ty, flags, base_addr, self.offset)
+                /*if ty.is_vector() {
+                    let zero = fx.bcx.ins().iconst(ty.lane_type(), 0);
+                    let vec = fx.bcx.ins().splat(ty, zero);
+                    (0..u8::try_from(ty.lane_count()).unwrap()).fold(vec, |vec, idx| {
+                        let lane = fx.bcx.ins().load(ty.lane_type(), flags, base_addr, self.offset.try_add_i64(i64::from(idx) * i64::from(ty.lane_type().bytes())).unwrap());
+                        fx.bcx.ins().insertlane(vec, idx, lane)
+                    })
+                } else {*/
+                    fx.bcx.ins().load(ty, flags, base_addr, self.offset)
+                //}
             } else {
                 fx.bcx.ins().stack_load(ty, stack_slot, self.offset)
             }

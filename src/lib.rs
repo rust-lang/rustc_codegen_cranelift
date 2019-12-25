@@ -257,6 +257,7 @@ fn build_isa(sess: &Session, enable_pic: bool) -> Box<dyn isa::TargetIsa + 'stat
         flags_builder.set("is_pic", "false").unwrap();
     }
     flags_builder.set("probestack_enabled", "false").unwrap(); // __cranelift_probestack is not provided
+    flags_builder.set("enable_simd", "true").unwrap();
     flags_builder
         .set(
             "enable_verifier",
@@ -286,9 +287,12 @@ fn build_isa(sess: &Session, enable_pic: bool) -> Box<dyn isa::TargetIsa + 'stat
 
     let target_triple = crate::target_triple(sess);
     let flags = settings::Flags::new(flags_builder);
-    cranelift_codegen::isa::lookup(target_triple)
-        .unwrap()
-        .finish(flags)
+
+    let mut isa_builder = cranelift_codegen::isa::lookup(target_triple).unwrap();
+    isa_builder.enable("skylake").unwrap();
+    // FIXME set all enabled rust target features
+
+    isa_builder.finish(flags)
 }
 
 /// This is the entrypoint for a hot plugged rustc_codegen_cranelift
