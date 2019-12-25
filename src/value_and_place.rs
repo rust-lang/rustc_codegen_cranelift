@@ -366,7 +366,7 @@ impl<'tcx> CPlace<'tcx> {
     pub fn write_cvalue(self, fx: &mut FunctionCx<'_, 'tcx, impl Backend>, from: CValue<'tcx>) {
         #[cfg(debug_assertions)]
         {
-            use cranelift::codegen::cursor::{Cursor, CursorPosition};
+            use cranelift_codegen::cursor::{Cursor, CursorPosition};
             let cur_ebb = match fx.bcx.cursor().position() {
                 CursorPosition::After(ebb) => ebb,
                 _ => unreachable!(),
