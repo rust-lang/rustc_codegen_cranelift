@@ -28,7 +28,7 @@ libc = "0.2.53"
 indexmap = "1.0.2"
 
 [dependencies.object]
-version = "0.16.0"
+version = "0.17.0"
 default-features = false
 features = ["compression", "read", "std"] # We don't need WASM support
 
