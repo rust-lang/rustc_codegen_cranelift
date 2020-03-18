@@ -271,7 +271,7 @@ impl<'a, 'tcx> FunctionDebugContext<'a, 'tcx> {
             });
 
         // FIXME make it more reliable and implement scopes before re-enabling this.
-        if false {
+        if true {
             let value_labels_ranges = context.build_value_labels_ranges(isa).unwrap();
 
             for (local, _local_decl) in self.mir.local_decls.iter_enumerated() {
@@ -290,8 +290,35 @@ impl<'a, 'tcx> FunctionDebugContext<'a, 'tcx> {
                 );
 
                 let var_entry = self.debug_context.dwarf.unit.get_mut(var_id);
-                var_entry.set(gimli::DW_AT_location, location);
+                if let Some(location) = location {
+                    var_entry.set(gimli::DW_AT_location, location);
+                }
             }
+
+            println!("{:?}", self.instance);
+            //println!("{:?}", local_map);
+            println!("{:?}", value_labels_ranges);
+            println!("{:?}", context.func.dfg.values_labels);
+
+            for var_debug_info in &self.mir.var_debug_info {
+                println!("{:?}", var_debug_info);
+                let var_id = self.define_local(var_debug_info.name.as_str().to_string(), var_debug_info.place.ty(&self.mir.local_decls, self.debug_context.tcx).ty);
+                let location = place_location(
+                    self,
+                    isa,
+                    context,
+                    &local_map,
+                    &value_labels_ranges,
+                    var_debug_info.place,
+                );
+
+                let var_entry = self.debug_context.dwarf.unit.get_mut(var_id);
+                if let Some(location) = location {
+                    var_entry.set(gimli::DW_AT_location, location);
+                }
+            }
+
+            println!();
         }
 
         // FIXME create locals for all entries in mir.var_debug_info
@@ -305,7 +332,7 @@ fn place_location<'a, 'tcx>(
     local_map: &HashMap<mir::Local, CPlace<'tcx>>,
     value_labels_ranges: &HashMap<ValueLabel, Vec<ValueLocRange>>,
     place: Place<'tcx>,
-) -> AttributeValue {
+) -> Option<AttributeValue> {
     assert!(place.projection.is_empty()); // FIXME implement them
 
     match local_map[&place.local].inner() {
@@ -332,22 +359,38 @@ fn place_location<'a, 'tcx>(
                 );
                 let loc_list_id = func_debug_ctx.debug_context.dwarf.unit.locations.add(loc_list);
 
-                AttributeValue::LocationListRef(loc_list_id)
+                Some(AttributeValue::LocationListRef(loc_list_id))
             } else {
                 // FIXME set value labels for unused locals
 
-                AttributeValue::Exprloc(Expression(vec![]))
+                Some(AttributeValue::Exprloc(Expression(vec![])))
             }
         }
-        CPlaceInner::Addr(_, _) => {
-            // FIXME implement this (used by arguments and returns)
+        CPlaceInner::Addr(ptr, extra) => {
+            use crate::pointer::PointerBase;
 
-            AttributeValue::Exprloc(Expression(vec![]))
+            if extra.is_some() {
+                // FIXME implement this
+                return Some(AttributeValue::Exprloc(Expression(vec![])));
+            }
 
-            // For PointerBase::Stack:
-            //AttributeValue::Exprloc(Expression(translate_loc(ValueLoc::Stack(*stack_slot), &context.func.stack_slots).unwrap()))
+            match ptr.base_and_offset() {
+                (PointerBase::Addr(_addr), _offset) => {
+                    // FIXME implement this (used by arguments and returns)
+                    Some(AttributeValue::Exprloc(Expression(vec![])))
+                }
+                (PointerBase::Stack(stack_slot), offset) => {
+                    if offset == cranelift_codegen::ir::immediates::Offset32::new(0) {
+                        Some(AttributeValue::Exprloc(Expression(translate_loc(isa, ValueLoc::Stack(stack_slot), &context.func.stack_slots).unwrap())))
+                    } else {
+                        // FIXME implement this
+                        Some(AttributeValue::Exprloc(Expression(vec![])))
+                    }
+
+                }
+            }
         }
-        CPlaceInner::NoPlace => AttributeValue::Exprloc(Expression(vec![])),
+        CPlaceInner::NoPlace => None,
     }
 }
 

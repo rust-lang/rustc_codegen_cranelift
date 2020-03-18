@@ -288,7 +288,9 @@ fn local_place<'tcx>(
     fx.local_map[&local]
 }
 
-pub fn codegen_fn_prelude(fx: &mut FunctionCx<'_, '_, impl Backend>, start_block: Block, should_codegen_locals: bool) {
+pub fn codegen_fn_prologue(fx: &mut FunctionCx<'_, '_, impl Backend>, start_block: Block, should_codegen_locals: bool) {
+    fx.bcx.set_srcloc(SourceLoc::new(u32::max_value() - 1)); // Otherwise `build_value_labels_ranges` skips locals defined here.
+
     let ssa_analyzed = crate::analyze::analyze(fx);
 
     #[cfg(debug_assertions)]

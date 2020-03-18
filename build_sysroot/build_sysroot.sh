@@ -21,8 +21,8 @@ if [[ "$1" == "--release" ]]; then
     sysroot_channel='release'
     RUSTFLAGS="$RUSTFLAGS -Zmir-opt-level=3" cargo build --target $TARGET_TRIPLE --release
 else
-    sysroot_channel='debug'
-    cargo build --target $TARGET_TRIPLE
+    sysroot_channel='release'
+    cargo build --target $TARGET_TRIPLE --release
 fi
 
 # Copy files to sysroot

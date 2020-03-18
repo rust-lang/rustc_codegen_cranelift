@@ -454,6 +454,7 @@ impl<'tcx> CPlace<'tcx> {
         let to_ptr = match self.inner {
             CPlaceInner::Var(var) => {
                 let data = from.load_scalar(fx);
+                println!("{:?}: {}", var, data);
                 fx.bcx.set_val_label(data, cranelift_codegen::ir::ValueLabel::from_u32(var.as_u32()));
                 fx.bcx.def_var(mir_var(var), data);
                 return;

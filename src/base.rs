@@ -66,7 +66,7 @@ pub fn trans_fn<'clif, 'tcx, B: Backend + 'static>(
         crate::trap::trap_unreachable(&mut fx, "function has uninhabited argument");
     } else if is_call_once_for_box {
         // HACK implement `<Box<F> as FnOnce>::call_once` without `alloca`.
-        tcx.sess.time("codegen prelude", || crate::abi::codegen_fn_prelude(&mut fx, start_block, false));
+        tcx.sess.time("codegen prologue", || crate::abi::codegen_fn_prologue(&mut fx, start_block, false));
         fx.bcx.switch_to_block(fx.block_map[START_BLOCK]);
         let bb_data = &fx.mir.basic_blocks()[START_BLOCK];
         let destination = match &bb_data.terminator().kind {
@@ -146,7 +146,7 @@ pub fn trans_fn<'clif, 'tcx, B: Backend + 'static>(
         }
     } else {
         tcx.sess.time("codegen clif ir", || {
-            tcx.sess.time("codegen prelude", || crate::abi::codegen_fn_prelude(&mut fx, start_block, true));
+            tcx.sess.time("codegen prologue", || crate::abi::codegen_fn_prologue(&mut fx, start_block, true));
             codegen_fn_content(&mut fx);
         });
     }
@@ -373,9 +373,9 @@ fn trans_stmt<'tcx>(
 
     fx.set_debug_loc(stmt.source_info);
 
-    #[cfg(false_debug_assertions)]
+    #[cfg(debug_assertions)]
     match &stmt.kind {
-        StatementKind::StorageLive(..) | StatementKind::StorageDead(..) => {} // Those are not very useful
+        //StatementKind::StorageLive(..) | StatementKind::StorageDead(..) => {} // Those are not very useful
         _ => {
             let inst = fx.bcx.func.layout.last_inst(cur_block).unwrap();
             fx.add_comment(inst, format!("{:?}", stmt));
@@ -629,8 +629,17 @@ fn trans_stmt<'tcx>(
                 },
             }
         }
+        StatementKind::StorageDead(local) => {
+            match fx.local_map[local].inner() {
+                CPlaceInner::Var(local) => {
+                    let val = fx.bcx.use_var(mir_var(*local));
+                    fx.bcx.set_val_label(val, cranelift_codegen::ir::ValueLabel::from_u32(local.as_u32()));
+                    fx.bcx.ins().ghost_use(val); // Keep the SSA var alive for debuginfo
+                }
+                CPlaceInner::Addr(_, _) | CPlaceInner::NoPlace => {}
+            }
+        }
         StatementKind::StorageLive(_)
-        | StatementKind::StorageDead(_)
         | StatementKind::Nop
         | StatementKind::FakeRead(..)
         | StatementKind::Retag { .. }

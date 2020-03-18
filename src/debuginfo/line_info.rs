@@ -182,7 +182,7 @@ impl<'a, 'tcx> FunctionDebugContext<'a, 'tcx> {
             for (offset, inst, size) in func.inst_offsets(block, &encinfo) {
                 let srcloc = func.srclocs[inst];
                 line_program.row().address_offset = offset as u64;
-                if !srcloc.is_default() {
+                if !srcloc.is_default() && srcloc != SourceLoc::new(u32::max_value() - 1) /* prologue */ {
                     let source_info = *source_info_set.get_index(srcloc.bits() as usize).unwrap();
                     create_row_for_span(line_program, source_info.span);
                 } else {

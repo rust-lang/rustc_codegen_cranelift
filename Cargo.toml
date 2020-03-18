@@ -30,12 +30,12 @@ default-features = false
 features = ["write"] # We don't need read support
 
 # Uncomment to use local checkout of cranelift
-#[patch."https://github.com/bytecodealliance/wasmtime/"]
-#cranelift-codegen = { path = "../wasmtime/cranelift/codegen" }
-#cranelift-frontend = { path = "../wasmtime/cranelift/frontend" }
-#cranelift-module = { path = "../wasmtime/cranelift/module" }
-#cranelift-simplejit = { path = "../wasmtime/cranelift/simplejit" }
-#cranelift-object = { path = "../wasmtime/cranelift/object" }
+[patch."https://github.com/bytecodealliance/wasmtime/"]
+cranelift-codegen = { path = "../wasmtime/cranelift/codegen" }
+cranelift-frontend = { path = "../wasmtime/cranelift/frontend" }
+cranelift-module = { path = "../wasmtime/cranelift/module" }
+cranelift-simplejit = { path = "../wasmtime/cranelift/simplejit" }
+cranelift-object = { path = "../wasmtime/cranelift/object" }
 
 #[patch.crates-io]
 #gimli = { path = "../" }
@@ -50,6 +50,9 @@ opt-level = 3
 
 [profile.dev.package.rustc_codegen_cranelift]
 # Disabling optimizations for cg_clif itself makes compilation after a change faster.
+opt-level = 0
+
+[profile.dev.package.cranelift-codegen]
 opt-level = 0
 
 # Disable optimizations and debuginfo of build scripts and some of the heavy build deps, as the
