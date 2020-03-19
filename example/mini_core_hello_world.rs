@@ -81,10 +81,10 @@ fn start<T: Termination + 'static>(
     argc: isize,
     argv: *const *const u8,
 ) -> isize {
-    //if argc == 3 {
+    if argc == 3 {
         //unsafe { puts(*argv); }
-        let v = argv; //unsafe { puts(*((argv as usize + intrinsics::size_of::<*const u8>()) as *const *const u8)); }
-    //}
+        //let v = argv; //unsafe { puts(*((argv as usize + intrinsics::size_of::<*const u8>()) as *const *const u8)); }
+    }
 
     //main().report();
     0
