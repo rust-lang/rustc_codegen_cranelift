@@ -272,7 +272,47 @@ impl<'a, 'tcx> FunctionDebugContext<'a, 'tcx> {
 
         // FIXME make it more reliable and implement scopes before re-enabling this.
         if true {
+            let value_ranges = build_value_ranges(context, isa);
             let value_labels_ranges = context.build_value_labels_ranges(isa).unwrap();
+
+            println!("{:#?}", value_ranges);
+
+            let dw_ty = self.debug_context.dwarf.unit.add(self.debug_context.dwarf.unit.root(), gimli::DW_TAG_base_type);
+            let type_entry = self.debug_context.dwarf.unit.get_mut(dw_ty);
+            type_entry.set(gimli::DW_AT_encoding, AttributeValue::Encoding(gimli::DW_ATE_unsigned));
+            type_entry.set(gimli::DW_AT_byte_size, AttributeValue::Udata(8));
+            for value in context.func.dfg.values() {
+                let var_id = self
+                    .debug_context
+                    .dwarf
+                    .unit
+                    .add(self.entry_id, gimli::DW_TAG_variable);
+                let var_entry = self.debug_context.dwarf.unit.get_mut(var_id);
+
+                var_entry.set(gimli::DW_AT_name, AttributeValue::String(format!("{}", value).into_bytes()));
+                var_entry.set(gimli::DW_AT_type, AttributeValue::ThisUnitEntryRef(dw_ty));
+
+                let locations = value_ranges[&value].iter().map(|value_loc_range| {
+                    Location::StartEnd {
+                        begin: Address::Symbol {
+                            symbol: self.symbol,
+                            addend: i64::from(value_loc_range.start),
+                        },
+                        end: Address::Symbol {
+                            symbol: self.symbol,
+                            addend: i64::from(value_loc_range.end),
+                        },
+                        data: Expression(
+                            translate_loc(isa, value_loc_range.loc, &context.func.stack_slots).unwrap(),
+                        ),
+                    }
+                }).collect::<Vec<_>>();
+
+                let loc_list_id = self.debug_context.dwarf.unit.locations.add(LocationList(locations));
+
+                let var_entry = self.debug_context.dwarf.unit.get_mut(var_id);
+                var_entry.set(gimli::DW_AT_location, AttributeValue::LocationListRef(loc_list_id));
+            }
 
             for (local, _local_decl) in self.mir.local_decls.iter_enumerated() {
                 let var_id = self.define_local(format!("{:?}", local), &self.mir.local_decls[local].ty);
@@ -477,4 +517,151 @@ fn translate_loc(isa: &dyn TargetIsa, loc: ValueLoc, stack_slots: &StackSlots) -
         }
         _ => None,
     }
+}
+
+
+
+
+
+
+
+
+
+
+
+use cranelift_codegen::binemit::RegDiversions;
+
+
+
+
+/// Builds ranges and location for specified value labels.
+/// The labels specified at DataFlowGraph's values_labels collection.
+pub fn build_value_ranges(
+    context: &Context,
+    isa: &dyn TargetIsa,
+) -> HashMap<Value, Vec<ValueLocRange>> {
+    let func = &context.func;
+    let mut blocks = func.layout.blocks().collect::<Vec<_>>();
+    blocks.sort_by_key(|block| func.offsets[*block]); // Ensure inst offsets always increase
+    let encinfo = isa.encoding_info();
+    let values_locations = &func.locations;
+    let liveness_ranges = context.regalloc.liveness().ranges();
+    println!("{:?}", liveness_ranges.values().collect::<Vec<_>>());
+
+    let mut ranges = HashMap::new();
+    let mut add_range = |value, range: (u32, u32), loc: ValueLoc| {
+        assert!(range.0 <= range.1);
+        if range.0 == range.1 || !loc.is_assigned() {
+            return;
+        }
+        ranges
+            .entry(value)
+            .or_insert_with(Vec::new)
+            .push(ValueLocRange {
+                loc,
+                start: range.0,
+                end: range.1,
+            });
+    };
+
+    let mut end_offset = 0;
+    let mut tracked_values: Vec<(Value, u32, ValueLoc)> = Vec::new();
+    let mut divert = RegDiversions::new();
+    for block in blocks {
+        divert.at_block(&func.entry_diversions, block);
+        for (offset, inst, size) in func.inst_offsets(block, &encinfo) {
+            divert.apply(&func.dfg[inst]);
+            end_offset = offset + size;
+            // Remove killed values.
+            tracked_values.retain(|(x, start_offset, last_loc)| {
+                let range = liveness_ranges.get(*x);
+                if range.expect("value").killed_at(inst, block, &func.layout) {
+                    add_range(*x, (*start_offset, end_offset), *last_loc);
+                    return false;
+                }
+                true
+            });
+
+            // Record and restart ranges if Value location was changed.
+            for (val, start_offset, last_loc) in &mut tracked_values {
+                let new_loc = divert.get(*val, values_locations);
+                if new_loc == *last_loc {
+                    continue;
+                }
+                add_range(*val, (*start_offset, end_offset), *last_loc);
+                *start_offset = end_offset;
+                *last_loc = new_loc;
+            }
+
+            let active_values = func.dfg.values().filter(|v| {
+                println!("{}: {:?}", v, liveness_ranges.get(*v).map(|r| {
+                    format!("{:?}...{:?},{:?}", r.def(), r.def_local_end(), r.liveins().collect::<Vec<_>>())
+                }));
+
+                // Ignore dead/inactive Values.
+                let range = liveness_ranges.get(*v);
+                match range {
+                    Some(r) => r.reaches_use(inst, block, &func.layout),
+                    None => false,
+                }
+            });
+            // Append new Values to the tracked_values.
+            for val in active_values {
+                let loc = divert.get(val, values_locations);
+                tracked_values.push((val, end_offset, loc));
+            }
+        }
+        // Finish all started ranges.
+        for (val, start_offset, last_loc) in &tracked_values {
+            add_range(*val, (*start_offset, end_offset), *last_loc);
+        }
+    }
+
+    // Optimize ranges in-place
+    for (_, label_ranges) in ranges.iter_mut() {
+        assert!(!label_ranges.is_empty());
+        label_ranges.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| a.end.cmp(&b.end)));
+
+        // Merge ranges
+        let mut i = 1;
+        let mut j = 0;
+        while i < label_ranges.len() {
+            assert!(label_ranges[j].start <= label_ranges[i].end);
+            if label_ranges[j].loc != label_ranges[i].loc {
+                // Different location
+                if label_ranges[j].end >= label_ranges[i].end {
+                    // Consumed by previous range, skipping
+                    i += 1;
+                    continue;
+                }
+                j += 1;
+                label_ranges[j] = label_ranges[i];
+                i += 1;
+                continue;
+            }
+            if label_ranges[j].end < label_ranges[i].start {
+                // Gap in the range location
+                j += 1;
+                label_ranges[j] = label_ranges[i];
+                i += 1;
+                continue;
+            }
+            // Merge i-th and j-th ranges
+            if label_ranges[j].end < label_ranges[i].end {
+                label_ranges[j].end = label_ranges[i].end;
+            }
+            i += 1;
+        }
+        label_ranges.truncate(j + 1);
+
+        // Cut/move start position of next range, if two neighbor ranges intersect.
+        for i in 0..j {
+            if label_ranges[i].end > label_ranges[i + 1].start {
+                label_ranges[i + 1].start = label_ranges[i].end;
+                assert!(label_ranges[i + 1].start < label_ranges[i + 1].end);
+            }
+            assert!(label_ranges[i].end <= label_ranges[i + 1].start);
+        }
+    }
+    ranges
 }
