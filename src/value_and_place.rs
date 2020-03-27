@@ -523,6 +523,8 @@ impl<'tcx> CPlace<'tcx> {
         fx: &mut FunctionCx<'_, 'tcx, impl Backend>,
         field: mir::Field,
     ) -> CPlace<'tcx> {
+        // FIXME handle simd values
+
         let layout = self.layout();
         let (base, extra) = self.to_ptr_maybe_unsized(fx);
 
