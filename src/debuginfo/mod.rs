@@ -339,6 +339,10 @@ fn place_location<'a, 'tcx>(
                 AttributeValue::Exprloc(Expression(vec![]))
             }
         }
+        CPlaceInner::VarLane(_, _) => {
+            // FIXME implement this
+            AttributeValue::Exprloc(Expression(vec![]))
+        }
         CPlaceInner::Addr(_, _) => {
             // FIXME implement this (used by arguments and returns)
 

@@ -76,6 +76,7 @@ pub(super) fn add_local_place_comments<'tcx>(
             assert_eq!(local, var);
             ("ssa", std::borrow::Cow::Borrowed(""))
         }
+        CPlaceInner::VarLane(_var, _lane) => unreachable!(),
         CPlaceInner::NoPlace => ("zst", "".into()),
         CPlaceInner::Addr(ptr, meta) => {
             let meta = if let Some(meta) = meta {

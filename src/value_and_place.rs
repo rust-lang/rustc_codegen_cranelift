@@ -258,6 +258,7 @@ pub(crate) struct CPlace<'tcx> {
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum CPlaceInner {
     Var(Local),
+    VarLane(Local, u8),
     Addr(Pointer, Option<Value>),
     NoPlace,
 }
@@ -336,6 +337,12 @@ impl<'tcx> CPlace<'tcx> {
                 fx.bcx.set_val_label(val, cranelift_codegen::ir::ValueLabel::from_u32(var.as_u32()));
                 CValue::by_val(val, layout)
             }
+            CPlaceInner::VarLane(var, lane) => {
+                let val = fx.bcx.use_var(mir_var(var));
+                let val = fx.bcx.ins().extractlane(val, lane);
+                fx.bcx.set_val_label(val, cranelift_codegen::ir::ValueLabel::from_u32(var.as_u32()));
+                CValue::by_val(val, layout)
+            }
             CPlaceInner::Addr(ptr, extra) => {
                 if let Some(extra) = extra {
                     CValue::by_ref_unsized(ptr, extra, layout)
@@ -369,7 +376,7 @@ impl<'tcx> CPlace<'tcx> {
                     None,
                 )
             }
-            CPlaceInner::Var(_) => bug!("Expected CPlace::Addr, found CPlace::Var"),
+            CPlaceInner::Var(_) | CPlaceInner::VarLane(_, _) => bug!("Expected CPlace::Addr, found {:?}", self),
         }
     }
 
@@ -460,6 +467,22 @@ impl<'tcx> CPlace<'tcx> {
                 fx.bcx.def_var(mir_var(var), data);
                 return;
             }
+            CPlaceInner::VarLane(var, lane) => {
+                let data = from.load_scalar(fx);
+
+                // First get the old vector
+                let vector = fx.bcx.use_var(mir_var(var));
+                fx.bcx.set_val_label(vector, cranelift_codegen::ir::ValueLabel::from_u32(var.as_u32()));
+
+                // Next insert the written lane into the vector
+                let vector = fx.bcx.ins().insertlane(vector, lane, data);
+
+                // Finally write the new vector
+                fx.bcx.set_val_label(vector, cranelift_codegen::ir::ValueLabel::from_u32(var.as_u32()));
+                fx.bcx.def_var(mir_var(var), vector);
+
+                return;
+            }
             CPlaceInner::Addr(ptr, None) => ptr,
             CPlaceInner::NoPlace => {
                 if dst_layout.abi != Abi::Uninhabited {
@@ -523,9 +546,17 @@ impl<'tcx> CPlace<'tcx> {
         fx: &mut FunctionCx<'_, 'tcx, impl Backend>,
         field: mir::Field,
     ) -> CPlace<'tcx> {
-        // FIXME handle simd values
-
         let layout = self.layout();
+
+        if let Abi::Vector { .. } = layout.abi {
+            if let CPlaceInner::Var(var) = *self.inner() {
+                return CPlace {
+                    inner: CPlaceInner::VarLane(var, field.as_u32().try_into().unwrap()),
+                    layout: layout.field(fx, field.as_u32().try_into().unwrap()),
+                };
+            }
+        }
+
         let (base, extra) = self.to_ptr_maybe_unsized(fx);
 
         let (field_ptr, field_layout) = codegen_field(fx, base, extra, layout, field);
