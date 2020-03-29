@@ -100,7 +100,7 @@ impl<'tcx> CValue<'tcx> {
             CValueInner::ByVal(_) | CValueInner::ByValPair(_, _) => {
                 let cplace = CPlace::new_stack_slot(fx, layout);
                 cplace.write_cvalue(fx, self);
-                (cplace.to_ptr(fx), None)
+                (cplace.to_ptr(), None)
             }
         }
     }
@@ -260,7 +260,6 @@ pub(crate) enum CPlaceInner {
     Var(Local),
     VarLane(Local, u8),
     Addr(Pointer, Option<Value>),
-    NoPlace,
 }
 
 impl<'tcx> CPlace<'tcx> {
@@ -274,7 +273,7 @@ impl<'tcx> CPlace<'tcx> {
 
     pub(crate) fn no_place(layout: TyAndLayout<'tcx>) -> CPlace<'tcx> {
         CPlace {
-            inner: CPlaceInner::NoPlace,
+            inner: CPlaceInner::Addr(Pointer::dangling(layout.align.pref), None),
             layout,
         }
     }
@@ -285,10 +284,7 @@ impl<'tcx> CPlace<'tcx> {
     ) -> CPlace<'tcx> {
         assert!(!layout.is_unsized());
         if layout.size.bytes() == 0 {
-            return CPlace {
-                inner: CPlaceInner::NoPlace,
-                layout,
-            };
+            return CPlace::no_place(layout);
         }
 
         let stack_slot = fx.bcx.create_stack_slot(StackSlotData {
@@ -350,32 +346,19 @@ impl<'tcx> CPlace<'tcx> {
                     CValue::by_ref(ptr, layout)
                 }
             }
-            CPlaceInner::NoPlace => CValue::by_ref(
-                Pointer::dangling(self.layout.align.pref),
-                layout,
-            ),
         }
     }
 
-    pub(crate) fn to_ptr(self, fx: &mut FunctionCx<'_, 'tcx, impl Backend>) -> Pointer {
-        match self.to_ptr_maybe_unsized(fx) {
+    pub(crate) fn to_ptr(self) -> Pointer {
+        match self.to_ptr_maybe_unsized() {
             (ptr, None) => ptr,
             (_, Some(_)) => bug!("Expected sized cplace, found {:?}", self),
         }
     }
 
-    pub(crate) fn to_ptr_maybe_unsized(
-        self,
-        fx: &mut FunctionCx<'_, 'tcx, impl Backend>,
-    ) -> (Pointer, Option<Value>) {
+    pub(crate) fn to_ptr_maybe_unsized(self) -> (Pointer, Option<Value>) {
         match self.inner {
             CPlaceInner::Addr(ptr, extra) => (ptr, extra),
-            CPlaceInner::NoPlace => {
-                (
-                    Pointer::const_addr(fx, i64::try_from(self.layout.align.pref.bytes()).unwrap()),
-                    None,
-                )
-            }
             CPlaceInner::Var(_) | CPlaceInner::VarLane(_, _) => bug!("Expected CPlace::Addr, found {:?}", self),
         }
     }
@@ -483,12 +466,11 @@ impl<'tcx> CPlace<'tcx> {
 
                 return;
             }
-            CPlaceInner::Addr(ptr, None) => ptr,
-            CPlaceInner::NoPlace => {
-                if dst_layout.abi != Abi::Uninhabited {
-                    assert_eq!(dst_layout.size.bytes(), 0, "{:?}", dst_layout);
+            CPlaceInner::Addr(ptr, None) => {
+                if dst_layout.size == Size::ZERO || dst_layout.abi == Abi::Uninhabited {
+                    return;
                 }
-                return;
+                ptr
             }
             CPlaceInner::Addr(_, Some(_)) => bug!("Can't write value to unsized place {:?}", self),
         };
@@ -557,7 +539,7 @@ impl<'tcx> CPlace<'tcx> {
             }
         }
 
-        let (base, extra) = self.to_ptr_maybe_unsized(fx);
+        let (base, extra) = self.to_ptr_maybe_unsized();
 
         let (field_ptr, field_layout) = codegen_field(fx, base, extra, layout, field);
         if field_layout.is_unsized() {
@@ -573,8 +555,8 @@ impl<'tcx> CPlace<'tcx> {
         index: Value,
     ) -> CPlace<'tcx> {
         let (elem_layout, ptr) = match self.layout().ty.kind {
-            ty::Array(elem_ty, _) => (fx.layout_of(elem_ty), self.to_ptr(fx)),
-            ty::Slice(elem_ty) => (fx.layout_of(elem_ty), self.to_ptr_maybe_unsized(fx).0),
+            ty::Array(elem_ty, _) => (fx.layout_of(elem_ty), self.to_ptr()),
+            ty::Slice(elem_ty) => (fx.layout_of(elem_ty), self.to_ptr_maybe_unsized().0),
             _ => bug!("place_index({:?})", self.layout().ty),
         };
 
@@ -598,7 +580,7 @@ impl<'tcx> CPlace<'tcx> {
 
     pub(crate) fn write_place_ref(self, fx: &mut FunctionCx<'_, 'tcx, impl Backend>, dest: CPlace<'tcx>) {
         if has_ptr_meta(fx.tcx, self.layout().ty) {
-            let (ptr, extra) = self.to_ptr_maybe_unsized(fx);
+            let (ptr, extra) = self.to_ptr_maybe_unsized();
             let ptr = CValue::by_val_pair(
                 ptr.get_addr(fx),
                 extra.expect("unsized type without metadata"),
@@ -606,19 +588,13 @@ impl<'tcx> CPlace<'tcx> {
             );
             dest.write_cvalue(fx, ptr);
         } else {
-            let ptr = CValue::by_val(self.to_ptr(fx).get_addr(fx), dest.layout());
+            let ptr = CValue::by_val(self.to_ptr().get_addr(fx), dest.layout());
             dest.write_cvalue(fx, ptr);
         }
     }
 
     pub(crate) fn unchecked_cast_to(self, layout: TyAndLayout<'tcx>) -> Self {
         assert!(!self.layout().is_unsized());
-        match self.inner {
-            CPlaceInner::NoPlace => {
-                assert!(layout.size.bytes() == 0);
-            }
-            _ => {}
-        }
         CPlace {
             inner: self.inner,
             layout,
