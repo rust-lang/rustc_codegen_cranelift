@@ -33,15 +33,15 @@ echo "[AOT] arbitrary_self_types_pointers_and_wrappers"
 $RUSTC example/arbitrary_self_types_pointers_and_wrappers.rs --crate-name arbitrary_self_types_pointers_and_wrappers --crate-type bin
 ./target/out/arbitrary_self_types_pointers_and_wrappers
 
-echo "[BUILD] sysroot"
-time ./build_sysroot/build_sysroot.sh --release
+#echo "[BUILD] sysroot"
+#time ./build_sysroot/build_sysroot.sh --release
 
 echo "[AOT] alloc_example"
 $RUSTC example/alloc_example.rs --crate-type bin
 ./target/out/alloc_example
 
-echo "[JIT] std_example"
-CG_CLIF_JIT=1 $RUSTC --crate-type bin -Cprefer-dynamic example/std_example.rs
+#echo "[JIT] std_example"
+#CG_CLIF_JIT=1 $RUSTC --crate-type bin -Cprefer-dynamic example/std_example.rs
 
 echo "[AOT] dst_field_align"
 # FIXME Re-add -Zmir-opt-level=2 once rust-lang/rust#67529 is fixed.
@@ -63,16 +63,29 @@ $RUSTC example/track-caller-attribute.rs --crate-type bin -Cpanic=abort
 echo "[BUILD] mod_bench"
 $RUSTC example/mod_bench.rs --crate-type bin
 
+#pushd tokei
+#rm -r target
+#rm target/*/*/deps/libmemchr* || true # First crate to use SIMD extensively
+#../cargo.sh build --release
+
+#./target/*/release/tokei ../src
+
+#hyperfine "../tokei_bin_llvm/bin/tokei ../src" "./target/*/release/tokei ../src"
+#popd
+
+#exit 0
+
 pushd simple-raytracer
 echo "[BENCH COMPILE] ebobby/simple-raytracer"
-hyperfine --runs ${RUN_RUNS:-10} --warmup 1 --prepare "rm -r target/*/debug || true" \
-    "RUSTFLAGS='' cargo build --target $TARGET_TRIPLE" \
-    "../cargo.sh build"
+rm -r target/*/release || true
+../cargo.sh build --release
 
 echo "[BENCH RUN] ebobby/simple-raytracer"
-cp ./target/*/debug/main ./raytracer_cg_clif
-hyperfine --runs ${RUN_RUNS:-10} ./raytracer_cg_llvm ./raytracer_cg_clif
+cp ./target/*/release/main ./raytracer_cg_clif_opt
+hyperfine --runs ${RUN_RUNS:-2} ./raytracer_cg_*
 popd
+
+exit 0
 
 pushd build_sysroot/sysroot_src/src/libcore/tests
 rm -r ./target || true
