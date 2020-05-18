@@ -60,7 +60,7 @@ dependencies = [
  "cranelift-codegen-meta",
  "cranelift-codegen-shared",
  "cranelift-entity",
- "gimli",
+ "gimli 0.20.0",
  "log",
  "regalloc",
  "smallvec",
@@ -193,6 +193,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gimli"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bcc8e0c9bce37868955864dbecd2b1ab2bdf967e6f28066d65aaac620444b65c"
+dependencies = [
+ "indexmap",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -316,7 +325,7 @@ dependencies = [
  "cranelift-module",
  "cranelift-object",
  "cranelift-simplejit",
- "gimli",
+ "gimli 0.21.0",
  "indexmap",
  "libloading",
  "object",
