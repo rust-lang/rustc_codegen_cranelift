@@ -127,7 +127,7 @@ source = "git+https://github.com/bytecodealliance/wasmtime/#51f9ac2150bd880dc7b9
 dependencies = [
  "cranelift-codegen",
  "cranelift-module",
- "object",
+ "object 0.18.0",
  "target-lexicon",
 ]
 
@@ -243,6 +243,16 @@ dependencies = [
  "crc32fast",
  "indexmap",
  "target-lexicon",
+]
+
+[[package]]
+name = "object"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cbca9424c482ee628fa549d9c812e2cd22f1180b9222c9200fdfa6eb31aecb2"
+dependencies = [
+ "crc32fast",
+ "indexmap",
  "wasmparser",
 ]
 
@@ -319,7 +329,7 @@ dependencies = [
  "gimli",
  "indexmap",
  "libloading",
- "object",
+ "object 0.19.0",
  "target-lexicon",
 ]
 
@@ -398,9 +408,9 @@ checksum = "826e7639553986605ec5979c7dd957c7895e93eabed50ab2ffa7f6128a75097c"
 
 [[package]]
 name = "wasmparser"
-version = "0.51.4"
+version = "0.54.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aeb1956b19469d1c5e63e459d29e7b5aa0f558d9f16fcef09736f8a265e6c10a"
+checksum = "747467da102640806cf6643e032a70174e7768839bcac7e71a0a9aaa54761d59"
 
 [[package]]
 name = "winapi"
