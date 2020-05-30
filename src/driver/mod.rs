@@ -19,11 +19,11 @@ pub(crate) fn codegen_crate(
     if std::env::var("CG_CLIF_JIT").is_ok()
         && tcx.sess.crate_types().contains(&rustc_session::config::CrateType::Executable)
     {
-        #[cfg(not(target_arch = "wasm32"))]
-        let _: ! = jit::run_jit(tcx);
-
-        #[cfg(target_arch = "wasm32")]
-        panic!("jit not supported on wasm");
+        if !cfg!(target_arch = "wasm32") {
+            let _: ! = jit::run_jit(tcx);
+        } else {
+            panic!("jit not supported on wasm");
+        }
     }
 
     aot::run_aot(tcx, metadata, need_metadata_module)
