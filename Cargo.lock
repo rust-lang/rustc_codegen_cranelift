@@ -64,7 +64,7 @@ dependencies = [
  "log",
  "regalloc",
  "smallvec",
- "target-lexicon",
+ "target-lexicon 0.10.0",
  "thiserror",
 ]
 
@@ -95,7 +95,7 @@ dependencies = [
  "cranelift-codegen",
  "log",
  "smallvec",
- "target-lexicon",
+ "target-lexicon 0.10.0",
 ]
 
 [[package]]
@@ -117,7 +117,7 @@ source = "git+https://github.com/bytecodealliance/wasmtime/#647d2b423131c533af57
 dependencies = [
  "cranelift-codegen",
  "raw-cpuid",
- "target-lexicon",
+ "target-lexicon 0.10.0",
 ]
 
 [[package]]
@@ -129,7 +129,7 @@ dependencies = [
  "cranelift-codegen",
  "cranelift-module",
  "object",
- "target-lexicon",
+ "target-lexicon 0.10.0",
 ]
 
 [[package]]
@@ -143,7 +143,7 @@ dependencies = [
  "errno",
  "libc",
  "region",
- "target-lexicon",
+ "target-lexicon 0.10.0",
  "winapi",
 ]
 
@@ -319,7 +319,7 @@ dependencies = [
  "indexmap",
  "libloading",
  "object",
- "target-lexicon",
+ "target-lexicon 0.11.0",
 ]
 
 [[package]]
@@ -368,6 +368,12 @@ name = "target-lexicon"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab0e7238dcc7b40a7be719a25365910f6807bd864f4cce6b2e6b873658e2b19d"
+
+[[package]]
+name = "target-lexicon"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe2635952a442a01fd4cb53d98858b5e4bb461b02c0d111f22f31772e3e7a8b2"
 
 [[package]]
 name = "thiserror"
