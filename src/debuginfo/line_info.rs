@@ -127,7 +127,7 @@ impl<'tcx> DebugContext<'tcx> {
         entry_id: UnitEntryId,
         context: &Context,
         function_span: Span,
-        source_info_set: &indexmap::IndexSet<SourceInfo>,
+        source_info_set: &indexmap::IndexSet<(Instance<'tcx>, SourceInfo)>,
     ) -> CodeOffset {
         let tcx = self.tcx;
         let line_program = &mut self.dwarf.unit.line_program;
@@ -200,7 +200,7 @@ impl<'tcx> DebugContext<'tcx> {
                 line_program.row().address_offset = start as u64;
                 if !loc.is_default() {
                     let source_info = *source_info_set.get_index(loc.bits() as usize).unwrap();
-                    create_row_for_span(line_program, source_info.span);
+                    create_row_for_span(line_program, source_info.1.span);
                 } else {
                     create_row_for_span(line_program, function_span);
                 }
@@ -221,7 +221,7 @@ impl<'tcx> DebugContext<'tcx> {
                     line_program.row().address_offset = offset as u64;
                     if !srcloc.is_default() {
                         let source_info = *source_info_set.get_index(srcloc.bits() as usize).unwrap();
-                        create_row_for_span(line_program, source_info.span);
+                        create_row_for_span(line_program, source_info.1.span);
                     } else {
                         create_row_for_span(line_program, function_span);
                     }

@@ -256,7 +256,7 @@ impl<'tcx> DebugContext<'tcx> {
         name: &str,
         isa: &dyn TargetIsa,
         context: &Context,
-        source_info_set: &indexmap::IndexSet<SourceInfo>,
+        source_info_set: &indexmap::IndexSet<(Instance<'tcx>, SourceInfo)>,
         local_map: FxHashMap<mir::Local, CPlace<'tcx>>,
     ) {
         let symbol = func_id.as_u32() as usize;

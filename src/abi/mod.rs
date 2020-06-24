@@ -1,6 +1,7 @@
 #[cfg(debug_assertions)]
 mod comments;
 mod pass_mode;
+mod inlining;
 mod returning;
 
 use rustc_target::spec::abi::Abi;
@@ -545,13 +546,19 @@ pub(crate) fn codegen_terminator_call<'tcx>(
         }
 
         // Normal call
-        Some(_) => (
-            None,
-            args.get(0)
-                .map(|arg| adjust_arg_for_abi(fx, *arg))
-                .unwrap_or(Empty),
-            false,
-        ),
+        Some(instance) => {
+            if let Ok(()) = inlining::try_inline_call(fx, instance, span, &args, destination) {
+                return;
+            }
+
+            (
+                None,
+                args.get(0)
+                    .map(|arg| adjust_arg_for_abi(fx, *arg))
+                    .unwrap_or(Empty),
+                false,
+            )
+        }
 
         // Indirect call
         None => {

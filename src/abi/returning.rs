@@ -1,7 +1,7 @@
 use crate::abi::pass_mode::*;
 use crate::prelude::*;
 
-fn return_layout<'a, 'tcx>(fx: &mut FunctionCx<'a, 'tcx, impl Backend>) -> TyAndLayout<'tcx> {
+pub(super) fn return_layout<'a, 'tcx>(fx: &mut FunctionCx<'a, 'tcx, impl Backend>) -> TyAndLayout<'tcx> {
     fx.layout_of(fx.monomorphize(&fx.mir.local_decls[RETURN_PLACE].ty))
 }
 
@@ -102,6 +102,11 @@ pub(super) fn codegen_with_call_return_arg<'tcx, B: Backend, T>(
 }
 
 pub(crate) fn codegen_return(fx: &mut FunctionCx<'_, '_, impl Backend>) {
+    if let Some(return_block) = fx.return_block {
+        fx.bcx.ins().jump(return_block, &[]);
+        return;
+    }
+
     match get_pass_mode(fx.tcx, return_layout(fx)) {
         PassMode::NoPass | PassMode::ByRef { sized: true } => {
             fx.bcx.ins().return_(&[]);

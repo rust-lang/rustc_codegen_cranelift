@@ -7,6 +7,7 @@ use cranelift_codegen::ir::{InstructionData, Opcode, ValueDef};
 use crate::prelude::*;
 
 pub(crate) fn mir_var(loc: Local) -> Variable {
+    // FIXME make inlining aware!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     Variable::with_u32(loc.index() as u32)
 }
 
@@ -235,29 +236,35 @@ pub(crate) fn type_sign(ty: Ty<'_>) -> bool {
 }
 
 pub(crate) struct FunctionCx<'clif, 'tcx, B: Backend + 'static> {
+    // Module
     // FIXME use a reference to `CodegenCx` instead of `tcx`, `module` and `constants` and `caches`
     pub(crate) tcx: TyCtxt<'tcx>,
     pub(crate) module: &'clif mut Module<B>,
     pub(crate) pointer_type: Type, // Cached from module
 
-    pub(crate) instance: Instance<'tcx>,
-    pub(crate) mir: &'tcx Body<'tcx>,
+    pub(crate) constants_cx: &'clif mut crate::constant::ConstantCx,
+    pub(crate) vtables: &'clif mut FxHashMap<(Ty<'tcx>, Option<ty::PolyExistentialTraitRef<'tcx>>), DataId>,
 
+    // Target function
     pub(crate) bcx: FunctionBuilder<'clif>,
-    pub(crate) block_map: IndexVec<BasicBlock, Block>,
-    pub(crate) local_map: FxHashMap<Local, CPlace<'tcx>>,
-
-    /// When `#[track_caller]` is used, the implicit caller location is stored in this variable.
-    pub(crate) caller_location: Option<CValue<'tcx>>,
+    pub(crate) clif_comments: crate::pretty_clif::CommentWriter,
+    pub(crate) source_info_set: indexmap::IndexSet<(Instance<'tcx>, SourceInfo)>,
 
     /// See [crate::optimize::code_layout] for more information.
     pub(crate) cold_blocks: EntitySet<Block>,
 
-    pub(crate) clif_comments: crate::pretty_clif::CommentWriter,
-    pub(crate) constants_cx: &'clif mut crate::constant::ConstantCx,
-    pub(crate) vtables: &'clif mut FxHashMap<(Ty<'tcx>, Option<ty::PolyExistentialTraitRef<'tcx>>), DataId>,
+    // Source function
+    pub(crate) instance: Instance<'tcx>,
+    pub(crate) mir: &'tcx Body<'tcx>,
 
-    pub(crate) source_info_set: indexmap::IndexSet<SourceInfo>,
+    pub(crate) block_map: IndexVec<BasicBlock, Block>,
+    pub(crate) local_map: FxHashMap<Local, CPlace<'tcx>>,
+
+    /// When inlining a function, the return block is stored in this variable.
+    pub(crate) return_block: Option<Block>,
+
+    /// When `#[track_caller]` is used, the implicit caller location is stored in this variable.
+    pub(crate) caller_location: Option<CValue<'tcx>>,
 }
 
 impl<'tcx, B: Backend> LayoutOf for FunctionCx<'_, 'tcx, B> {
@@ -333,7 +340,7 @@ impl<'tcx, B: Backend + 'static> FunctionCx<'_, 'tcx, B> {
     }
 
     pub(crate) fn set_debug_loc(&mut self, source_info: mir::SourceInfo) {
-        let (index, _) = self.source_info_set.insert_full(source_info);
+        let (index, _) = self.source_info_set.insert_full((self.instance, source_info));
         self.bcx.set_srcloc(SourceLoc::new(index as u32));
     }
 

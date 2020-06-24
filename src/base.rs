@@ -38,19 +38,21 @@ pub(crate) fn trans_fn<'tcx, B: Backend + 'static>(
         module: &mut cx.module,
         pointer_type,
 
+        constants_cx: &mut cx.constants_cx,
+        vtables: &mut cx.vtables,
+
+        bcx,
+        clif_comments,
+        source_info_set: indexmap::IndexSet::new(),
+        cold_blocks: EntitySet::new(),
+
         instance,
         mir,
 
-        bcx,
         block_map,
         local_map: FxHashMap::with_capacity_and_hasher(mir.local_decls.len(), Default::default()),
+        return_block: None,
         caller_location: None, // set by `codegen_fn_prelude`
-        cold_blocks: EntitySet::new(),
-
-        clif_comments,
-        constants_cx: &mut cx.constants_cx,
-        vtables: &mut cx.vtables,
-        source_info_set: indexmap::IndexSet::new(),
     };
 
     let arg_uninhabited = fx.mir.args_iter().any(|arg| fx.layout_of(fx.monomorphize(&fx.mir.local_decls[arg].ty)).abi.is_uninhabited());
@@ -63,6 +65,8 @@ pub(crate) fn trans_fn<'tcx, B: Backend + 'static>(
         tcx.sess.time("codegen clif ir", || {
             tcx.sess.time("codegen prelude", || crate::abi::codegen_fn_prelude(&mut fx, start_block));
             codegen_fn_content(&mut fx);
+            fx.bcx.seal_all_blocks();
+            fx.bcx.finalize();
         });
     }
 
@@ -152,7 +156,7 @@ pub(crate) fn verify_func(tcx: TyCtxt<'_>, writer: &crate::pretty_clif::CommentW
     });
 }
 
-fn codegen_fn_content(fx: &mut FunctionCx<'_, '_, impl Backend>) {
+pub(crate) fn codegen_fn_content(fx: &mut FunctionCx<'_, '_, impl Backend>) {
     for (bb, bb_data) in fx.mir.basic_blocks().iter_enumerated() {
         let block = fx.get_block(bb);
         fx.bcx.switch_to_block(block);
@@ -352,9 +356,6 @@ fn codegen_fn_content(fx: &mut FunctionCx<'_, '_, impl Backend>) {
             }
         };
     }
-
-    fx.bcx.seal_all_blocks();
-    fx.bcx.finalize();
 }
 
 fn trans_stmt<'tcx>(

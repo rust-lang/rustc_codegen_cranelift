@@ -126,6 +126,7 @@ unsafe fn zeroed<T>() -> T {
 fn take_f32(_f: f32) {}
 fn take_unique(_u: Unique<()>) {}
 
+#[inline]
 fn return_u128_pair() -> (u128, u128) {
     (0, 0)
 }
