@@ -25,7 +25,7 @@ In the directory with your project (where you can do the usual `cargo build`), r
 $ CHANNEL="release" $cg_clif_dir/cargo.sh run
 ```
 
-This should build and run your project with Cranelift backend instead of usual LLVM backend.
+This should build and run your project with rustc_codegen_cranelift instead of the usual LLVM backend.
 
 If you compiled cg_clif in debug mode (aka you didn't pass `--release` to `./test.sh`) you should use `CHANNEL="debug"` instead or omit `CHANNEL="release"` completely.
 
