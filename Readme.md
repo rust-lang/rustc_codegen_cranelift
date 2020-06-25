@@ -13,7 +13,7 @@ $ ./test.sh --release
 
 ## Usage
 
-Cranelift codegen can be used as a near-drop-in replacement for `cargo build` or `cargo run` for existing projects.
+rustc_codegen_cranelift can be used as a near-drop-in replacement for `cargo build` or `cargo run` for existing projects.
 
 Assuming `$cg_clif_dir` is the directory you cloned this repo into and followed the instructions (`prepare.sh` and `test.sh`).
 
