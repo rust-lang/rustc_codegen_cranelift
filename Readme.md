@@ -19,7 +19,7 @@ Assuming `$cg_clif_dir` is the directory you cloned this repo into and followed 
 
 ### Cargo
 
-In the directory with your project (where you can do usual `cargo build`), do:
+In the directory with your project (where you can do the usual `cargo build`), run:
 
 ```bash
 $ CHANNEL="release" $cg_clif_dir/cargo.sh run
