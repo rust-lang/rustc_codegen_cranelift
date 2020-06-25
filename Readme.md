@@ -13,13 +13,19 @@ $ ./test.sh --release
 
 ## Usage
 
-`$cg_clif_dir` is the directory you cloned this repo into in the following instructions.
+Cranelift codegen can be used as a near-drop-in replacement for `cargo build` or `cargo run` for existing projects.
+
+Assuming `$cg_clif_dir` is the directory you cloned this repo into and followed the instructions (`prepare.sh` and `test.sh`).
 
 ### Cargo
+
+In the directory with your project (where you can do usual `cargo build`), do:
 
 ```bash
 $ CHANNEL="release" $cg_clif_dir/cargo.sh run
 ```
+
+This should build and run your project with Cranelift backend instead of usual LLVM backend.
 
 If you compiled cg_clif in debug mode (aka you didn't pass `--release` to `./test.sh`) you should use `CHANNEL="debug"` instead or omit `CHANNEL="release"` completely.
 
