@@ -1,7 +1,7 @@
 #![feature(
     no_core, lang_items, intrinsics, unboxed_closures, type_ascription, extern_types,
     untagged_unions, decl_macro, rustc_attrs, transparent_unions, optin_builtin_traits,
-    thread_local, track_caller
+    thread_local, track_caller, associated_type_bounds, fundamental,
 )]
 #![no_core]
 #![allow(dead_code)]
@@ -380,6 +380,25 @@ pub enum Option<T> {
     None,
 }
 
+impl<T> Option<T> {
+    #[inline]
+    pub fn as_mut(&mut self) -> Option<&mut T> {
+        match *self {
+            Some(ref mut x) => Some(x),
+            None => None,
+        }
+    }
+
+    #[inline]
+    #[track_caller]
+    pub fn unwrap(self) -> T {
+        match self {
+            Some(val) => val,
+            None => intrinsics::abort(),
+        }
+    }
+}
+
 pub use Option::*;
 
 #[lang = "phantom_data"]
@@ -438,6 +457,12 @@ pub trait Deref {
     fn deref(&self) -> &Self::Target;
 }
 
+
+#[lang = "deref_mut"]
+pub trait DerefMut: Deref {
+    fn deref_mut(&mut self) -> &mut Self::Target;
+}
+
 #[lang = "owned_box"]
 pub struct Box<T: ?Sized>(*mut T);
 
@@ -446,6 +471,28 @@ impl<T: ?Sized + Unsize<U>, U: ?Sized> CoerceUnsized<Box<U>> for Box<T> {}
 impl<T: ?Sized> Drop for Box<T> {
     fn drop(&mut self) {
         // drop is currently performed by compiler.
+    }
+}
+
+impl<T> Deref for &T {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        *self
+    }
+}
+
+impl<T> Deref for &mut T {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        *self
+    }
+}
+
+impl<T> DerefMut for &mut T {
+    fn deref_mut(&mut self) -> &mut T {
+        *self
     }
 }
 
@@ -578,3 +625,70 @@ pub fn get_tls() -> u8 {
 
     A
 }
+
+#[lang = "unpin"]
+pub auto trait Unpin {}
+
+impl<'a, T: ?Sized + 'a> Unpin for &'a T {}
+impl<'a, T: ?Sized + 'a> Unpin for &'a mut T {}
+impl<T: ?Sized> Unpin for *const T {}
+impl<T: ?Sized> Unpin for *mut T {}
+impl<T: ?Sized> Unpin for Box<T> {}
+
+#[lang = "generator_state"]
+pub enum GeneratorState<Y, R> {
+    Yielded(Y),
+    Complete(R),
+}
+
+#[lang = "generator"]
+#[fundamental]
+pub trait Generator<R = ()> {
+    type Yield;
+    type Return;
+
+    fn resume(self: Pin<&mut Self>, arg: R) -> GeneratorState<Self::Yield, Self::Return> where Self:Sized;
+}
+
+impl<G: ?Sized + Generator<R>, R> Generator<R> for Pin<&mut G> {
+    type Yield = G::Yield;
+    type Return = G::Return;
+
+    fn resume(mut self: Pin<&mut Self>, arg: R) -> GeneratorState<Self::Yield, Self::Return> {
+        loop {}
+    }
+}
+
+impl<G: ?Sized + Generator<R> + Unpin, R> Generator<R> for &mut G {
+    type Yield = G::Yield;
+    type Return = G::Return;
+
+    fn resume(mut self: Pin<&mut Self>, arg: R) -> GeneratorState<Self::Yield, Self::Return> {
+        loop {}
+    }
+}
+
+#[lang = "pin"]
+#[fundamental]
+#[repr(transparent)]
+pub struct Pin<P> {
+    pointer: P,
+}
+
+impl<P: Deref> Deref for Pin<P> {
+    type Target = P::Target;
+    fn deref(&self) -> &P::Target {
+        loop {}
+    }
+}
+
+impl<P: DerefMut<Target: Unpin>> DerefMut for Pin<P> {
+    fn deref_mut(&mut self) -> &mut P::Target {
+        loop {}
+    }
+}
+
+impl<P: Receiver> Receiver for Pin<P> {}
+
+impl<P, U> CoerceUnsized<Pin<U>> for Pin<P> where P: CoerceUnsized<U> {}
+impl<P, U> DispatchFromDyn<Pin<U>> for Pin<P> where P: DispatchFromDyn<U> {}
