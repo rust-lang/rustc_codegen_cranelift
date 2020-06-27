@@ -45,6 +45,7 @@ pub(crate) fn trans_fn<'tcx, B: Backend + 'static>(
         clif_comments,
         source_info_set: indexmap::IndexSet::new(),
         cold_blocks: EntitySet::new(),
+        next_ssa_var: 0,
 
         instance,
         mir,

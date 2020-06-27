@@ -6,11 +6,6 @@ use cranelift_codegen::ir::{InstructionData, Opcode, ValueDef};
 
 use crate::prelude::*;
 
-pub(crate) fn mir_var(loc: Local) -> Variable {
-    // FIXME make inlining aware!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    Variable::with_u32(loc.index() as u32)
-}
-
 pub(crate) fn pointer_ty(tcx: TyCtxt<'_>) -> types::Type {
     match tcx.data_layout.pointer_size.bits() {
         16 => types::I16,
@@ -252,6 +247,9 @@ pub(crate) struct FunctionCx<'clif, 'tcx, B: Backend + 'static> {
 
     /// See [crate::optimize::code_layout] for more information.
     pub(crate) cold_blocks: EntitySet<Block>,
+
+    /// This should only be accessed by `CPlace::new_var`.
+    pub(crate) next_ssa_var: u32,
 
     // Source function
     pub(crate) instance: Instance<'tcx>,
