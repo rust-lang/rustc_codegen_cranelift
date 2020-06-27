@@ -1,0 +1,25 @@
+From 6cedf6d36d95a6f39e86cdce074e1a9423fdd919 Mon Sep 17 00:00:00 2001
+From: bjorn3 <bjorn3@users.noreply.github.com>
+Date: Sat, 27 Jun 2020 13:04:11 +0200
+Subject: [PATCH] Don't mark recursive function as inline
+
+---
+ src/libcore/str/mod.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/libcore/str/mod.rs b/src/libcore/str/mod.rs
+index 6c4b284..b791522 100644
+--- a/src/libcore/str/mod.rs
++++ b/src/libcore/str/mod.rs
+@@ -1154,7 +1154,7 @@ impl<'a, P: Pattern<'a>> SplitInternal<'a, P> {
+         }
+     }
+ 
+-    #[inline]
++    //#[inline] Recursive function
+     fn next_back(&mut self) -> Option<&'a str>
+     where
+         P::Searcher: ReverseSearcher<'a>,
+-- 
+2.20.1
+

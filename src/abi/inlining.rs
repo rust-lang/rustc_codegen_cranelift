@@ -13,6 +13,7 @@ pub(super) fn try_inline_call<'tcx>(
         .tcx
         .codegen_fn_attrs(inlined_instance.def_id())
         .requests_inline()
+        && inlined_instance.def_id().krate == LOCAL_CRATE
     {
         let start_block = fx.bcx.create_block();
         fx.bcx.ins().jump(start_block, &[]);
