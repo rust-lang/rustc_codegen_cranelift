@@ -16,7 +16,8 @@ pub(super) fn try_inline_call<'tcx>(
     {
         let start_block = fx.bcx.create_block();
         fx.bcx.ins().jump(start_block, &[]);
-
+        fx.bcx.switch_to_block(start_block);
+        fx.bcx.ins().nop();
 
         let orig_instance = mem::replace(&mut fx.instance, inlined_instance);
 
@@ -44,7 +45,7 @@ pub(super) fn try_inline_call<'tcx>(
 
         let orig_caller_location = mem::replace(&mut fx.caller_location, inlined_caller_location);
 
-        println!("Inlining {}", inlined_instance);
+        println!("[START] Inlining {} into {}", inlined_instance, orig_instance);
 
         let ssa_analyzed = crate::analyze::analyze(fx);
 
@@ -95,9 +96,6 @@ pub(super) fn try_inline_call<'tcx>(
             })
             .collect::<Vec<(Local, ArgKind<'tcx>, Ty<'tcx>)>>();
         assert!(args.next().is_none());
-
-        fx.bcx.switch_to_block(start_block);
-        fx.bcx.ins().nop();
 
         //#[cfg(debug_assertions)]
         //super::comments::add_locals_header_comment(fx);
@@ -170,6 +168,8 @@ pub(super) fn try_inline_call<'tcx>(
             .jump(*fx.block_map.get(START_BLOCK).unwrap(), &[]);
 
         crate::base::codegen_fn_content(fx);
+
+        println!("[END  ] Inlining {}", inlined_instance);
 
         // Restore everything
         fx.caller_location = orig_caller_location;
