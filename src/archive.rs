@@ -13,6 +13,7 @@ struct ArchiveConfig<'a> {
     dst: PathBuf,
     lib_search_paths: Vec<PathBuf>,
     use_gnu_style_archive: bool,
+    no_builtin_ranlib: bool,
 }
 
 #[derive(Debug)]
@@ -41,6 +42,8 @@ impl<'a> ArchiveBuilder<'a> for ArArchiveBuilder<'a> {
             dst: output.to_path_buf(),
             lib_search_paths: archive_search_paths(sess),
             use_gnu_style_archive: sess.target.target.options.archive_format == "gnu",
+            // FIXME fix builtin ranlib on macOS
+            no_builtin_ranlib: sess.target.target.options.is_like_osx,
         };
 
         let (src_archives, entries) = if let Some(input) = input {
@@ -173,22 +176,24 @@ impl<'a> ArchiveBuilder<'a> for ArArchiveBuilder<'a> {
                 }
             };
 
-            match object::File::parse(&data) {
-                Ok(object) => {
-                    symbol_table.insert(entry_name.as_bytes().to_vec(), object.symbols().filter_map(|(_index, symbol)| {
-                        if symbol.is_undefined() || symbol.is_local() || symbol.kind() != SymbolKind::Data && symbol.kind() != SymbolKind::Text && symbol.kind() != SymbolKind::Tls {
-                            None
+            if !self.config.no_builtin_ranlib {
+                match object::File::parse(&data) {
+                    Ok(object) => {
+                        symbol_table.insert(entry_name.as_bytes().to_vec(), object.symbols().filter_map(|(_index, symbol)| {
+                            if symbol.is_undefined() || symbol.is_local() || symbol.kind() != SymbolKind::Data && symbol.kind() != SymbolKind::Text && symbol.kind() != SymbolKind::Tls {
+                                None
+                            } else {
+                                symbol.name().map(|name| name.as_bytes().to_vec())
+                            }
+                        }).collect::<Vec<_>>());
+                    }
+                    Err(err) => {
+                        let err = err.to_string();
+                        if err == "Unknown file magic" {
+                            // Not an object file; skip it.
                         } else {
-                            symbol.name().map(|name| name.as_bytes().to_vec())
+                            self.config.sess.fatal(&format!("Error parsing `{}` during archive creation: {}", entry_name, err));
                         }
-                    }).collect::<Vec<_>>());
-                }
-                Err(err) => {
-                    let err = err.to_string();
-                    if err == "Unknown file magic" {
-                        // Not an object file; skip it.
-                    } else {
-                        self.config.sess.fatal(&format!("Error parsing `{}` during archive creation: {}", entry_name, err));
                     }
                 }
             }
@@ -223,6 +228,23 @@ impl<'a> ArchiveBuilder<'a> for ArArchiveBuilder<'a> {
                 BuilderKind::Gnu(ref mut builder) => builder
                     .append(&header, &mut &*data)
                     .unwrap(),
+            }
+        }
+
+        // Finalize archive
+        std::mem::drop(builder);
+
+        if self.config.no_builtin_ranlib {
+            let ranlib = crate::toolchain::get_toolchain_binary(self.config.sess, "ranlib");
+
+            // Run ranlib to be able to link the archive
+            let status = std::process::Command::new(ranlib)
+                .arg(self.config.dst)
+                .status()
+                .expect("Couldn't run ranlib");
+
+            if !status.success() {
+                self.config.sess.fatal(&format!("Ranlib exited with code {:?}", status.code()));
             }
         }
     }
