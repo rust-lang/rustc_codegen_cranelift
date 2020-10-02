@@ -31,7 +31,7 @@ fn target_endian(tcx: TyCtxt<'_>) -> RunTimeEndian {
     }
 }
 
-pub(crate) struct DebugContext<'tcx> {
+pub struct DebugContext<'tcx> {
     tcx: TyCtxt<'tcx>,
 
     endian: RunTimeEndian,

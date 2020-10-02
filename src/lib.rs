@@ -33,7 +33,7 @@ extern crate rustc_target;
 #[allow(unused_extern_crates)]
 extern crate rustc_driver;
 
-use std::any::Any;
+use std::{any::Any, cell::RefCell};
 
 use rustc_codegen_ssa::traits::CodegenBackend;
 use rustc_codegen_ssa::CodegenResults;
@@ -50,7 +50,7 @@ use crate::constant::ConstantCx;
 use crate::prelude::*;
 
 mod abi;
-mod allocator;
+pub mod allocator;
 mod analyze;
 mod archive;
 mod atomic_shim;
@@ -62,11 +62,11 @@ mod common;
 mod constant;
 mod debuginfo;
 mod discriminant;
-mod driver;
+pub mod driver;
 mod inline_asm;
 mod intrinsics;
 mod linkage;
-mod main_shim;
+pub mod main_shim;
 mod metadata;
 mod num;
 mod optimize;
@@ -129,7 +129,7 @@ impl<F: Fn() -> String> Drop for PrintOnPanic<F> {
     }
 }
 
-struct CodegenCx<'tcx, M: Module> {
+pub struct CodegenCx<'tcx, M: Module> {
     tcx: TyCtxt<'tcx>,
     module: M,
     global_asm: String,
@@ -141,7 +141,7 @@ struct CodegenCx<'tcx, M: Module> {
 }
 
 impl<'tcx, M: Module> CodegenCx<'tcx, M> {
-    fn new(tcx: TyCtxt<'tcx>, module: M, debug_info: bool) -> Self {
+    pub fn new(tcx: TyCtxt<'tcx>, module: M, debug_info: bool) -> Self {
         let unwind_context = UnwindContext::new(tcx, module.isa());
         let debug_context = if debug_info {
             Some(DebugContext::new(tcx, module.isa()))
@@ -160,7 +160,7 @@ impl<'tcx, M: Module> CodegenCx<'tcx, M> {
         }
     }
 
-    fn finalize(mut self) -> (M, String, Option<DebugContext<'tcx>>, UnwindContext<'tcx>) {
+    pub fn finalize(mut self) -> (M, String, Option<DebugContext<'tcx>>, UnwindContext<'tcx>) {
         self.constants_cx.finalize(self.tcx, &mut self.module);
         (
             self.module,
@@ -171,13 +171,13 @@ impl<'tcx, M: Module> CodegenCx<'tcx, M> {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
 pub struct BackendConfig {
     pub use_jit: bool,
+    pub custom_backend: Option<Box<dyn for<'tcx> FnOnce(TyCtxt<'tcx>) -> !>>,
 }
 
 pub struct CraneliftCodegenBackend {
-    pub config: BackendConfig,
+    pub config: RefCell<Option<BackendConfig>>,
 }
 
 impl CodegenBackend for CraneliftCodegenBackend {
@@ -220,7 +220,12 @@ impl CodegenBackend for CraneliftCodegenBackend {
         metadata: EncodedMetadata,
         need_metadata_module: bool,
     ) -> Box<dyn Any> {
-        let res = driver::codegen_crate(tcx, metadata, need_metadata_module, self.config);
+        let res = driver::codegen_crate(
+            tcx,
+            metadata,
+            need_metadata_module,
+            self.config.borrow_mut().take().unwrap(),
+        );
 
         rustc_symbol_mangling::test::report_symbol_names(tcx);
 
@@ -277,11 +282,11 @@ impl CodegenBackend for CraneliftCodegenBackend {
     }
 }
 
-fn target_triple(sess: &Session) -> target_lexicon::Triple {
+pub fn target_triple(sess: &Session) -> target_lexicon::Triple {
     sess.target.target.llvm_target.parse().unwrap()
 }
 
-fn build_isa(sess: &Session, enable_pic: bool) -> Box<dyn isa::TargetIsa + 'static> {
+pub fn build_isa(sess: &Session, enable_pic: bool) -> Box<dyn isa::TargetIsa + 'static> {
     use target_lexicon::BinaryFormat;
 
     let target_triple = crate::target_triple(sess);
@@ -343,6 +348,9 @@ fn build_isa(sess: &Session, enable_pic: bool) -> Box<dyn isa::TargetIsa + 'stat
 #[no_mangle]
 pub fn __rustc_codegen_backend() -> Box<dyn CodegenBackend> {
     Box::new(CraneliftCodegenBackend {
-        config: BackendConfig { use_jit: false },
+        config: RefCell::new(Some(BackendConfig {
+            use_jit: false,
+            custom_backend: None,
+        })),
     })
 }

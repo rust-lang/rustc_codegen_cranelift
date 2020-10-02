@@ -6,6 +6,8 @@ extern crate rustc_interface;
 extern crate rustc_session;
 extern crate rustc_target;
 
+use std::cell::RefCell;
+
 use rustc_data_structures::profiling::print_time_passes_entry;
 use rustc_interface::interface;
 use rustc_session::config::ErrorOutputType;
@@ -81,9 +83,10 @@ fn main() {
             None,
             Some(Box::new(move |_| {
                 Box::new(rustc_codegen_cranelift::CraneliftCodegenBackend {
-                    config: rustc_codegen_cranelift::BackendConfig {
+                    config: RefCell::new(Some(rustc_codegen_cranelift::BackendConfig {
                         use_jit,
-                    }
+                        custom_backend: None,
+                    }))
                 })
             })),
         )

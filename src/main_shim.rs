@@ -5,7 +5,7 @@ use crate::prelude::*;
 
 /// Create the `main` function which will initialize the rust runtime and call
 /// users main function.
-pub(crate) fn maybe_create_entry_wrapper(
+pub fn maybe_create_entry_wrapper(
     tcx: TyCtxt<'_>,
     module: &mut impl Module,
     unwind_context: &mut UnwindContext<'_>,

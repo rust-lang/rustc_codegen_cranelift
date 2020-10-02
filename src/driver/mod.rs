@@ -16,9 +16,13 @@ pub(crate) fn codegen_crate(
     tcx: TyCtxt<'_>,
     metadata: EncodedMetadata,
     need_metadata_module: bool,
-    config: crate::BackendConfig,
+    mut config: crate::BackendConfig,
 ) -> Box<dyn Any> {
     tcx.sess.abort_if_errors();
+
+    if let Some(custom_backend) = config.custom_backend.take() {
+        let _: ! = custom_backend(tcx);
+    }
 
     if config.use_jit {
         let is_executable = tcx
@@ -40,7 +44,7 @@ pub(crate) fn codegen_crate(
     aot::run_aot(tcx, metadata, need_metadata_module)
 }
 
-fn codegen_mono_items<'tcx>(
+pub fn codegen_mono_items<'tcx>(
     cx: &mut crate::CodegenCx<'tcx, impl Module>,
     mono_items: Vec<(MonoItem<'tcx>, (RLinkage, Visibility))>,
 ) {
@@ -118,7 +122,7 @@ fn trans_mono_item<'tcx, M: Module>(
     }
 }
 
-fn time<R>(tcx: TyCtxt<'_>, name: &'static str, f: impl FnOnce() -> R) -> R {
+pub fn time<R>(tcx: TyCtxt<'_>, name: &'static str, f: impl FnOnce() -> R) -> R {
     if std::env::var("CG_CLIF_DISPLAY_CG_TIME")
         .as_ref()
         .map(|val| &**val)

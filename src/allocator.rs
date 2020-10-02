@@ -7,7 +7,7 @@ use rustc_ast::expand::allocator::{AllocatorKind, AllocatorTy, ALLOCATOR_METHODS
 use rustc_span::symbol::sym;
 
 /// Returns whether an allocator shim was created
-pub(crate) fn codegen(
+pub fn codegen(
     tcx: TyCtxt<'_>,
     module: &mut impl Module,
     unwind_context: &mut UnwindContext<'_>,

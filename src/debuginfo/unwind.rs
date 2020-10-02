@@ -8,7 +8,7 @@ use gimli::write::{Address, CieId, EhFrame, FrameTable, Section};
 
 use crate::backend::WriteDebugInfo;
 
-pub(crate) struct UnwindContext<'tcx> {
+pub struct UnwindContext<'tcx> {
     tcx: TyCtxt<'tcx>,
     frame_table: FrameTable,
     cie_id: Option<CieId>,
