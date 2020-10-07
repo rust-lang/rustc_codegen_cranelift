@@ -126,5 +126,12 @@ pub fn maybe_create_entry_wrapper(
         )
         .unwrap();
         unwind_context.add_function(cmain_func_id, &ctx, m.isa());
+
+        let clif_file_name = format!(
+            "{}/{}__main_shim.opt.clif",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/target/out/clif"),
+            tcx.crate_name(LOCAL_CRATE),
+        );
+        std::fs::write(clif_file_name, format!("{}", ctx.func)).unwrap();
     }
 }
