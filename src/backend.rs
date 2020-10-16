@@ -132,10 +132,16 @@ impl AddConstructor for ObjectProduct {
         let init_array_section =
             self.object
                 .add_section(segment.to_vec(), b".init_array".to_vec(), SectionKind::Data);
+        let addres_size = self
+            .object
+            .architecture()
+            .address_size()
+            .expect("address_size must be known")
+            .bytes();
         self.object.append_section_data(
             init_array_section,
             &std::iter::repeat(0)
-                .take(8 /*FIXME pointer size*/)
+                .take(addres_size.into())
                 .collect::<Vec<u8>>(),
             8,
         );
@@ -144,7 +150,7 @@ impl AddConstructor for ObjectProduct {
                 init_array_section,
                 object::write::Relocation {
                     offset: 0,
-                    size: 64, // FIXME pointer size
+                    size: addres_size * 8,
                     kind: RelocationKind::Absolute,
                     encoding: RelocationEncoding::Generic,
                     symbol,
