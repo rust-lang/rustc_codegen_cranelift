@@ -31,14 +31,33 @@ pub(crate) fn build_sysroot(
 
     let is_native = bootstrap_host_compiler.triple == target_triple;
 
-    let cg_clif_dylib_path = match cg_clif_dylib_src {
+    let cg_clif_backend_name = match cg_clif_dylib_src {
         CodegenBackend::Local(src_path) => {
-            // Copy the backend
-            let cg_clif_dylib_path = dist_dir.join("lib").join(src_path.file_name().unwrap());
+            // Create the codegen-backends dir in the sysroot
+            let dylib_dir = dist_dir
+                .join("lib")
+                .join("rustlib")
+                .join(&bootstrap_host_compiler.triple)
+                .join("codegen-backends");
+            fs::create_dir_all(&dylib_dir).unwrap();
+
+            // Copy the backend into the sysroot
+            let target_dylib_name = get_file_name(
+                &bootstrap_host_compiler.rustc,
+                "rustc_codegen_cranelift_local",
+                "dylib",
+            )
+            .replace("cranelift_local", "cranelift-local");
+            let cg_clif_dylib_path = dylib_dir.join(target_dylib_name);
             try_hard_link(src_path, &cg_clif_dylib_path);
-            CodegenBackend::Local(cg_clif_dylib_path)
+
+            // This is using a different name from rustup distributed versions of cg_clif to allow
+            // switching between a locally built and rustup distributed version and to ensure that
+            // the rustup distributed version doesn't accidentally gets picked when trying to use
+            // the locally built version.
+            "cranelift-local".to_owned()
         }
-        CodegenBackend::Builtin(name) => CodegenBackend::Builtin(name.clone()),
+        CodegenBackend::Builtin(name) => name.clone(),
     };
 
     // Build and copy rustc and cargo wrappers
@@ -70,9 +89,8 @@ pub(crate) fn build_sysroot(
                 .env("RUSTC", &bootstrap_host_compiler.rustc)
                 .env("RUSTDOC", &bootstrap_host_compiler.rustdoc);
         }
-        if let CodegenBackend::Builtin(name) = cg_clif_dylib_src {
-            build_cargo_wrapper_cmd.env("BUILTIN_BACKEND", name);
-        }
+        build_cargo_wrapper_cmd.env("HOST_TUPLE", &bootstrap_host_compiler.triple);
+        build_cargo_wrapper_cmd.env("BUILTIN_BACKEND", &cg_clif_backend_name);
         spawn_and_wait(build_cargo_wrapper_cmd);
         try_hard_link(wrapper_path, dist_dir.join("bin").join(wrapper_name));
     }
@@ -80,7 +98,7 @@ pub(crate) fn build_sysroot(
     let host = build_sysroot_for_triple(
         dirs,
         bootstrap_host_compiler.clone(),
-        &cg_clif_dylib_path,
+        &cg_clif_dylib_src,
         sysroot_kind,
         panic_unwind_support,
     );
@@ -95,7 +113,7 @@ pub(crate) fn build_sysroot(
                 bootstrap_target_compiler.set_cross_linker_and_runner();
                 bootstrap_target_compiler
             },
-            &cg_clif_dylib_path,
+            &cg_clif_dylib_src,
             sysroot_kind,
             panic_unwind_support,
         )

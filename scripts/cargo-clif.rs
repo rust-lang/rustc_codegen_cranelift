@@ -17,16 +17,7 @@ fn main() {
         rustflags.push("-Cpanic=abort".to_owned());
         rustflags.push("-Zpanic-abort-tests".to_owned());
     }
-    if let Some(name) = option_env!("BUILTIN_BACKEND") {
-        rustflags.push(format!("-Zcodegen-backend={name}"));
-    } else {
-        let dylib = sysroot.join("lib").join(
-            env::consts::DLL_PREFIX.to_string()
-                + "rustc_codegen_cranelift"
-                + env::consts::DLL_SUFFIX,
-        );
-        rustflags.push(format!("-Zcodegen-backend={}", dylib.to_str().unwrap()));
-    }
+    rustflags.push(concat!("-Zcodegen-backend=", env!("BUILTIN_BACKEND")).to_owned());
     rustflags.push("--sysroot".to_owned());
     rustflags.push(sysroot.to_str().unwrap().to_owned());
 

@@ -156,6 +156,8 @@ const EXTENDED_SYSROOT_SUITE: &[TestCase] = &[
         RAND.clean(&runner.dirs);
 
         if runner.is_native {
+            // FIXME all cargo tests are using both cargo-clif and rustc-clif, making usage of plain
+            // cargo-clif untested.
             let mut test_cmd = RAND.test(&runner.target_compiler, &runner.dirs);
             test_cmd.arg("--workspace").arg("--").arg("-q");
             spawn_and_wait(test_cmd);
