@@ -260,10 +260,6 @@ impl<'tcx> DebugContext<'tcx> {
             length: u64::from(end),
         });
 
-        if isa.get_mach_backend().is_some() {
-            return; // Not yet implemented for the AArch64 backend.
-        }
-
         let func_entry = self.dwarf.unit.get_mut(entry_id);
         // Gdb requires both DW_AT_low_pc and DW_AT_high_pc. Otherwise the DW_TAG_subprogram is skipped.
         func_entry.set(
@@ -273,33 +269,40 @@ impl<'tcx> DebugContext<'tcx> {
         // Using Udata for DW_AT_high_pc requires at least DWARF4
         func_entry.set(gimli::DW_AT_high_pc, AttributeValue::Udata(u64::from(end)));
 
-        // FIXME make it more reliable and implement scopes before re-enabling this.
-        if false {
-            let value_labels_ranges = context.build_value_labels_ranges(isa).unwrap();
+        if let Some(mach_compile_result) = &context.mach_compile_result {
+            if mach_compile_result.value_labels_ranges.is_none() {
+                return; // Workaround for bytecodealliance/wasmtime#2630
+            }
+        }
+        let value_labels_ranges = context.build_value_labels_ranges(isa).unwrap();
 
-            for (local, _local_decl) in mir.local_decls.iter_enumerated() {
-                let ty = self.tcx.subst_and_normalize_erasing_regions(
-                    instance.substs,
-                    ty::ParamEnv::reveal_all(),
-                    mir.local_decls[local].ty,
-                );
-                let var_id = self.define_local(entry_id, format!("{:?}", local), ty);
+        for entry in &mir.var_debug_info {
+            match entry.value {
+                VarDebugInfoContents::Place(place) => {
+                    let ty = self
+                        .tcx
+                        .subst_and_normalize_erasing_regions(
+                            instance.substs,
+                            ty::ParamEnv::reveal_all(),
+                            place.ty(mir, self.tcx),
+                        )
+                        .ty;
+                    let var_id = self.define_local(entry_id, entry.name.as_str().to_string(), ty);
 
-                let location = place_location(
-                    self,
-                    isa,
-                    symbol,
-                    context,
-                    &local_map,
-                    &value_labels_ranges,
-                    Place {
-                        local,
-                        projection: ty::List::empty(),
-                    },
-                );
+                    let location = place_location(
+                        self,
+                        isa,
+                        symbol,
+                        context,
+                        &local_map,
+                        &value_labels_ranges,
+                        place,
+                    );
 
-                let var_entry = self.dwarf.unit.get_mut(var_id);
-                var_entry.set(gimli::DW_AT_location, location);
+                    let var_entry = self.dwarf.unit.get_mut(var_id);
+                    var_entry.set(gimli::DW_AT_location, location);
+                }
+                VarDebugInfoContents::Const(_) => todo!("const var debug info"),
             }
         }
 
