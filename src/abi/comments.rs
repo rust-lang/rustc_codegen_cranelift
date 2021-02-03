@@ -103,7 +103,7 @@ pub(super) fn add_local_place_comments<'tcx>(
             } else {
                 Cow::Borrowed("")
             };
-            match ptr.base_and_offset() {
+            match ptr.debug_base_and_offset() {
                 (crate::pointer::PointerBase::Addr(addr), offset) => (
                     "reuse",
                     format!("storage={}{}{}", addr, offset, meta).into(),

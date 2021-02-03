@@ -121,8 +121,12 @@ unsafe fn zeroed<T>() -> T {
     uninit.value.value
 }
 
-fn take_f32(_f: f32) {}
-fn take_unique(_u: Unique<()>) {}
+fn take_f32(flt: f32) {take_f32_2(flt)}
+fn take_f32_2(_flt: f32) {}
+fn take_unique(uniq: Unique<()>) {
+    take_unique_2(uniq)
+}
+fn take_unique_2(_uniq: Unique<()>) {}
 
 fn return_u128_pair() -> (u128, u128) {
     (0, 0)
@@ -133,10 +137,11 @@ fn call_return_u128_pair() {
 }
 
 fn main() {
-    take_unique(Unique {
+    let uniq = Unique {
         pointer: 0 as *const (),
         _marker: PhantomData,
-    });
+    };
+    take_unique(uniq);
     take_f32(0.1);
 
     call_return_u128_pair();

@@ -54,8 +54,7 @@ impl Pointer {
         }
     }
 
-    #[cfg(debug_assertions)]
-    pub(crate) fn base_and_offset(self) -> (PointerBase, Offset32) {
+    pub(crate) fn debug_base_and_offset(self) -> (PointerBase, Offset32) {
         (self.base, self.offset)
     }
 

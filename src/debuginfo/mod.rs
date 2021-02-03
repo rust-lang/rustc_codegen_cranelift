@@ -4,6 +4,9 @@ mod emit;
 mod line_info;
 mod unwind;
 
+use std::collections::HashMap;
+
+use crate::pointer::PointerBase;
 use crate::prelude::*;
 
 use rustc_index::vec::IndexVec;
@@ -269,12 +272,15 @@ impl<'tcx> DebugContext<'tcx> {
         // Using Udata for DW_AT_high_pc requires at least DWARF4
         func_entry.set(gimli::DW_AT_high_pc, AttributeValue::Udata(u64::from(end)));
 
-        if let Some(mach_compile_result) = &context.mach_compile_result {
+        let value_labels_ranges = if let Some(mach_compile_result) = &context.mach_compile_result {
             if mach_compile_result.value_labels_ranges.is_none() {
-                return; // Workaround for bytecodealliance/wasmtime#2630
+                HashMap::new() // Workaround for bytecodealliance/wasmtime#2630
+            } else {
+                context.build_value_labels_ranges(isa).unwrap()
             }
-        }
-        let value_labels_ranges = context.build_value_labels_ranges(isa).unwrap();
+        } else {
+            context.build_value_labels_ranges(isa).unwrap()
+        };
 
         for entry in &mir.var_debug_info {
             match entry.value {
@@ -324,59 +330,69 @@ fn place_location<'tcx>(
 ) -> AttributeValue {
     assert!(place.projection.is_empty()); // FIXME implement them
 
-    match local_map[place.local].inner() {
+    let loc_list = match local_map[place.local].inner() {
         CPlaceInner::Var(_local, var) => {
             let value_label = cranelift_codegen::ir::ValueLabel::new(var.index());
             if let Some(value_loc_ranges) = value_labels_ranges.get(&value_label) {
-                let loc_list = LocationList(
-                    value_loc_ranges
-                        .iter()
-                        .map(|value_loc_range| Location::StartEnd {
-                            begin: Address::Symbol {
-                                symbol,
-                                addend: i64::from(value_loc_range.start),
-                            },
-                            end: Address::Symbol {
-                                symbol,
-                                addend: i64::from(value_loc_range.end),
-                            },
-                            data: translate_loc(
-                                isa,
-                                value_loc_range.loc,
-                                &context.func.stack_slots,
-                            )
+                value_loc_ranges
+                    .iter()
+                    .map(|value_loc_range| Location::StartEnd {
+                        begin: Address::Symbol {
+                            symbol,
+                            addend: i64::from(value_loc_range.start),
+                        },
+                        end: Address::Symbol {
+                            symbol,
+                            addend: i64::from(value_loc_range.end),
+                        },
+                        data: translate_loc(isa, value_loc_range.loc, &context.func.stack_slots)
                             .unwrap(),
-                        })
-                        .collect(),
-                );
-                let loc_list_id = debug_context.dwarf.unit.locations.add(loc_list);
-
-                AttributeValue::LocationListRef(loc_list_id)
+                    })
+                    .collect()
             } else {
-                // FIXME set value labels for unused locals
-
-                AttributeValue::Exprloc(Expression::new())
+                vec![]
             }
         }
-        CPlaceInner::VarPair(_, _, _) => {
+        CPlaceInner::VarPair(_local, _var1, _var2) => {
             // FIXME implement this
 
-            AttributeValue::Exprloc(Expression::new())
+            vec![]
         }
-        CPlaceInner::VarLane(_, _, _) => {
+        CPlaceInner::VarLane(_local, _var, _lane) => {
             // FIXME implement this
 
-            AttributeValue::Exprloc(Expression::new())
+            vec![]
         }
-        CPlaceInner::Addr(_, _) => {
-            // FIXME implement this (used by arguments and returns)
-
-            AttributeValue::Exprloc(Expression::new())
+        CPlaceInner::Addr(addr, extra) => {
+            let (base, offset) = addr.debug_base_and_offset();
+            let offset: i64 = offset.into();
+            match (base, extra) {
+                (PointerBase::Stack(stack_slot), None) => {
+                    let stack_offset = context
+                        .mach_compile_result
+                        .as_ref()
+                        .unwrap()
+                        .stackslot_offsets[stack_slot];
+                    let offset = i64::from(stack_offset) + offset;
+                    let mut expr = Expression::new();
+                    expr.op_breg(X86_64::RSP, offset);
+                    return AttributeValue::Exprloc(expr);
+                }
+                // FIXME implement this
+                _ => vec![],
+            }
 
             // For PointerBase::Stack:
             //AttributeValue::Exprloc(translate_loc(ValueLoc::Stack(*stack_slot), &context.func.stack_slots).unwrap())
         }
-    }
+    };
+
+    let loc_list_id = debug_context
+        .dwarf
+        .unit
+        .locations
+        .add(LocationList(loc_list));
+    AttributeValue::LocationListRef(loc_list_id)
 }
 
 // Adapted from https://github.com/CraneStation/wasmtime/blob/5a1845b4caf7a5dba8eda1fef05213a532ed4259/crates/debug/src/transform/expression.rs#L59-L137
