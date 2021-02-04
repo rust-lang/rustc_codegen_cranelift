@@ -25,8 +25,8 @@ function no_sysroot_tests() {
 
     echo "[AOT] mini_core_hello_world"
     $MY_RUSTC example/mini_core_hello_world.rs --crate-name mini_core_hello_world --crate-type bin -g --target "$TARGET_TRIPLE"
-    $RUN_WRAPPER ./target/out/mini_core_hello_world abc bcd
-    # (echo "break set -n main"; echo "run"; sleep 1; echo "si -c 10"; sleep 1; echo "frame variable") | lldb -- ./target/out/mini_core_hello_world abc bcd
+    lldb --batch -o "break set -f mini_core_hello_world.rs -l 148" -o "run" -o "frame variable" -- ./target/out/mini_core_hello_world abc bcd
+    lldb -- ./target/out/mini_core_hello_world abc bcd
 
     echo "[AOT] arbitrary_self_types_pointers_and_wrappers"
     $MY_RUSTC example/arbitrary_self_types_pointers_and_wrappers.rs --crate-name arbitrary_self_types_pointers_and_wrappers --crate-type bin --target "$TARGET_TRIPLE"
