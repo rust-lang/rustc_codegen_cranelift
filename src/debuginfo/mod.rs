@@ -4,8 +4,6 @@ mod emit;
 mod line_info;
 mod unwind;
 
-use std::collections::HashMap;
-
 use crate::pointer::PointerBase;
 use crate::prelude::*;
 
@@ -272,15 +270,7 @@ impl<'tcx> DebugContext<'tcx> {
         // Using Udata for DW_AT_high_pc requires at least DWARF4
         func_entry.set(gimli::DW_AT_high_pc, AttributeValue::Udata(u64::from(end)));
 
-        let value_labels_ranges = if let Some(mach_compile_result) = &context.mach_compile_result {
-            if mach_compile_result.value_labels_ranges.is_none() {
-                HashMap::new() // Workaround for bytecodealliance/wasmtime#2630
-            } else {
-                context.build_value_labels_ranges(isa).unwrap()
-            }
-        } else {
-            context.build_value_labels_ranges(isa).unwrap()
-        };
+        let value_labels_ranges = context.build_value_labels_ranges(isa).unwrap();
 
         for entry in &mir.var_debug_info {
             match entry.value {
