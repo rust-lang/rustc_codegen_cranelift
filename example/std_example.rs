@@ -47,8 +47,11 @@ fn main() {
 
     println!("cargo:rustc-link-lib=z");
 
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {});
+    #[cfg(not(jit_hot_reload))]
+    {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {});
+    }
 
     let _eq = LoopState::Continue(()) == LoopState::Break(());
 

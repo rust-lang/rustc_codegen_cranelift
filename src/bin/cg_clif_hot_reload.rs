@@ -210,6 +210,10 @@ impl CodegenBackend for HotReloadCodegenBackend {
                             });
                         }
                         MonoItem::Static(def_id) => {
+                            tcx.sess.span_warn(
+                                tcx.def_span(def_id),
+                                "hot swapping is not supported for statics",
+                            );
                             if is_fresh {
                                 crate::constant::codegen_static(
                                     tcx,
