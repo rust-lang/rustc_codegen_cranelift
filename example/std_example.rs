@@ -7,12 +7,12 @@ use std::ops::Generator;
 
 #[cfg(jit_hot_reload)]
 fn hot_swappable() {
-    println!("Hello hotswap! foo");
+    println!("Hello hotswap!");
 }
 
 #[cfg_attr(jit_hot_reload, allow(unreachable_code))]
 fn main() {
-    println!("Start bar");
+    println!("Start");
     #[cfg(jit_hot_reload)]
     loop {
         extern "C" {

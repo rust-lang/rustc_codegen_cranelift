@@ -19,7 +19,7 @@ use std::sync::{mpsc, Mutex};
 
 use rustc_codegen_ssa::traits::CodegenBackend;
 use rustc_codegen_ssa::CodegenResults;
-use rustc_data_structures::fx::FxHashMap;
+use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_errors::ErrorReported;
 use rustc_hir::def_id::LOCAL_CRATE;
 use rustc_interface::interface;
@@ -33,7 +33,7 @@ use rustc_session::Session;
 use rustc_target::spec::PanicStrategy;
 
 use cranelift_jit::JITModule;
-use cranelift_module::{Linkage, Module};
+use cranelift_module::Module;
 
 use rustc_codegen_cranelift::*;
 
@@ -88,6 +88,7 @@ fn run_compiler() -> Result<CompilationResult, mpsc::RecvError> {
 struct HotReloadState {
     backend_config: BackendConfig,
     jit_module: JITModule,
+    defined_functions: FxHashSet<String>,
 }
 
 // FIXME
@@ -146,7 +147,11 @@ impl CodegenBackend for HotReloadCodegenBackend {
                 )],
             );
 
-            *locked_hot_reload_state = Some(HotReloadState { backend_config, jit_module });
+            *locked_hot_reload_state = Some(HotReloadState {
+                backend_config,
+                jit_module,
+                defined_functions: FxHashSet::default(),
+            });
         }
 
         let hot_reload_state = locked_hot_reload_state.as_mut().unwrap();
@@ -177,7 +182,7 @@ impl CodegenBackend for HotReloadCodegenBackend {
                     .declarations()
                     .get_functions()
                     .filter_map(|(func_id, func)| {
-                        if func.linkage != Linkage::Import && func.name != "main" {
+                        if hot_reload_state.defined_functions.contains(&func.name) {
                             Some(func_id)
                         } else {
                             None
@@ -187,12 +192,16 @@ impl CodegenBackend for HotReloadCodegenBackend {
                 for func_id in defined_functions {
                     hot_reload_state.jit_module.prepare_for_function_redefine(func_id).unwrap();
                 }
+                hot_reload_state.defined_functions.clear();
 
                 driver::predefine_mono_items(tcx, &mut hot_reload_state.jit_module, &mono_items);
                 for (mono_item, _) in mono_items {
                     match mono_item {
                         MonoItem::Fn(inst) => {
-                            cx.tcx.sess.time("codegen fn", || {
+                            hot_reload_state
+                                .defined_functions
+                                .insert(tcx.symbol_name(inst).name.to_owned());
+                            tcx.sess.time("codegen fn", || {
                                 crate::base::codegen_fn(
                                     &mut cx,
                                     &mut hot_reload_state.jit_module,
