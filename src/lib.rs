@@ -37,6 +37,8 @@ use cranelift_codegen::isa::TargetIsa;
 use cranelift_codegen::settings::{self, Configurable};
 
 pub use crate::config::*;
+pub use crate::metadata::CraneliftMetadataLoader;
+
 use crate::prelude::*;
 
 mod abi;
@@ -44,13 +46,13 @@ mod allocator;
 mod analyze;
 mod archive;
 mod backend;
-mod base;
+pub mod base;
 mod cast;
 mod codegen_i128;
 mod common;
 mod compiler_builtins;
 mod config;
-mod constant;
+pub mod constant;
 mod debuginfo;
 mod discriminant;
 pub mod driver;
@@ -121,16 +123,16 @@ impl<F: Fn() -> String> Drop for PrintOnPanic<F> {
 
 /// The codegen context holds any information shared between the codegen of individual functions
 /// inside a single codegen unit with the exception of the Cranelift [`Module`](cranelift_module::Module).
-struct CodegenCx<'tcx> {
-    tcx: TyCtxt<'tcx>,
-    global_asm: String,
+pub struct CodegenCx<'tcx> {
+    pub tcx: TyCtxt<'tcx>,
+    pub global_asm: String,
     cached_context: Context,
     debug_context: Option<DebugContext<'tcx>>,
     unwind_context: UnwindContext,
 }
 
 impl<'tcx> CodegenCx<'tcx> {
-    fn new(
+    pub fn new(
         tcx: TyCtxt<'tcx>,
         backend_config: BackendConfig,
         isa: &dyn TargetIsa,
@@ -165,7 +167,7 @@ impl CodegenBackend for CraneliftCodegenBackend {
     }
 
     fn metadata_loader(&self) -> Box<dyn MetadataLoader + Sync> {
-        Box::new(crate::metadata::CraneliftMetadataLoader)
+        Box::new(CraneliftMetadataLoader)
     }
 
     fn provide(&self, _providers: &mut Providers) {}

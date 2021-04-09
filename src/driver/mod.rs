@@ -10,11 +10,11 @@ use rustc_session::early_error;
 
 use crate::prelude::*;
 
-pub(crate) mod aot;
+pub mod aot;
 #[cfg(feature = "jit")]
-pub(crate) mod jit;
+pub mod jit;
 
-fn predefine_mono_items<'tcx>(
+pub fn predefine_mono_items<'tcx>(
     tcx: TyCtxt<'tcx>,
     module: &mut dyn Module,
     mono_items: &[(MonoItem<'tcx>, (RLinkage, Visibility))],
@@ -41,7 +41,7 @@ fn predefine_mono_items<'tcx>(
     });
 }
 
-fn time<R>(tcx: TyCtxt<'_>, display: bool, name: &'static str, f: impl FnOnce() -> R) -> R {
+pub fn time<R>(tcx: TyCtxt<'_>, display: bool, name: &'static str, f: impl FnOnce() -> R) -> R {
     if display {
         println!("[{:<30}: {}] start", tcx.crate_name(LOCAL_CRATE), name);
         let before = std::time::Instant::now();

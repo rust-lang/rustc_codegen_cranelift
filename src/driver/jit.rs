@@ -22,7 +22,7 @@ thread_local! {
     static LAZY_JIT_STATE: RefCell<Option<JitState>> = RefCell::new(None);
 }
 
-fn create_jit_module<'tcx>(
+pub fn create_jit_module<'tcx>(
     tcx: TyCtxt<'tcx>,
     backend_config: &BackendConfig,
     hotswap: bool,
@@ -49,7 +49,7 @@ fn create_jit_module<'tcx>(
     (jit_module, cx)
 }
 
-fn make_args(crate_name: &str, args: &[String]) -> (usize, *const *const u8) {
+pub fn make_args(crate_name: &str, args: &[String]) -> (usize, *const *const u8) {
     let mut argv = std::iter::once(crate_name)
         .chain(args.iter().map(|arg| &**arg))
         .map(|arg| CString::new(arg).unwrap().into_raw() as *const u8)
@@ -63,7 +63,7 @@ fn make_args(crate_name: &str, args: &[String]) -> (usize, *const *const u8) {
     (size, ptr)
 }
 
-fn get_main_fn(jit_module: &mut JITModule) -> extern "C" fn(usize, *const *const u8) -> isize {
+pub fn get_main_fn(jit_module: &mut JITModule) -> extern "C" fn(usize, *const *const u8) -> isize {
     let start_sig = Signature {
         params: vec![
             AbiParam::new(jit_module.target_config().pointer_type()),
@@ -77,7 +77,7 @@ fn get_main_fn(jit_module: &mut JITModule) -> extern "C" fn(usize, *const *const
     unsafe { ::std::mem::transmute(finalized_start) }
 }
 
-pub(crate) fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
+pub fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
     if !tcx.sess.opts.output_types.should_codegen() {
         tcx.sess.fatal("JIT mode doesn't work with `cargo check`");
     }
@@ -244,7 +244,7 @@ fn load_imported_symbols_for_jit(tcx: TyCtxt<'_>) -> Vec<(String, *const u8)> {
     imported_symbols
 }
 
-fn codegen_shim<'tcx>(cx: &mut CodegenCx<'tcx>, module: &mut JITModule, inst: Instance<'tcx>) {
+pub fn codegen_shim<'tcx>(cx: &mut CodegenCx<'tcx>, module: &mut JITModule, inst: Instance<'tcx>) {
     let pointer_type = module.target_config().pointer_type();
 
     let name = cx.tcx.symbol_name(inst).name.to_string();

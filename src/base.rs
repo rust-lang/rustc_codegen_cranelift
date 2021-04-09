@@ -9,7 +9,7 @@ use rustc_target::abi::call::FnAbi;
 use crate::constant::ConstantCx;
 use crate::prelude::*;
 
-pub(crate) fn codegen_fn<'tcx>(
+pub fn codegen_fn<'tcx>(
     cx: &mut crate::CodegenCx<'tcx>,
     module: &mut dyn Module,
     instance: Instance<'tcx>,

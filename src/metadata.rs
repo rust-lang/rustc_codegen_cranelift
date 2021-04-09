@@ -26,7 +26,7 @@ use crate::backend::WriteMetadata;
 /// <dt>dylib</dt>
 /// <dd>The metadata can be found in the `.rustc` section of the shared library.</dd>
 /// </dl>
-pub(crate) struct CraneliftMetadataLoader;
+pub struct CraneliftMetadataLoader;
 
 fn load_metadata_with(
     path: &Path,
