@@ -142,7 +142,7 @@ fn main() {
     #[cfg(jit_hot_reload)]
     loop {
         extern "C" {
-            fn __cg_clif_try_hot_swap();
+            fn __cg_clif_try_hot_swap() -> bool;
         }
 
         unsafe {

@@ -58,18 +58,23 @@ fn main() {
     rustc_driver::install_ice_hook();
 
     match run_compiler() {
-        Ok(CompilationResult::Successful(start_fn)) => {
-            std::process::exit(start_fn(0, std::ptr::null()) as i32);
+        Ok(JitCompilationResult::Launch(start_fn, argc, argv)) => {
+            std::process::exit(start_fn(argc, argv) as i32);
         }
+        Ok(JitCompilationResult::Swapped) => unreachable!(),
         Err(_) => {}
     }
 }
 
-extern "C" fn __cg_clif_try_hot_swap() {
-    let _ = run_compiler();
+extern "C" fn __cg_clif_try_hot_swap() -> bool {
+    match run_compiler() {
+        Ok(JitCompilationResult::Launch(_, _, _)) => unreachable!(),
+        Ok(JitCompilationResult::Swapped) => true,
+        Err(_) => false,
+    }
 }
 
-fn run_compiler() -> Result<CompilationResult, mpsc::RecvError> {
+fn run_compiler() -> Result<JitCompilationResult, mpsc::RecvError> {
     let (tx, rx) = mpsc::sync_channel(0);
     let mut callbacks = CraneliftPassesCallbacks;
     std::thread::spawn(move || {
@@ -94,12 +99,15 @@ struct HotReloadState {
 // FIXME
 unsafe impl Send for HotReloadState {}
 
-enum CompilationResult {
-    Successful(extern "C" fn(usize, *const *const u8) -> isize),
+enum JitCompilationResult {
+    Launch(extern "C" fn(usize, *const *const u8) -> isize, usize, *const *const u8),
+    Swapped,
 }
 
+unsafe impl Send for JitCompilationResult {}
+
 struct HotReloadCodegenBackend {
-    tx: mpsc::SyncSender<CompilationResult>,
+    tx: mpsc::SyncSender<JitCompilationResult>,
 }
 
 impl CodegenBackend for HotReloadCodegenBackend {
@@ -143,7 +151,7 @@ impl CodegenBackend for HotReloadCodegenBackend {
                 true,
                 vec![(
                     "__cg_clif_try_hot_swap".to_string(),
-                    __cg_clif_try_hot_swap as extern "C" fn() as *const u8,
+                    __cg_clif_try_hot_swap as extern "C" fn() -> bool as *const u8,
                 )],
             );
 
@@ -239,11 +247,21 @@ impl CodegenBackend for HotReloadCodegenBackend {
         tcx.sess.abort_if_errors();
 
         hot_reload_state.jit_module.finalize_definitions();
-        let main_fn = driver::jit::get_main_fn(&mut hot_reload_state.jit_module);
 
-        std::mem::drop(locked_hot_reload_state);
-        self.tx.send(CompilationResult::Successful(main_fn)).unwrap();
-        std::panic::resume_unwind(Box::new(()));
+        if is_fresh {
+            let main_fn = driver::jit::get_main_fn(&mut hot_reload_state.jit_module);
+            let (argc, argv) = driver::jit::make_args(
+                &tcx.crate_name(LOCAL_CRATE).as_str(),
+                &hot_reload_state.backend_config.jit_args,
+            );
+            std::mem::drop(locked_hot_reload_state);
+            self.tx.send(JitCompilationResult::Launch(main_fn, argc, argv)).unwrap();
+            std::panic::resume_unwind(Box::new(()));
+        } else {
+            std::mem::drop(locked_hot_reload_state);
+            self.tx.send(JitCompilationResult::Swapped).unwrap();
+            std::panic::resume_unwind(Box::new(()));
+        }
     }
 
     fn join_codegen(
