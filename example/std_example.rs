@@ -5,7 +5,27 @@ use std::arch::x86_64::*;
 use std::io::Write;
 use std::ops::Generator;
 
+#[cfg(jit_hot_reload)]
+fn hot_swappable() {
+    println!("Hello hotswap! foo");
+}
+
+#[cfg_attr(jit_hot_reload, allow(unreachable_code))]
 fn main() {
+    println!("Start bar");
+    #[cfg(jit_hot_reload)]
+    loop {
+        extern "C" {
+            fn __cg_clif_try_hot_swap();
+        }
+
+        unsafe {
+            __cg_clif_try_hot_swap();
+        }
+        hot_swappable();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+
     println!("{:?}", std::env::args().collect::<Vec<_>>());
 
     let mutex = std::sync::Mutex::new(());
