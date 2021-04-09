@@ -17,8 +17,6 @@ extern crate rustc_target;
 use std::path::PathBuf;
 
 use rustc_interface::interface;
-use rustc_session::config::ErrorOutputType;
-use rustc_session::early_error;
 use rustc_target::spec::PanicStrategy;
 
 fn find_sysroot() -> String {
@@ -57,16 +55,8 @@ fn main() {
     let exit_code = rustc_driver::catch_with_exit_code(|| {
         let mut use_clif = false;
 
-        let args = std::env::args_os()
-            .enumerate()
-            .map(|(i, arg)| {
-                arg.into_string().unwrap_or_else(|arg| {
-                    early_error(
-                        ErrorOutputType::default(),
-                        &format!("Argument {} is not valid Unicode: {:?}", i, arg),
-                    )
-                })
-            })
+        let args = rustc_codegen_cranelift::driver::get_rustc_args()
+            .into_iter()
             .filter(|arg| {
                 if arg == "--clif" {
                     use_clif = true;

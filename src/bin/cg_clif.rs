@@ -8,8 +8,6 @@ extern crate rustc_target;
 
 use rustc_data_structures::profiling::{get_resident_set_size, print_time_passes_entry};
 use rustc_interface::interface;
-use rustc_session::config::ErrorOutputType;
-use rustc_session::early_error;
 use rustc_target::spec::PanicStrategy;
 
 #[derive(Default)]
@@ -39,17 +37,7 @@ fn main() {
     let mut callbacks = CraneliftPassesCallbacks::default();
     rustc_driver::install_ice_hook();
     let exit_code = rustc_driver::catch_with_exit_code(|| {
-        let args = std::env::args_os()
-            .enumerate()
-            .map(|(i, arg)| {
-                arg.into_string().unwrap_or_else(|arg| {
-                    early_error(
-                        ErrorOutputType::default(),
-                        &format!("Argument {} is not valid Unicode: {:?}", i, arg),
-                    )
-                })
-            })
-            .collect::<Vec<_>>();
+        let args = rustc_codegen_cranelift::driver::get_rustc_args();
         let mut run_compiler = rustc_driver::RunCompiler::new(&args, &mut callbacks);
         run_compiler.set_make_codegen_backend(Some(Box::new(move |_| {
             Box::new(rustc_codegen_cranelift::CraneliftCodegenBackend { config: None })

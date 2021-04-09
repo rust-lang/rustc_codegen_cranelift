@@ -5,6 +5,8 @@
 //! [`codegen_static`]: crate::constant::codegen_static
 
 use rustc_middle::mir::mono::{Linkage as RLinkage, MonoItem, Visibility};
+use rustc_session::config::ErrorOutputType;
+use rustc_session::early_error;
 
 use crate::prelude::*;
 
@@ -50,4 +52,19 @@ fn time<R>(tcx: TyCtxt<'_>, display: bool, name: &'static str, f: impl FnOnce() 
     } else {
         tcx.sess.time(name, f)
     }
+}
+
+/// Get the rustc args based on the commandline args and error on any non-unicode argument.
+pub fn get_rustc_args() -> Vec<String> {
+    std::env::args_os()
+        .enumerate()
+        .map(|(i, arg)| {
+            arg.into_string().unwrap_or_else(|arg| {
+                early_error(
+                    ErrorOutputType::default(),
+                    &format!("Argument {} is not valid Unicode: {:?}", i, arg),
+                )
+            })
+        })
+        .collect()
 }

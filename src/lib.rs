@@ -53,7 +53,7 @@ mod config;
 mod constant;
 mod debuginfo;
 mod discriminant;
-mod driver;
+pub mod driver;
 mod inline_asm;
 mod intrinsics;
 mod linkage;
