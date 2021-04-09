@@ -26,6 +26,7 @@ pub fn create_jit_module<'tcx>(
     tcx: TyCtxt<'tcx>,
     backend_config: &BackendConfig,
     hotswap: bool,
+    extra_symbols: Vec<(String, *const u8)>,
 ) -> (JITModule, CodegenCx<'tcx>) {
     let imported_symbols = load_imported_symbols_for_jit(tcx);
 
@@ -34,6 +35,7 @@ pub fn create_jit_module<'tcx>(
     jit_builder.hotswap(hotswap);
     crate::compiler_builtins::register_functions_for_jit(&mut jit_builder);
     jit_builder.symbols(imported_symbols);
+    jit_builder.symbols(extra_symbols);
     let mut jit_module = JITModule::new(jit_builder);
 
     let mut cx = crate::CodegenCx::new(tcx, backend_config.clone(), jit_module.isa(), false);
@@ -90,6 +92,7 @@ pub fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
         tcx,
         &backend_config,
         matches!(backend_config.codegen_mode, CodegenMode::JitLazy),
+        vec![],
     );
 
     let (_, cgus) = tcx.collect_and_partition_mono_items(LOCAL_CRATE);

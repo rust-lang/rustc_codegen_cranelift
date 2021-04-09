@@ -15,7 +15,7 @@ extern crate rustc_span;
 extern crate rustc_target;
 
 use std::any::Any;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Mutex};
 
 use rustc_codegen_ssa::traits::CodegenBackend;
 use rustc_codegen_ssa::CodegenResults;
@@ -49,41 +49,40 @@ impl rustc_driver::Callbacks for CraneliftPassesCallbacks {
     }
 }
 
+lazy_static::lazy_static! {
+    static ref HOT_RELOAD_STATE: Mutex<Option<HotReloadState>> = Mutex::new(None);
+}
+
 fn main() {
     rustc_driver::init_rustc_env_logger();
     rustc_driver::install_ice_hook();
 
-    let hot_reload_state = Arc::new(Mutex::new(None));
-
-    loop {
-        println!("loop");
-        let cloned_hot_reload_state = hot_reload_state.clone();
-        let (tx, rx) = mpsc::sync_channel(0);
-        let mut callbacks = CraneliftPassesCallbacks;
-        std::thread::spawn(move || {
-            rustc_driver::catch_with_exit_code(|| {
-                let args = rustc_codegen_cranelift::driver::get_rustc_args();
-                let mut run_compiler = rustc_driver::RunCompiler::new(&args, &mut callbacks);
-                run_compiler.set_make_codegen_backend(Some(Box::new(move |_| {
-                    Box::new(HotReloadCodegenBackend {
-                        hot_reload_state: cloned_hot_reload_state,
-                        tx,
-                    })
-                })));
-                run_compiler.run()
-            })
-        });
-        match rx.recv() {
-            Ok(CompilationResult::Successful(start_fn)) => {
-                dbg!(start_fn(0, std::ptr::null()));
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
-            Err(_) => {
-                // compilation error
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
+    match run_compiler() {
+        Ok(CompilationResult::Successful(start_fn)) => {
+            std::process::exit(start_fn(0, std::ptr::null()) as i32);
         }
+        Err(_) => {}
     }
+}
+
+extern "C" fn __cg_clif_try_hot_swap() {
+    let _ = run_compiler();
+}
+
+fn run_compiler() -> Result<CompilationResult, mpsc::RecvError> {
+    let (tx, rx) = mpsc::sync_channel(0);
+    let mut callbacks = CraneliftPassesCallbacks;
+    std::thread::spawn(move || {
+        rustc_driver::catch_with_exit_code(|| {
+            let args = rustc_codegen_cranelift::driver::get_rustc_args();
+            let mut run_compiler = rustc_driver::RunCompiler::new(&args, &mut callbacks);
+            run_compiler.set_make_codegen_backend(Some(Box::new(move |_| {
+                Box::new(HotReloadCodegenBackend { tx })
+            })));
+            run_compiler.run()
+        })
+    });
+    rx.recv()
 }
 
 struct HotReloadState {
@@ -99,7 +98,6 @@ enum CompilationResult {
 }
 
 struct HotReloadCodegenBackend {
-    hot_reload_state: Arc<Mutex<Option<HotReloadState>>>,
     tx: mpsc::SyncSender<CompilationResult>,
 }
 
@@ -132,13 +130,21 @@ impl CodegenBackend for HotReloadCodegenBackend {
         tcx.sess.abort_if_errors();
 
         let mut locked_hot_reload_state =
-            self.hot_reload_state.lock().unwrap_or_else(|_| std::process::exit(1));
+            HOT_RELOAD_STATE.lock().unwrap_or_else(|_| std::process::exit(1));
 
         let is_fresh = locked_hot_reload_state.is_none();
         if is_fresh {
             let backend_config = BackendConfig::from_opts(&tcx.sess.opts.cg.llvm_args)
                 .unwrap_or_else(|err| tcx.sess.fatal(&err));
-            let (jit_module, _cx) = driver::jit::create_jit_module(tcx, &backend_config, true);
+            let (jit_module, _cx) = driver::jit::create_jit_module(
+                tcx,
+                &backend_config,
+                true,
+                vec![(
+                    "__cg_clif_try_hot_swap".to_string(),
+                    __cg_clif_try_hot_swap as extern "C" fn() as *const u8,
+                )],
+            );
 
             *locked_hot_reload_state = Some(HotReloadState { backend_config, jit_module });
         }
