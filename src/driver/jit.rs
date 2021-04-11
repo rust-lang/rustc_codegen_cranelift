@@ -1,7 +1,6 @@
 //! The JIT driver uses [`cranelift_jit`] to JIT execute programs without writing any object
 //! files.
 
-use std::cell::RefCell;
 use std::ffi::CString;
 use std::sync::Mutex;
 
@@ -16,26 +15,17 @@ use cranelift_jit::{JITBuilder, JITModule};
 use crate::{prelude::*, BackendConfig};
 use crate::{CodegenCx, CodegenMode};
 
-struct HotReloadState {
+struct JitState {
     backend_config: BackendConfig,
     jit_module: JITModule,
     defined_functions: FxHashSet<String>,
 }
 
-// FIXME
-unsafe impl Send for HotReloadState {}
-
-struct JitState {
-    backend_config: BackendConfig,
-    jit_module: JITModule,
-}
-
-thread_local! {
-    static LAZY_JIT_STATE: RefCell<Option<JitState>> = RefCell::new(None);
-}
+// FIXME make `JITModule` implement `Send`
+unsafe impl Send for JitState {}
 
 lazy_static! {
-    static ref HOT_SWAP_STATE: Mutex<Option<HotReloadState>> = Mutex::new(None);
+    static ref JIT_STATE: Mutex<Option<JitState>> = Mutex::new(None);
 }
 
 pub enum JitCompilationResult {
@@ -50,7 +40,7 @@ pub fn create_jit_module<'tcx>(
     backend_config: &BackendConfig,
     hotswap: bool,
     extra_symbols: Vec<(String, *const u8)>,
-) -> (JITModule, CodegenCx<'tcx>) {
+) -> JITModule {
     let imported_symbols = load_imported_symbols_for_jit(tcx);
 
     let isa = crate::build_isa(tcx.sess, backend_config);
@@ -61,7 +51,7 @@ pub fn create_jit_module<'tcx>(
     jit_builder.symbols(extra_symbols);
     let mut jit_module = JITModule::new(jit_builder);
 
-    let mut cx = crate::CodegenCx::new(tcx, backend_config.clone(), jit_module.isa(), false);
+    let mut cx = crate::CodegenCx::new(tcx, backend_config, jit_module.isa(), false);
 
     crate::allocator::codegen(tcx, &mut jit_module, &mut cx.unwind_context);
     crate::main_shim::maybe_create_entry_wrapper(
@@ -71,10 +61,10 @@ pub fn create_jit_module<'tcx>(
         true,
     );
 
-    (jit_module, cx)
+    jit_module
 }
 
-pub fn make_args(crate_name: &str, args: &[String]) -> (usize, *const *const u8) {
+fn make_args(crate_name: &str, args: &[String]) -> (usize, *const *const u8) {
     let mut argv = std::iter::once(crate_name)
         .chain(args.iter().map(|arg| &**arg))
         .map(|arg| CString::new(arg).unwrap().into_raw() as *const u8)
@@ -88,7 +78,7 @@ pub fn make_args(crate_name: &str, args: &[String]) -> (usize, *const *const u8)
     (size, ptr)
 }
 
-pub fn get_main_fn(jit_module: &mut JITModule) -> extern "C" fn(usize, *const *const u8) -> isize {
+fn get_start_fn(jit_module: &mut JITModule) -> extern "C" fn(usize, *const *const u8) -> isize {
     let start_sig = Signature {
         params: vec![
             AbiParam::new(jit_module.target_config().pointer_type()),
@@ -102,7 +92,11 @@ pub fn get_main_fn(jit_module: &mut JITModule) -> extern "C" fn(usize, *const *c
     unsafe { ::std::mem::transmute(finalized_start) }
 }
 
-pub fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
+pub fn run_jit(
+    tcx: TyCtxt<'_>,
+    backend_config: BackendConfig,
+    extra_symbols: Vec<(String, *const u8)>,
+) -> JitCompilationResult {
     if !tcx.sess.opts.output_types.should_codegen() {
         tcx.sess.fatal("JIT mode doesn't work with `cargo check`");
     }
@@ -111,12 +105,22 @@ pub fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
         tcx.sess.fatal("can't jit non-executable crate");
     }
 
-    let (mut jit_module, mut cx) = create_jit_module(
-        tcx,
-        &backend_config,
-        matches!(backend_config.codegen_mode, CodegenMode::JitLazy),
-        vec![],
-    );
+    let mut jit_state = JIT_STATE.lock().unwrap_or_else(|_| std::process::abort());
+
+    let is_fresh = jit_state.is_none();
+    if is_fresh {
+        let jit_module = create_jit_module(tcx, &backend_config, true, extra_symbols);
+
+        *jit_state =
+            Some(JitState { backend_config, jit_module, defined_functions: FxHashSet::default() });
+    }
+
+    let jit_state = jit_state.as_mut().unwrap();
+
+    let backend_config = &jit_state.backend_config;
+    let jit_module = &mut jit_state.jit_module;
+    let defined_functions = &mut jit_state.defined_functions;
+    let mut cx = CodegenCx::new(tcx, &backend_config, jit_module.isa(), false);
 
     let (_, cgus) = tcx.collect_and_partition_mono_items(LOCAL_CRATE);
     let mono_items = cgus
@@ -128,21 +132,48 @@ pub fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
         .collect::<Vec<(_, (_, _))>>();
 
     super::time(tcx, backend_config.display_cg_time, "codegen mono items", || {
-        super::predefine_mono_items(tcx, &mut jit_module, &mono_items);
+        super::predefine_mono_items(tcx, jit_module, &mono_items);
         for (mono_item, _) in mono_items {
             match mono_item {
                 MonoItem::Fn(inst) => match backend_config.codegen_mode {
                     CodegenMode::Aot => unreachable!(),
                     CodegenMode::Jit => {
                         cx.tcx.sess.time("codegen fn", || {
-                            crate::base::codegen_fn(&mut cx, &mut jit_module, inst)
+                            crate::base::codegen_fn(&mut cx, jit_module, inst)
                         });
                     }
                     CodegenMode::JitLazy => codegen_shim(&mut cx, &mut jit_module, inst),
+                    CodegenMode::JitHotSwap => {
+                        let symbol_name = tcx.symbol_name(inst).name;
+                        if !defined_functions.insert(symbol_name.to_owned()) {
+                            // Already defined in the past. Ensure that we can re-define it.
+                            match jit_module.get_name(symbol_name).unwrap() {
+                                cranelift_module::FuncOrDataId::Func(func_id) => {
+                                    jit_module.prepare_for_function_redefine(func_id).unwrap();
+                                }
+                                cranelift_module::FuncOrDataId::Data(_) => unreachable!(),
+                            }
+                        }
+                        tcx.sess.time("codegen fn", || {
+                            crate::base::codegen_fn(&mut cx, jit_module, inst)
+                        });
+                    }
                 },
-                MonoItem::Static(def_id) => {
-                    crate::constant::codegen_static(tcx, &mut jit_module, def_id);
-                }
+                MonoItem::Static(def_id) => match backend_config.codegen_mode {
+                    CodegenMode::Aot => unreachable!(),
+                    CodegenMode::Jit | CodegenMode::JitLazy => {
+                        crate::constant::codegen_static(tcx, jit_module, def_id);
+                    }
+                    CodegenMode::JitHotSwap => {
+                        tcx.sess.span_warn(
+                            tcx.def_span(def_id),
+                            "hot swapping is not supported for statics",
+                        );
+                        if is_fresh {
+                            crate::constant::codegen_static(tcx, jit_module, def_id);
+                        }
+                    }
+                },
                 MonoItem::GlobalAsm(item_id) => {
                     let item = tcx.hir().item(item_id);
                     tcx.sess.span_fatal(item.span, "Global asm is not supported in JIT mode");
@@ -158,138 +189,24 @@ pub fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
     tcx.sess.abort_if_errors();
 
     jit_module.finalize_definitions();
-    unsafe { cx.unwind_context.register_jit(&jit_module) };
+    unsafe { cx.unwind_context.register_jit(jit_module) };
 
     let (argc, argv) = make_args(&tcx.crate_name(LOCAL_CRATE).as_str(), &backend_config.jit_args);
 
-    let start_fn = get_main_fn(&mut jit_module);
+    let start_fn = get_start_fn(jit_module);
 
-    LAZY_JIT_STATE.with(|lazy_jit_state| {
-        let mut lazy_jit_state = lazy_jit_state.borrow_mut();
-        assert!(lazy_jit_state.is_none());
-        *lazy_jit_state = Some(JitState { backend_config, jit_module });
-    });
-
-    println!(
-        "Rustc codegen cranelift will JIT run the executable, because -Cllvm-args=mode=jit was passed"
-    );
-
-    let ret = start_fn(argc, argv);
-    std::process::exit(ret as i32);
-}
-
-pub fn run_jit_hot_swappable(
-    tcx: TyCtxt<'_>,
-    try_hot_swap: extern "C" fn() -> bool,
-) -> JitCompilationResult {
-    let mut locked_hot_reload_state =
-        HOT_SWAP_STATE.lock().unwrap_or_else(|_| std::process::exit(1));
-
-    let is_fresh = locked_hot_reload_state.is_none();
-    if is_fresh {
-        let backend_config = BackendConfig::from_opts(&tcx.sess.opts.cg.llvm_args)
-            .unwrap_or_else(|err| tcx.sess.fatal(&err));
-        let (jit_module, _cx) = create_jit_module(
-            tcx,
-            &backend_config,
-            true,
-            vec![("__cg_clif_try_hot_swap".to_string(), try_hot_swap as *const u8)],
-        );
-
-        *locked_hot_reload_state = Some(HotReloadState {
-            backend_config,
-            jit_module,
-            defined_functions: FxHashSet::default(),
-        });
-    }
-
-    let hot_reload_state = locked_hot_reload_state.as_mut().unwrap();
-
-    let (_, cgus) = tcx.collect_and_partition_mono_items(LOCAL_CRATE);
-    let mono_items = cgus
-        .iter()
-        .map(|cgu| cgu.items_in_deterministic_order(tcx).into_iter())
-        .flatten()
-        .collect::<FxHashMap<_, (_, _)>>()
-        .into_iter()
-        .collect::<Vec<(_, (_, _))>>();
-
-    let mut cx = CodegenCx::new(
-        tcx,
-        hot_reload_state.backend_config.clone(),
-        hot_reload_state.jit_module.isa(),
-        false,
-    );
-
-    super::time(tcx, hot_reload_state.backend_config.display_cg_time, "codegen mono items", || {
-        let defined_functions = hot_reload_state
-            .jit_module
-            .declarations()
-            .get_functions()
-            .filter_map(|(func_id, func)| {
-                if hot_reload_state.defined_functions.contains(&func.name) {
-                    Some(func_id)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        for func_id in defined_functions {
-            hot_reload_state.jit_module.prepare_for_function_redefine(func_id).unwrap();
+    match backend_config.codegen_mode {
+        CodegenMode::Aot => unreachable!(),
+        CodegenMode::Jit | CodegenMode::JitLazy => {
+            JitCompilationResult::Launch(start_fn, argc, argv)
         }
-        hot_reload_state.defined_functions.clear();
-
-        super::predefine_mono_items(tcx, &mut hot_reload_state.jit_module, &mono_items);
-        for (mono_item, _) in mono_items {
-            match mono_item {
-                MonoItem::Fn(inst) => {
-                    hot_reload_state
-                        .defined_functions
-                        .insert(tcx.symbol_name(inst).name.to_owned());
-                    tcx.sess.time("codegen fn", || {
-                        crate::base::codegen_fn(&mut cx, &mut hot_reload_state.jit_module, inst)
-                    });
-                }
-                MonoItem::Static(def_id) => {
-                    tcx.sess.span_warn(
-                        tcx.def_span(def_id),
-                        "hot swapping is not supported for statics",
-                    );
-                    if is_fresh {
-                        crate::constant::codegen_static(
-                            tcx,
-                            &mut hot_reload_state.jit_module,
-                            def_id,
-                        );
-                    }
-                }
-                MonoItem::GlobalAsm(item_id) => {
-                    let item = tcx.hir().item(item_id);
-                    tcx.sess.span_fatal(item.span, "Global asm is not supported in JIT mode");
-                }
+        CodegenMode::JitHotSwap => {
+            if is_fresh {
+                JitCompilationResult::Launch(start_fn, argc, argv)
+            } else {
+                JitCompilationResult::Swapped
             }
         }
-    });
-
-    if !cx.global_asm.is_empty() {
-        tcx.sess.fatal("Inline asm is not supported in JIT mode");
-    }
-
-    tcx.sess.abort_if_errors();
-
-    hot_reload_state.jit_module.finalize_definitions();
-
-    if is_fresh {
-        let main_fn = get_main_fn(&mut hot_reload_state.jit_module);
-        let (argc, argv) = make_args(
-            &tcx.crate_name(LOCAL_CRATE).as_str(),
-            &hot_reload_state.backend_config.jit_args,
-        );
-        std::mem::drop(locked_hot_reload_state);
-        JitCompilationResult::Launch(main_fn, argc, argv)
-    } else {
-        std::mem::drop(locked_hot_reload_state);
-        JitCompilationResult::Swapped
     }
 }
 
@@ -299,25 +216,22 @@ extern "C" fn __clif_jit_fn(instance_ptr: *const Instance<'static>) -> *const u8
         // lift is used to ensure the correct lifetime for instance.
         let instance = tcx.lift(unsafe { *instance_ptr }).unwrap();
 
-        LAZY_JIT_STATE.with(|lazy_jit_state| {
-            let mut lazy_jit_state = lazy_jit_state.borrow_mut();
-            let lazy_jit_state = lazy_jit_state.as_mut().unwrap();
-            let jit_module = &mut lazy_jit_state.jit_module;
-            let backend_config = lazy_jit_state.backend_config.clone();
+        let mut jit_state = JIT_STATE.lock().unwrap();
+        let jit_state = jit_state.as_mut().unwrap();
+        let jit_module = &mut jit_state.jit_module;
 
-            let name = tcx.symbol_name(instance).name.to_string();
-            let sig = crate::abi::get_function_sig(tcx, jit_module.isa().triple(), instance);
-            let func_id = jit_module.declare_function(&name, Linkage::Export, &sig).unwrap();
-            jit_module.prepare_for_function_redefine(func_id).unwrap();
+        let name = tcx.symbol_name(instance).name.to_string();
+        let sig = crate::abi::get_function_sig(tcx, jit_module.isa().triple(), instance);
+        let func_id = jit_module.declare_function(&name, Linkage::Export, &sig).unwrap();
+        jit_module.prepare_for_function_redefine(func_id).unwrap();
 
-            let mut cx = crate::CodegenCx::new(tcx, backend_config, jit_module.isa(), false);
-            tcx.sess.time("codegen fn", || crate::base::codegen_fn(&mut cx, jit_module, instance));
+        let mut cx = crate::CodegenCx::new(tcx, &jit_state.backend_config, jit_module.isa(), false);
+        tcx.sess.time("codegen fn", || crate::base::codegen_fn(&mut cx, jit_module, instance));
 
-            assert!(cx.global_asm.is_empty());
-            jit_module.finalize_definitions();
-            unsafe { cx.unwind_context.register_jit(&jit_module) };
-            jit_module.get_finalized_function(func_id)
-        })
+        assert!(cx.global_asm.is_empty());
+        jit_module.finalize_definitions();
+        unsafe { cx.unwind_context.register_jit(&jit_module) };
+        jit_module.get_finalized_function(func_id)
     })
 }
 

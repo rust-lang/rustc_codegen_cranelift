@@ -14,6 +14,9 @@ pub enum CodegenMode {
     Jit,
     /// JIT compile and execute the crate, but only compile functions the first time they are used.
     JitLazy,
+    /// JIT compile and execute the crate, but allow hot swapping of all code in the current crate
+    /// by calling `__cg_clif_try_hot_swap` from the JITed code.
+    JitHotSwap,
 }
 
 impl FromStr for CodegenMode {

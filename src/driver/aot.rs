@@ -110,7 +110,7 @@ fn module_codegen(
 
     let mut cx = crate::CodegenCx::new(
         tcx,
-        backend_config.clone(),
+        &backend_config,
         module.isa(),
         tcx.sess.opts.debuginfo != DebugInfo::None,
     );

@@ -19,7 +19,7 @@ use std::sync::mpsc;
 use rustc_interface::interface;
 use rustc_target::spec::PanicStrategy;
 
-use rustc_codegen_cranelift::driver::jit::{run_jit_hot_swappable, JitCompilationResult};
+use rustc_codegen_cranelift::driver::jit::{run_jit, JitCompilationResult};
 
 fn main() {
     rustc_driver::init_rustc_env_logger();
@@ -78,7 +78,19 @@ impl rustc_driver::Callbacks for HotReloadCallbacks {
     ) -> rustc_driver::Compilation {
         compiler.session().abort_if_errors();
         queries.global_ctxt().unwrap().peek_mut().enter(|tcx| {
-            self.tx.send(run_jit_hot_swappable(tcx, __cg_clif_try_hot_swap)).unwrap();
+            let mut backend_config =
+                rustc_codegen_cranelift::BackendConfig::from_opts(&tcx.sess.opts.cg.llvm_args)
+                    .unwrap_or_else(|err| tcx.sess.fatal(&err));
+            backend_config.codegen_mode = rustc_codegen_cranelift::CodegenMode::JitHotSwap;
+            let res = run_jit(
+                tcx,
+                backend_config,
+                vec![(
+                    "__cg_clif_try_hot_swap".to_string(),
+                    __cg_clif_try_hot_swap as extern "C" fn() -> bool as *const u8,
+                )],
+            );
+            self.tx.send(res).unwrap();
         });
         rustc_driver::Compilation::Stop
     }

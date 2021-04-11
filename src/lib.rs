@@ -134,7 +134,7 @@ pub struct CodegenCx<'tcx> {
 impl<'tcx> CodegenCx<'tcx> {
     pub fn new(
         tcx: TyCtxt<'tcx>,
-        backend_config: BackendConfig,
+        backend_config: &BackendConfig,
         isa: &dyn TargetIsa,
         debug_info: bool,
     ) -> Self {
@@ -194,10 +194,25 @@ impl CodegenBackend for CraneliftCodegenBackend {
             CodegenMode::Aot => driver::aot::run_aot(tcx, config, metadata, need_metadata_module),
             CodegenMode::Jit | CodegenMode::JitLazy => {
                 #[cfg(feature = "jit")]
-                let _: ! = driver::jit::run_jit(tcx, config);
+                {
+                    match driver::jit::run_jit(tcx, config, vec![]) {
+                        driver::jit::JitCompilationResult::Launch(start_fn, argc, argv) => {
+                            println!(
+                                "Rustc codegen cranelift will JIT run the executable, because -Cllvm-args=mode=jit was passed"
+                            );
+
+                            let ret = start_fn(argc, argv);
+                            std::process::exit(ret as i32);
+                        }
+                        driver::jit::JitCompilationResult::Swapped => unreachable!(),
+                    }
+                }
 
                 #[cfg(not(feature = "jit"))]
                 tcx.sess.fatal("jit support was disabled when compiling rustc_codegen_cranelift");
+            }
+            CodegenMode::JitHotSwap => {
+                tcx.sess.fatal("jit hot swapping is not supported when using -Zcodegen-backend");
             }
         }
     }
