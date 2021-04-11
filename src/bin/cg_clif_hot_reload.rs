@@ -14,22 +14,12 @@ extern crate rustc_session;
 extern crate rustc_span;
 extern crate rustc_target;
 
-use std::sync::{mpsc, Mutex};
+use std::sync::mpsc;
 
-use rustc_data_structures::fx::{FxHashMap, FxHashSet};
-use rustc_hir::def_id::LOCAL_CRATE;
 use rustc_interface::interface;
-use rustc_middle::mir::mono::MonoItem;
 use rustc_target::spec::PanicStrategy;
 
-use cranelift_jit::JITModule;
-use cranelift_module::Module;
-
-use rustc_codegen_cranelift::*;
-
-lazy_static::lazy_static! {
-    static ref HOT_RELOAD_STATE: Mutex<Option<HotReloadState>> = Mutex::new(None);
-}
+use rustc_codegen_cranelift::driver::jit::{run_jit_hot_swappable, JitCompilationResult};
 
 fn main() {
     rustc_driver::init_rustc_env_logger();
@@ -68,22 +58,6 @@ fn run_compiler() -> Result<JitCompilationResult, mpsc::RecvError> {
     rx.recv()
 }
 
-struct HotReloadState {
-    backend_config: BackendConfig,
-    jit_module: JITModule,
-    defined_functions: FxHashSet<String>,
-}
-
-// FIXME
-unsafe impl Send for HotReloadState {}
-
-enum JitCompilationResult {
-    Launch(extern "C" fn(usize, *const *const u8) -> isize, usize, *const *const u8),
-    Swapped,
-}
-
-unsafe impl Send for JitCompilationResult {}
-
 struct HotReloadCallbacks {
     tx: mpsc::SyncSender<JitCompilationResult>,
 }
@@ -104,136 +78,7 @@ impl rustc_driver::Callbacks for HotReloadCallbacks {
     ) -> rustc_driver::Compilation {
         compiler.session().abort_if_errors();
         queries.global_ctxt().unwrap().peek_mut().enter(|tcx| {
-            let mut locked_hot_reload_state =
-                HOT_RELOAD_STATE.lock().unwrap_or_else(|_| std::process::exit(1));
-
-            let is_fresh = locked_hot_reload_state.is_none();
-            if is_fresh {
-                let backend_config = BackendConfig::from_opts(&tcx.sess.opts.cg.llvm_args)
-                    .unwrap_or_else(|err| tcx.sess.fatal(&err));
-                let (jit_module, _cx) = driver::jit::create_jit_module(
-                    tcx,
-                    &backend_config,
-                    true,
-                    vec![(
-                        "__cg_clif_try_hot_swap".to_string(),
-                        __cg_clif_try_hot_swap as extern "C" fn() -> bool as *const u8,
-                    )],
-                );
-
-                *locked_hot_reload_state = Some(HotReloadState {
-                    backend_config,
-                    jit_module,
-                    defined_functions: FxHashSet::default(),
-                });
-            }
-
-            let hot_reload_state = locked_hot_reload_state.as_mut().unwrap();
-
-            let (_, cgus) = tcx.collect_and_partition_mono_items(LOCAL_CRATE);
-            let mono_items = cgus
-                .iter()
-                .map(|cgu| cgu.items_in_deterministic_order(tcx).into_iter())
-                .flatten()
-                .collect::<FxHashMap<_, (_, _)>>()
-                .into_iter()
-                .collect::<Vec<(_, (_, _))>>();
-
-            let mut cx = CodegenCx::new(
-                tcx,
-                hot_reload_state.backend_config.clone(),
-                hot_reload_state.jit_module.isa(),
-                false,
-            );
-
-            driver::time(
-                tcx,
-                hot_reload_state.backend_config.display_cg_time,
-                "codegen mono items",
-                || {
-                    let defined_functions = hot_reload_state
-                        .jit_module
-                        .declarations()
-                        .get_functions()
-                        .filter_map(|(func_id, func)| {
-                            if hot_reload_state.defined_functions.contains(&func.name) {
-                                Some(func_id)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>();
-                    for func_id in defined_functions {
-                        hot_reload_state.jit_module.prepare_for_function_redefine(func_id).unwrap();
-                    }
-                    hot_reload_state.defined_functions.clear();
-
-                    driver::predefine_mono_items(
-                        tcx,
-                        &mut hot_reload_state.jit_module,
-                        &mono_items,
-                    );
-                    for (mono_item, _) in mono_items {
-                        match mono_item {
-                            MonoItem::Fn(inst) => {
-                                hot_reload_state
-                                    .defined_functions
-                                    .insert(tcx.symbol_name(inst).name.to_owned());
-                                tcx.sess.time("codegen fn", || {
-                                    crate::base::codegen_fn(
-                                        &mut cx,
-                                        &mut hot_reload_state.jit_module,
-                                        inst,
-                                    )
-                                });
-                            }
-                            MonoItem::Static(def_id) => {
-                                tcx.sess.span_warn(
-                                    tcx.def_span(def_id),
-                                    "hot swapping is not supported for statics",
-                                );
-                                if is_fresh {
-                                    crate::constant::codegen_static(
-                                        tcx,
-                                        &mut hot_reload_state.jit_module,
-                                        def_id,
-                                    );
-                                }
-                            }
-                            MonoItem::GlobalAsm(item_id) => {
-                                let item = tcx.hir().item(item_id);
-                                tcx.sess.span_fatal(
-                                    item.span,
-                                    "Global asm is not supported in JIT mode",
-                                );
-                            }
-                        }
-                    }
-                },
-            );
-
-            if !cx.global_asm.is_empty() {
-                tcx.sess.fatal("Inline asm is not supported in JIT mode");
-            }
-
-            tcx.sess.abort_if_errors();
-
-            hot_reload_state.jit_module.finalize_definitions();
-
-            if is_fresh {
-                let main_fn = driver::jit::get_main_fn(&mut hot_reload_state.jit_module);
-                let (argc, argv) = driver::jit::make_args(
-                    &tcx.crate_name(LOCAL_CRATE).as_str(),
-                    &hot_reload_state.backend_config.jit_args,
-                );
-                std::mem::drop(locked_hot_reload_state);
-                self.tx.send(JitCompilationResult::Launch(main_fn, argc, argv)).unwrap();
-                std::panic::resume_unwind(Box::new(()));
-            } else {
-                std::mem::drop(locked_hot_reload_state);
-                self.tx.send(JitCompilationResult::Swapped).unwrap();
-                std::panic::resume_unwind(Box::new(()));
-            }
+            self.tx.send(run_jit_hot_swappable(tcx, __cg_clif_try_hot_swap)).unwrap();
         });
         rustc_driver::Compilation::Stop
     }
