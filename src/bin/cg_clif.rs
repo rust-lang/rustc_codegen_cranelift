@@ -122,11 +122,11 @@ fn main() {
 
     match res {
         // Regular AOT compilation
-        Ok(None) => std::process::exit(0),
+        Ok(None) => std::process::exit(rustc_driver::EXIT_SUCCESS),
         Ok(Some(JitCompilationResult::Launch(start_fn, argc, argv))) => {
             std::process::exit(start_fn(argc, argv) as i32);
         }
         Ok(Some(JitCompilationResult::Swapped)) => unreachable!(),
-        Err(ErrorReported) => std::process::exit(1),
+        Err(ErrorReported) => std::process::exit(rustc_driver::EXIT_FAILURE),
     }
 }
