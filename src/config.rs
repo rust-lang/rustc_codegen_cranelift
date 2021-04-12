@@ -27,6 +27,7 @@ impl FromStr for CodegenMode {
             "aot" => Ok(CodegenMode::Aot),
             "jit" => Ok(CodegenMode::Jit),
             "jit-lazy" => Ok(CodegenMode::JitLazy),
+            "jit-hot-swap" => Ok(CodegenMode::JitHotSwap),
             _ => Err(format!("Unknown codegen mode `{}`", s)),
         }
     }

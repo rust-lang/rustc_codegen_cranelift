@@ -50,7 +50,7 @@ source scripts/ext_config.sh
 rm -rf "$target_dir"
 mkdir "$target_dir"
 mkdir "$target_dir"/bin "$target_dir"/lib
-ln target/$CHANNEL/cg_clif{,_build_sysroot,_hot_reload} "$target_dir"/bin
+ln target/$CHANNEL/cg_clif{,_build_sysroot} "$target_dir"/bin
 ln target/$CHANNEL/*rustc_codegen_cranelift* "$target_dir"/lib
 ln rust-toolchain scripts/config.sh scripts/cargo.sh "$target_dir"
 

@@ -5,15 +5,15 @@ use std::arch::x86_64::*;
 use std::io::Write;
 use std::ops::Generator;
 
-#[cfg(jit_hot_reload)]
+#[cfg(jit_hot_swap)]
 fn hot_swappable() {
     println!("Hello hotswap!");
 }
 
-#[cfg_attr(jit_hot_reload, allow(unreachable_code))]
+#[cfg_attr(jit_hot_swap, allow(unreachable_code))]
 fn main() {
     println!("Start");
-    #[cfg(jit_hot_reload)]
+    #[cfg(jit_hot_swap)]
     loop {
         extern "C" {
             fn __cg_clif_try_hot_swap() -> bool;
@@ -49,7 +49,7 @@ fn main() {
 
     println!("cargo:rustc-link-lib=z");
 
-    #[cfg(not(jit_hot_reload))]
+    #[cfg(not(jit_hot_swap))]
     {
         static ONCE: std::sync::Once = std::sync::Once::new();
         ONCE.call_once(|| {});

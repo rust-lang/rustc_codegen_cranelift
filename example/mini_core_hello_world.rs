@@ -130,16 +130,16 @@ fn call_return_u128_pair() {
 }
 
 #[inline(never)]
-#[cfg(jit_hot_reload)]
+#[cfg(jit_hot_swap)]
 fn hot_swappable() {
     unsafe {
         printf("Hello hotswap! foo\n\0" as *const str as *const i8);
     }
 }
 
-#[cfg_attr(jit_hot_reload, allow(unreachable_code))]
+#[cfg_attr(jit_hot_swap, allow(unreachable_code))]
 fn main() {
-    #[cfg(jit_hot_reload)]
+    #[cfg(jit_hot_swap)]
     loop {
         extern "C" {
             fn __cg_clif_try_hot_swap() -> bool;
