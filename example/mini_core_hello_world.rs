@@ -129,7 +129,28 @@ fn call_return_u128_pair() {
     return_u128_pair();
 }
 
+#[inline(never)]
+#[cfg(jit_hot_swap)]
+fn hot_swappable() {
+    unsafe {
+        printf("Hello hotswap! foo\n\0" as *const str as *const i8);
+    }
+}
+
+#[cfg_attr(jit_hot_swap, allow(unreachable_code))]
 fn main() {
+    #[cfg(jit_hot_swap)]
+    loop {
+        extern "C" {
+            fn __cg_clif_try_hot_swap() -> bool;
+        }
+
+        unsafe {
+            __cg_clif_try_hot_swap();
+        }
+        hot_swappable();
+    }
+
     take_unique(Unique {
         pointer: 0 as *const (),
         _marker: PhantomData,

@@ -5,7 +5,29 @@ use std::arch::x86_64::*;
 use std::io::Write;
 use std::ops::Generator;
 
+#[cfg(jit_hot_swap)]
+fn hot_swappable() {
+    println!("Hello hotswap!");
+}
+
+#[cfg_attr(jit_hot_swap, allow(unreachable_code))]
 fn main() {
+    println!("Start");
+    #[cfg(jit_hot_swap)]
+    loop {
+        extern "C" {
+            fn __cg_clif_try_hot_swap() -> bool;
+        }
+
+        unsafe {
+            if !__cg_clif_try_hot_swap() {
+                println!("hot swap failed");
+            }
+        }
+        hot_swappable();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+
     println!("{:?}", std::env::args().collect::<Vec<_>>());
 
     let mutex = std::sync::Mutex::new(());
@@ -27,8 +49,11 @@ fn main() {
 
     println!("cargo:rustc-link-lib=z");
 
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {});
+    #[cfg(not(jit_hot_swap))]
+    {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {});
+    }
 
     let _eq = LoopState::Continue(()) == LoopState::Break(());
 
