@@ -142,7 +142,7 @@ pub fn run_jit(
                             crate::base::codegen_fn(&mut cx, jit_module, inst)
                         });
                     }
-                    CodegenMode::JitLazy => codegen_shim(&mut cx, &mut jit_module, inst),
+                    CodegenMode::JitLazy => codegen_shim(&mut cx, jit_module, inst),
                     CodegenMode::JitHotSwap => {
                         let symbol_name = tcx.symbol_name(inst).name;
                         if !defined_functions.insert(symbol_name.to_owned()) {
