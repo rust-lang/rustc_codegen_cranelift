@@ -132,7 +132,7 @@ struct CodegenCx<'tcx> {
 impl<'tcx> CodegenCx<'tcx> {
     fn new(
         tcx: TyCtxt<'tcx>,
-        backend_config: BackendConfig,
+        backend_config: &BackendConfig,
         isa: &dyn TargetIsa,
         debug_info: bool,
     ) -> Self {
