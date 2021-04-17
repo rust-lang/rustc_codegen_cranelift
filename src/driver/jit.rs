@@ -3,7 +3,6 @@
 
 use std::cell::RefCell;
 use std::ffi::CString;
-use std::os::raw::{c_char, c_int};
 
 use cranelift_codegen::binemit::{NullStackMapSink, NullTrapSink};
 use rustc_codegen_ssa::CrateInfo;
@@ -48,6 +47,34 @@ fn create_jit_module<'tcx>(
     );
 
     (jit_module, cx)
+}
+
+fn make_args(crate_name: &str, args: &[String]) -> (usize, *const *const u8) {
+    let mut argv = std::iter::once(crate_name)
+        .chain(args.iter().map(|arg| &**arg))
+        .map(|arg| CString::new(arg).unwrap().into_raw() as *const u8)
+        .collect::<Vec<_>>();
+
+    // Push a null pointer as a terminating argument. This is required by POSIX and
+    // useful as some dynamic linkers use it as a marker to jump over.
+    argv.push(std::ptr::null());
+
+    let (ptr, size, _cap) = argv.into_raw_parts();
+    (size, ptr)
+}
+
+fn get_main_fn(jit_module: &mut JITModule) -> extern "C" fn(usize, *const *const u8) -> isize {
+    let start_sig = Signature {
+        params: vec![
+            AbiParam::new(jit_module.target_config().pointer_type()),
+            AbiParam::new(jit_module.target_config().pointer_type()),
+        ],
+        returns: vec![AbiParam::new(jit_module.target_config().pointer_type() /*isize*/)],
+        call_conv: jit_module.target_config().default_call_conv,
+    };
+    let start_func_id = jit_module.declare_function("main", Linkage::Import, &start_sig).unwrap();
+    let finalized_start: *const u8 = jit_module.get_finalized_function(start_func_id);
+    unsafe { ::std::mem::transmute(finalized_start) }
 }
 
 pub(crate) fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
@@ -107,30 +134,9 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
     jit_module.finalize_definitions();
     unsafe { cx.unwind_context.register_jit(&jit_module) };
 
-    println!(
-        "Rustc codegen cranelift will JIT run the executable, because -Cllvm-args=mode=jit was passed"
-    );
+    let (argc, argv) = make_args(&tcx.crate_name(LOCAL_CRATE).as_str(), &backend_config.jit_args);
 
-    let args = std::iter::once(&*tcx.crate_name(LOCAL_CRATE).as_str().to_string())
-        .chain(backend_config.jit_args.iter().map(|arg| &**arg))
-        .map(|arg| CString::new(arg).unwrap())
-        .collect::<Vec<_>>();
-    let mut argv = args.iter().map(|arg| arg.as_ptr()).collect::<Vec<_>>();
-
-    // Push a null pointer as a terminating argument. This is required by POSIX and
-    // useful as some dynamic linkers use it as a marker to jump over.
-    argv.push(std::ptr::null());
-
-    let start_sig = Signature {
-        params: vec![
-            AbiParam::new(jit_module.target_config().pointer_type()),
-            AbiParam::new(jit_module.target_config().pointer_type()),
-        ],
-        returns: vec![AbiParam::new(jit_module.target_config().pointer_type() /*isize*/)],
-        call_conv: CallConv::triple_default(&crate::target_triple(tcx.sess)),
-    };
-    let start_func_id = jit_module.declare_function("main", Linkage::Import, &start_sig).unwrap();
-    let finalized_start: *const u8 = jit_module.get_finalized_function(start_func_id);
+    let start_fn = get_main_fn(&mut jit_module);
 
     LAZY_JIT_STATE.with(|lazy_jit_state| {
         let mut lazy_jit_state = lazy_jit_state.borrow_mut();
@@ -138,10 +144,12 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
         *lazy_jit_state = Some(JitState { backend_config, jit_module });
     });
 
-    let f: extern "C" fn(c_int, *const *const c_char) -> c_int =
-        unsafe { ::std::mem::transmute(finalized_start) };
-    let ret = f(args.len() as c_int, argv.as_ptr());
-    std::process::exit(ret);
+    println!(
+        "Rustc codegen cranelift will JIT run the executable, because -Cllvm-args=mode=jit was passed"
+    );
+
+    let ret = start_fn(argc, argv);
+    std::process::exit(ret as i32);
 }
 
 #[no_mangle]
@@ -237,12 +245,10 @@ fn load_imported_symbols_for_jit(tcx: TyCtxt<'_>) -> Vec<(String, *const u8)> {
 }
 
 fn codegen_shim<'tcx>(cx: &mut CodegenCx<'tcx>, module: &mut JITModule, inst: Instance<'tcx>) {
-    let tcx = cx.tcx;
-
     let pointer_type = module.target_config().pointer_type();
 
-    let name = tcx.symbol_name(inst).name.to_string();
-    let sig = crate::abi::get_function_sig(tcx, module.isa().triple(), inst);
+    let name = cx.tcx.symbol_name(inst).name.to_string();
+    let sig = crate::abi::get_function_sig(cx.tcx, module.isa().triple(), inst);
     let func_id = module.declare_function(&name, Linkage::Export, &sig).unwrap();
 
     let instance_ptr = Box::into_raw(Box::new(inst));
