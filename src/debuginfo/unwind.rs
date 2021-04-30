@@ -72,8 +72,7 @@ impl UnwindContext {
     }
 
     #[cfg(all(feature = "jit", windows))]
-    pub(crate) unsafe fn register_jit(self, jit_module: &cranelift_jit::JITModule) {
-    }
+    pub(crate) unsafe fn register_jit(self, _jit_module: &cranelift_jit::JITModule) {}
 
     #[cfg(all(feature = "jit", not(windows)))]
     pub(crate) unsafe fn register_jit(self, jit_module: &cranelift_jit::JITModule) {
