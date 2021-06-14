@@ -106,6 +106,26 @@ pub(crate) fn codegen_llvm_intrinsic_call<'tcx>(
             let dest = CPlace::for_ptr(Pointer::new(mem_addr), a.layout());
             dest.write_cvalue(fx, a);
         };
+        "llvm.x86.addcarry.64", (c c_in, c a, c b) {
+            llvm_add_sub_with_carry(
+                fx,
+                "llvm.x86.addcarry.64",
+                ret,
+                c_in,
+                a,
+                b
+            );
+        };
+        "llvm.x86.subborrow.64", (c b_in, c a, c b) {
+            llvm_add_sub_with_carry(
+                fx,
+                "llvm.x86.subborrow.64",
+                ret,
+                b_in,
+                a,
+                b
+            );
+        };
     }
 
     if let Some((_, dest)) = destination {
@@ -121,3 +141,63 @@ pub(crate) fn codegen_llvm_intrinsic_call<'tcx>(
 // llvm.x86.avx2.pshuf.b
 // llvm.x86.avx2.psrli.w
 // llvm.x86.sse2.psrli.w
+// llvm.x86.addcarry.64
+// llvm.x86.subborrow.64
+
+pub(crate) fn llvm_add_sub_with_carry<'tcx>(
+    fx: &mut FunctionCx<'_, '_, 'tcx>,
+    intrinsic: &str,
+    ret: CPlace<'tcx>,
+    cb_in: CValue<'tcx>,
+    a: CValue<'tcx>,
+    b: CValue<'tcx>
+) {
+    let bin_op = match intrinsic {
+        "llvm.x86.addcarry.64" => BinOp::Add,
+        "llvm.x86.subborrow.64" => BinOp::Sub,
+        _ => panic!("not an expected llvm.x86.addcarry.64 or llvm.x86.subborrow.64")
+    };
+
+    assert_eq!(cb_in.layout().ty, fx.tcx.types.u8, "llvm.x86.addcarry.64/llvm.x86.subborrow.64 first operand must be u8");
+    assert_eq!(a.layout().ty, fx.tcx.types.u64, "llvm.x86.addcarry.64/llvm.x86.subborrow.64 second operand must be u64");
+    assert_eq!(b.layout().ty, fx.tcx.types.u64, "llvm.x86.addcarry.64/llvm.x86.subborrow.64 third operand must be u64");
+
+    // c + carry -> c + first intermediate carry or borrow respectively
+    let int0 = crate::num::codegen_checked_int_binop(
+        fx,
+        bin_op,
+        a,
+        b,
+    );
+    let c = int0.value_field(fx, mir::Field::new(0));
+    let cb0 = int0.value_field(fx, mir::Field::new(1));
+    // FIXME: should we also optimize here optimize for a case when cb_in is a constant `false`
+    // or is it done by `crate::num::codegen_checked_int_binop` and along the chain?
+    // Most likely our conversion u8 -> u64 breaks any constant propagation
+    // done in `crate::num::codegen_checked_int_binop`
+
+    // c + carry -> c + second intermediate carry or borrow respectively
+    let cb_in_value = cb_in.load_scalar(fx);
+    let cb_in_as_u64 = fx.bcx.ins().uextend(types::I64, cb_in_value);
+    let cb_in_as_u64 = CValue::by_val(cb_in_as_u64, fx.layout_of(fx.tcx.types.u64));
+    let int1 = crate::num::codegen_checked_int_binop(
+        fx,
+        bin_op,
+        c,
+        cb_in_as_u64,
+    );
+    let c = int1.value_field(fx, mir::Field::new(0));
+    let cb1 = int1.value_field(fx, mir::Field::new(1));
+    // carry0 | carry1 -> carry or borrow respectively
+    let cb = crate::num::codegen_bool_binop(
+        fx,
+        BinOp::BitOr,
+        cb0,
+        cb1,
+    );
+    let layout = fx.layout_of(fx.tcx.mk_tup([fx.tcx.types.u8, fx.tcx.types.u64].iter()));
+    let cb_out = cb.load_scalar(fx);
+    let c = c.load_scalar(fx);
+    let val = CValue::by_val_pair(cb_out, c, layout);
+    ret.write_cvalue(fx, val);
+}
