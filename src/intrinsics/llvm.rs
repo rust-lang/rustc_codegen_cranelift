@@ -144,7 +144,7 @@ pub(crate) fn codegen_llvm_intrinsic_call<'tcx>(
 // llvm.x86.addcarry.64
 // llvm.x86.subborrow.64
 
-pub(crate) fn llvm_add_sub_with_carry<'tcx>(
+fn llvm_add_sub_with_carry<'tcx>(
     fx: &mut FunctionCx<'_, '_, 'tcx>,
     intrinsic: &str,
     ret: CPlace<'tcx>,
@@ -171,10 +171,6 @@ pub(crate) fn llvm_add_sub_with_carry<'tcx>(
     );
     let c = int0.value_field(fx, mir::Field::new(0));
     let cb0 = int0.value_field(fx, mir::Field::new(1));
-    // FIXME: should we also optimize here optimize for a case when cb_in is a constant `false`
-    // or is it done by `crate::num::codegen_checked_int_binop` and along the chain?
-    // Most likely our conversion u8 -> u64 breaks any constant propagation
-    // done in `crate::num::codegen_checked_int_binop`
 
     // c + carry -> c + second intermediate carry or borrow respectively
     let cb_in_value = cb_in.load_scalar(fx);
@@ -188,6 +184,7 @@ pub(crate) fn llvm_add_sub_with_carry<'tcx>(
     );
     let c = int1.value_field(fx, mir::Field::new(0));
     let cb1 = int1.value_field(fx, mir::Field::new(1));
+    
     // carry0 | carry1 -> carry or borrow respectively
     let cb = crate::num::codegen_bool_binop(
         fx,
