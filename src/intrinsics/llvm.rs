@@ -141,8 +141,6 @@ pub(crate) fn codegen_llvm_intrinsic_call<'tcx>(
 // llvm.x86.avx2.pshuf.b
 // llvm.x86.avx2.psrli.w
 // llvm.x86.sse2.psrli.w
-// llvm.x86.addcarry.64
-// llvm.x86.subborrow.64
 
 fn llvm_add_sub<'tcx>(
     fx: &mut FunctionCx<'_, '_, 'tcx>,
