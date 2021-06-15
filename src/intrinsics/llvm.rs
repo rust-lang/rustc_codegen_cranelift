@@ -106,7 +106,7 @@ pub(crate) fn codegen_llvm_intrinsic_call<'tcx>(
             let dest = CPlace::for_ptr(Pointer::new(mem_addr), a.layout());
             dest.write_cvalue(fx, a);
         };
-        "llvm.x86.addcarry.64", (c c_in, c a, c b) {
+        "llvm.x86.addcarry.64", (v c_in, c a, c b) {
             llvm_add_sub(
                 fx,
                 BinOp::Add,
@@ -116,7 +116,7 @@ pub(crate) fn codegen_llvm_intrinsic_call<'tcx>(
                 b
             );
         };
-        "llvm.x86.subborrow.64", (c b_in, c a, c b) {
+        "llvm.x86.subborrow.64", (v b_in, c a, c b) {
             llvm_add_sub(
                 fx,
                 BinOp::Sub,
@@ -148,11 +148,10 @@ fn llvm_add_sub<'tcx>(
     fx: &mut FunctionCx<'_, '_, 'tcx>,
     bin_op: BinOp,
     ret: CPlace<'tcx>,
-    cb_in: CValue<'tcx>,
+    cb_in: Value,
     a: CValue<'tcx>,
     b: CValue<'tcx>
 ) {
-    assert_eq!(cb_in.layout().ty, fx.tcx.types.u8, "llvm.x86.addcarry.64/llvm.x86.subborrow.64 first operand must be u8");
     assert_eq!(a.layout().ty, fx.tcx.types.u64, "llvm.x86.addcarry.64/llvm.x86.subborrow.64 second operand must be u64");
     assert_eq!(b.layout().ty, fx.tcx.types.u64, "llvm.x86.addcarry.64/llvm.x86.subborrow.64 third operand must be u64");
 
@@ -167,8 +166,7 @@ fn llvm_add_sub<'tcx>(
     let cb0 = int0.value_field(fx, mir::Field::new(1)).load_scalar(fx);
 
     // c + carry -> c + second intermediate carry or borrow respectively
-    let cb_in_value = cb_in.load_scalar(fx);
-    let cb_in_as_u64 = fx.bcx.ins().uextend(types::I64, cb_in_value);
+    let cb_in_as_u64 = fx.bcx.ins().uextend(types::I64, cb_in);
     let cb_in_as_u64 = CValue::by_val(cb_in_as_u64, fx.layout_of(fx.tcx.types.u64));
     let int1 = crate::num::codegen_checked_int_binop(
         fx,
