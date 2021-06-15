@@ -107,9 +107,9 @@ pub(crate) fn codegen_llvm_intrinsic_call<'tcx>(
             dest.write_cvalue(fx, a);
         };
         "llvm.x86.addcarry.64", (c c_in, c a, c b) {
-            llvm_add_sub_with_carry(
+            llvm_add_sub(
                 fx,
-                "llvm.x86.addcarry.64",
+                BinOp::Add,
                 ret,
                 c_in,
                 a,
@@ -117,9 +117,9 @@ pub(crate) fn codegen_llvm_intrinsic_call<'tcx>(
             );
         };
         "llvm.x86.subborrow.64", (c b_in, c a, c b) {
-            llvm_add_sub_with_carry(
+            llvm_add_sub(
                 fx,
-                "llvm.x86.subborrow.64",
+                BinOp::Sub,
                 ret,
                 b_in,
                 a,
@@ -144,20 +144,14 @@ pub(crate) fn codegen_llvm_intrinsic_call<'tcx>(
 // llvm.x86.addcarry.64
 // llvm.x86.subborrow.64
 
-fn llvm_add_sub_with_carry<'tcx>(
+fn llvm_add_sub<'tcx>(
     fx: &mut FunctionCx<'_, '_, 'tcx>,
-    intrinsic: &str,
+    bin_op: BinOp,
     ret: CPlace<'tcx>,
     cb_in: CValue<'tcx>,
     a: CValue<'tcx>,
     b: CValue<'tcx>
 ) {
-    let bin_op = match intrinsic {
-        "llvm.x86.addcarry.64" => BinOp::Add,
-        "llvm.x86.subborrow.64" => BinOp::Sub,
-        _ => panic!("not an expected llvm.x86.addcarry.64 or llvm.x86.subborrow.64")
-    };
-
     assert_eq!(cb_in.layout().ty, fx.tcx.types.u8, "llvm.x86.addcarry.64/llvm.x86.subborrow.64 first operand must be u8");
     assert_eq!(a.layout().ty, fx.tcx.types.u64, "llvm.x86.addcarry.64/llvm.x86.subborrow.64 second operand must be u64");
     assert_eq!(b.layout().ty, fx.tcx.types.u64, "llvm.x86.addcarry.64/llvm.x86.subborrow.64 third operand must be u64");
@@ -170,7 +164,7 @@ fn llvm_add_sub_with_carry<'tcx>(
         b,
     );
     let c = int0.value_field(fx, mir::Field::new(0));
-    let cb0 = int0.value_field(fx, mir::Field::new(1));
+    let cb0 = int0.value_field(fx, mir::Field::new(1)).load_scalar(fx);
 
     // c + carry -> c + second intermediate carry or borrow respectively
     let cb_in_value = cb_in.load_scalar(fx);
@@ -182,19 +176,12 @@ fn llvm_add_sub_with_carry<'tcx>(
         c,
         cb_in_as_u64,
     );
-    let c = int1.value_field(fx, mir::Field::new(0));
-    let cb1 = int1.value_field(fx, mir::Field::new(1));
-    
+    let (c, cb1) = int1.load_scalar_pair(fx);
+
     // carry0 | carry1 -> carry or borrow respectively
-    let cb = crate::num::codegen_bool_binop(
-        fx,
-        BinOp::BitOr,
-        cb0,
-        cb1,
-    );
+    let cb_out = fx.bcx.ins().bor(cb0, cb1);
+
     let layout = fx.layout_of(fx.tcx.mk_tup([fx.tcx.types.u8, fx.tcx.types.u64].iter()));
-    let cb_out = cb.load_scalar(fx);
-    let c = c.load_scalar(fx);
     let val = CValue::by_val_pair(cb_out, c, layout);
     ret.write_cvalue(fx, val);
 }
