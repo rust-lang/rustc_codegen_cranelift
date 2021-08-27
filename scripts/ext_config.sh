@@ -26,6 +26,10 @@ if [[ "$HOST_TRIPLE" != "$TARGET_TRIPLE" ]]; then
    fi
 fi
 
+if echo "$HOST_TRIPLE" | grep -q "windows"; then
+   export JIT_SUPPORTED=0 # FIXME jit mode is broken on Windows
+fi
+
 # FIXME fix `#[linkage = "extern_weak"]` without this
 if [[ "$(uname)" == 'Darwin' ]]; then
    export RUSTFLAGS="$RUSTFLAGS -Clink-arg=-undefined -Clink-arg=dynamic_lookup"
