@@ -449,7 +449,6 @@ pub trait FnMut<Args>: FnOnce<Args> {
 #[track_caller]
 pub fn panic(_msg: &str) -> ! {
     unsafe {
-        libc::puts("Panicking\n\0" as *const str as *const i8);
         intrinsics::abort();
     }
 }
@@ -458,7 +457,6 @@ pub fn panic(_msg: &str) -> ! {
 #[track_caller]
 fn panic_bounds_check(index: usize, len: usize) -> ! {
     unsafe {
-        libc::printf("index out of bounds: the len is %d but the index is %d\n\0" as *const str as *const i8, len, index);
         intrinsics::abort();
     }
 }
@@ -502,6 +500,7 @@ impl<T> Deref for Box<T> {
     }
 }
 
+/*
 #[lang = "exchange_malloc"]
 unsafe fn allocate(size: usize, _align: usize) -> *mut u8 {
     libc::malloc(size)
@@ -511,6 +510,7 @@ unsafe fn allocate(size: usize, _align: usize) -> *mut u8 {
 unsafe fn box_free<T: ?Sized>(ptr: *mut T) {
     libc::free(ptr as *mut u8);
 }
+*/
 
 #[lang = "drop"]
 pub trait Drop {
@@ -611,20 +611,9 @@ pub macro cfg() { /* compiler built-in */ }
 #[rustc_macro_transparency = "semitransparent"]
 pub macro global_asm() { /* compiler built-in */ }
 
-pub static A_STATIC: u8 = 42;
-
 #[lang = "panic_location"]
 struct PanicLocation {
     file: &'static str,
     line: u32,
     column: u32,
-}
-
-#[no_mangle]
-#[cfg(not(windows))]
-pub fn get_tls() -> u8 {
-    #[thread_local]
-    static A: u8 = 42;
-
-    A
 }

@@ -159,7 +159,7 @@ pub(crate) fn codegen_fn<'tcx>(
         &clif_comments,
     );
 
-    if let Some(disasm) = &context.mach_compile_result.as_ref().unwrap().disasm {
+    /*if let Some(disasm) = &context.mach_compile_result.as_ref().unwrap().disasm {
         crate::pretty_clif::write_ir_file(
             tcx,
             || format!("{}.vcode", tcx.symbol_name(instance).name),
@@ -185,6 +185,7 @@ pub(crate) fn codegen_fn<'tcx>(
         }
         unwind_context.add_function(func_id, &context, isa);
     });
+    */
 
     // Clear context to make it usable for the next function
     context.clear();
@@ -893,13 +894,7 @@ pub(crate) fn codegen_operand<'tcx>(
 }
 
 pub(crate) fn codegen_panic<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, msg_str: &str, span: Span) {
-    let location = fx.get_caller_location(span).load_scalar(fx);
-
-    let msg_ptr = fx.anonymous_str(msg_str);
-    let msg_len = fx.bcx.ins().iconst(fx.pointer_type, i64::try_from(msg_str.len()).unwrap());
-    let args = [msg_ptr, msg_len, location];
-
-    codegen_panic_inner(fx, rustc_hir::LangItem::Panic, &args, span);
+    fx.bcx.ins().trap(TrapCode::UnreachableCodeReached);
 }
 
 pub(crate) fn codegen_panic_inner<'tcx>(

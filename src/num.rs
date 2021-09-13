@@ -226,7 +226,7 @@ pub(crate) fn codegen_checked_int_binop<'tcx>(
         BinOp::Mul => {
             let ty = fx.bcx.func.dfg.value_type(lhs);
             match ty {
-                types::I8 | types::I16 | types::I32 if !signed => {
+                types::I8 | types::I16 | types::I32 | types::I64 if !signed => {
                     let lhs = fx.bcx.ins().uextend(ty.double_width().unwrap(), lhs);
                     let rhs = fx.bcx.ins().uextend(ty.double_width().unwrap(), rhs);
                     let val = fx.bcx.ins().imul(lhs, rhs);
@@ -238,7 +238,7 @@ pub(crate) fn codegen_checked_int_binop<'tcx>(
                     let val = fx.bcx.ins().ireduce(ty, val);
                     (val, has_overflow)
                 }
-                types::I8 | types::I16 | types::I32 if signed => {
+                types::I8 | types::I16 | types::I32 | types::I64 if signed => {
                     let lhs = fx.bcx.ins().sextend(ty.double_width().unwrap(), lhs);
                     let rhs = fx.bcx.ins().sextend(ty.double_width().unwrap(), rhs);
                     let val = fx.bcx.ins().imul(lhs, rhs);

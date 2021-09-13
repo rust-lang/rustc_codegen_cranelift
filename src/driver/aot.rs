@@ -41,11 +41,11 @@ fn emit_module(
     backend_config: &BackendConfig,
     name: String,
     kind: ModuleKind,
-    module: ObjectModule,
+    module: &mut cranelift_llvm::LlvmModule<'_>,
     debug: Option<DebugContext<'_>>,
     unwind_context: UnwindContext,
 ) -> ModuleCodegenResult {
-    let mut product = module.finish();
+    let mut product = todo!();
 
     if let Some(mut debug) = debug {
         debug.emit(&mut product);
@@ -116,67 +116,77 @@ fn module_codegen(
     let mono_items = cgu.items_in_deterministic_order(tcx);
 
     let isa = crate::build_isa(tcx.sess, &backend_config);
-    let mut module = make_module(tcx.sess, isa, cgu_name.as_str().to_string());
 
-    let mut cx = crate::CodegenCx::new(
-        tcx,
-        backend_config.clone(),
-        module.isa(),
-        tcx.sess.opts.debuginfo != DebugInfo::None,
-    );
-    super::predefine_mono_items(tcx, &mut module, &mono_items);
-    for (mono_item, _) in mono_items {
-        match mono_item {
-            MonoItem::Fn(inst) => {
-                cx.tcx
-                    .sess
-                    .time("codegen fn", || crate::base::codegen_fn(&mut cx, &mut module, inst));
-            }
-            MonoItem::Static(def_id) => crate::constant::codegen_static(tcx, &mut module, def_id),
-            MonoItem::GlobalAsm(item_id) => {
-                let item = cx.tcx.hir().item(item_id);
-                if let rustc_hir::ItemKind::GlobalAsm(asm) = item.kind {
-                    if !asm.options.contains(InlineAsmOptions::ATT_SYNTAX) {
-                        cx.global_asm.push_str("\n.intel_syntax noprefix\n");
-                    } else {
-                        cx.global_asm.push_str("\n.att_syntax\n");
+    let codegen_result =
+        cranelift_llvm::LlvmModule::with_module(&cgu_name.as_str(), &*isa, |module| {
+            let mut cx = crate::CodegenCx::new(
+                tcx,
+                backend_config.clone(),
+                module.isa(),
+                tcx.sess.opts.debuginfo != DebugInfo::None,
+            );
+            super::predefine_mono_items(tcx, module, &mono_items);
+            for (mono_item, _) in mono_items {
+                match mono_item {
+                    MonoItem::Fn(inst) => {
+                        cx.tcx.sess.time("codegen fn", || {
+                            crate::base::codegen_fn(&mut cx, module, inst)
+                        });
                     }
-                    for piece in asm.template {
-                        match *piece {
-                            InlineAsmTemplatePiece::String(ref s) => cx.global_asm.push_str(s),
-                            InlineAsmTemplatePiece::Placeholder { .. } => todo!(),
+                    MonoItem::Static(def_id) => {
+                        crate::constant::codegen_static(tcx, module, def_id)
+                    }
+                    MonoItem::GlobalAsm(item_id) => {
+                        let item = cx.tcx.hir().item(item_id);
+                        if let rustc_hir::ItemKind::GlobalAsm(asm) = item.kind {
+                            if !asm.options.contains(InlineAsmOptions::ATT_SYNTAX) {
+                                cx.global_asm.push_str("\n.intel_syntax noprefix\n");
+                            } else {
+                                cx.global_asm.push_str("\n.att_syntax\n");
+                            }
+                            for piece in asm.template {
+                                match *piece {
+                                    InlineAsmTemplatePiece::String(ref s) => {
+                                        cx.global_asm.push_str(s)
+                                    }
+                                    InlineAsmTemplatePiece::Placeholder { .. } => todo!(),
+                                }
+                            }
+                            cx.global_asm.push_str("\n.att_syntax\n\n");
+                        } else {
+                            bug!("Expected GlobalAsm found {:?}", item);
                         }
                     }
-                    cx.global_asm.push_str("\n.att_syntax\n\n");
-                } else {
-                    bug!("Expected GlobalAsm found {:?}", item);
                 }
             }
-        }
-    }
-    crate::main_shim::maybe_create_entry_wrapper(
-        tcx,
-        &mut module,
-        &mut cx.unwind_context,
-        false,
-        cgu.is_primary(),
-    );
+            crate::main_shim::maybe_create_entry_wrapper(
+                tcx,
+                module,
+                &mut cx.unwind_context,
+                false,
+                cgu.is_primary(),
+            );
 
-    let debug_context = cx.debug_context;
-    let unwind_context = cx.unwind_context;
-    let codegen_result = tcx.sess.time("write object file", || {
-        emit_module(
-            tcx,
-            &backend_config,
-            cgu.name().as_str().to_string(),
-            ModuleKind::Regular,
-            module,
-            debug_context,
-            unwind_context,
-        )
-    });
+            module.print_to_stderr();
 
-    codegen_global_asm(tcx, &cgu.name().as_str(), &cx.global_asm);
+            let debug_context = cx.debug_context;
+            let unwind_context = cx.unwind_context;
+            let codegen_results = tcx.sess.time("write object file", || {
+                emit_module(
+                    tcx,
+                    &backend_config,
+                    cgu.name().as_str().to_string(),
+                    ModuleKind::Regular,
+                    module,
+                    debug_context,
+                    unwind_context,
+                )
+            });
+
+            codegen_global_asm(tcx, &cgu.name().as_str(), &cx.global_asm);
+
+            codegen_results
+        });
 
     codegen_result
 }
@@ -238,6 +248,7 @@ pub(crate) fn run_aot(
 
     tcx.sess.abort_if_errors();
 
+    /*
     let isa = crate::build_isa(tcx.sess, &backend_config);
     let mut allocator_module = make_module(tcx.sess, isa, "allocator_shim".to_string());
     assert_eq!(pointer_ty(tcx), allocator_module.target_config().pointer_type());
@@ -262,6 +273,7 @@ pub(crate) fn run_aot(
     } else {
         None
     };
+    */
 
     let metadata_module = if need_metadata_module {
         let _timer = tcx.prof.generic_activity("codegen crate metadata");
@@ -303,7 +315,7 @@ pub(crate) fn run_aot(
     Box::new((
         CodegenResults {
             modules,
-            allocator_module,
+            allocator_module: todo!(),
             metadata_module,
             metadata,
             crate_info: CrateInfo::new(tcx, target_cpu),
