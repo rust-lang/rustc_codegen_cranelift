@@ -25,6 +25,7 @@ pub struct LlvmModule<'ctx> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
 
+    intrinsics: HashMap<&'static str, FunctionValue<'ctx>>,
     functions: HashMap<FuncId, FunctionValue<'ctx>>,
     data_objects: HashMap<DataId, GlobalValue<'ctx>>,
 }
@@ -35,11 +36,11 @@ impl Drop for LlvmModule<'_> {
     }
 }
 
-impl LlvmModule<'_> {
+impl<'ctx> LlvmModule<'ctx> {
     pub fn with_module<T>(
         name: &str,
         isa: &dyn TargetIsa,
-        f: impl for<'ctx> FnOnce(&mut LlvmModule<'ctx>) -> T,
+        f: impl for<'a> FnOnce(&mut LlvmModule<'a>) -> T,
     ) -> T {
         let context = Context::create();
         let x = f(&mut LlvmModule {
@@ -50,12 +51,17 @@ impl LlvmModule<'_> {
             builder: context.create_builder(),
             functions: HashMap::new(),
             data_objects: HashMap::new(),
+            intrinsics: HashMap::new(),
         });
         x
     }
 
     pub fn print_to_stderr(&self) {
         self.module.print_to_stderr();
+    }
+
+    fn get_intrinsic(&mut self, name: &'static str, ty: FunctionType<'ctx>) -> FunctionValue<'ctx> {
+        *self.intrinsics.entry(name).or_insert_with(|| self.module.add_function(name, ty, None))
     }
 }
 
@@ -497,7 +503,11 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
                         destination: then_block,
                     } => {
                         let args = args.as_slice(&ctx.func.dfg.value_lists);
-                        let conditional = use_int_val!(args[0]); // FIXME maybe need to itrunc to i8?
+                        let conditional = self.builder.build_int_truncate(
+                            use_int_val!(args[0]),
+                            self.context.bool_type(),
+                            "brnz",
+                        );
                         let then_args = &args[1..];
                         for (arg, phi) in then_args.iter().skip(1).zip(&phi_map[then_block]) {
                             phi.add_incoming(&[(&val_map[arg] as _, block_map[&then_block])]);
@@ -519,6 +529,7 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
                             block_map[then_block],
                             block_map[&else_block],
                         );
+                        break; // Don't codegen the following jump
                     }
                     InstructionData::Jump { opcode: Opcode::Jump, args, destination } => {
                         for (arg, phi) in args
@@ -542,10 +553,9 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
                         }
                     }
                     InstructionData::Trap { opcode: Opcode::Trap, code } => {
-                        let trap = self.module.add_function(
-                            "trap",
+                        let trap = self.get_intrinsic(
+                            "llvm.trap",
                             self.context.void_type().fn_type(&[], false),
-                            None,
                         );
                         self.builder.build_call(trap, &[], &format!("trap {}", code));
                         self.builder.build_unreachable();
@@ -557,9 +567,9 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
             }
         }
 
-        //self.print_to_stderr();
-
-        //todo!()
+        if !func_val.verify(true) {
+            panic!();
+        }
 
         Ok(ModuleCompiledFunction { size: 0 })
     }
