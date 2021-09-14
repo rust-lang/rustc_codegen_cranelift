@@ -8,8 +8,10 @@ use cranelift_module::{DataId, FuncId, ModuleCompiledFunction, ModuleDeclaration
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
+use inkwell::memory_buffer::MemoryBuffer;
 use inkwell::module::Module;
-use inkwell::targets::{InitializationConfig, Target};
+use inkwell::passes::PassManager;
+use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetTriple};
 use inkwell::types::{AnyTypeEnum, BasicType, BasicTypeEnum, FloatType, FunctionType, IntType};
 use inkwell::values::{
     AnyValueEnum, BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue, PhiValue,
@@ -58,6 +60,36 @@ impl<'ctx> LlvmModule<'ctx> {
 
     pub fn print_to_stderr(&self) {
         self.module.print_to_stderr();
+    }
+
+    pub fn compile(&mut self) -> MemoryBuffer {
+        let pass_manager: PassManager<Module> = PassManager::create(());
+        pass_manager.add_instruction_combining_pass();
+        pass_manager.add_reassociate_pass();
+        pass_manager.add_gvn_pass();
+        pass_manager.add_cfg_simplification_pass();
+        pass_manager.add_basic_alias_analysis_pass();
+        pass_manager.add_promote_memory_to_register_pass();
+        pass_manager.add_instruction_combining_pass();
+        pass_manager.add_reassociate_pass();
+        pass_manager.run_on(&self.module);
+        self.print_to_stderr();
+
+        Target::initialize_x86(&InitializationConfig::default());
+        let opt = OptimizationLevel::Default;
+        let target = Target::from_name("x86-64").unwrap();
+        let target_machine = target
+            .create_target_machine(
+                &TargetTriple::create("x86_64-pc-linux-gnu"),
+                "x86-64",
+                "+avx2",
+                opt,
+                RelocMode::PIC,
+                CodeModel::Default,
+            )
+            .unwrap();
+
+        target_machine.write_to_memory_buffer(&self.module, FileType::Object).unwrap()
     }
 
     fn get_intrinsic(&mut self, name: &'static str, ty: FunctionType<'ctx>) -> FunctionValue<'ctx> {

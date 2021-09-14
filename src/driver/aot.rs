@@ -45,17 +45,12 @@ fn emit_module(
     debug: Option<DebugContext<'_>>,
     unwind_context: UnwindContext,
 ) -> ModuleCodegenResult {
-    let mut product = todo!();
+    module.compile();
 
-    if let Some(mut debug) = debug {
-        debug.emit(&mut product);
-    }
-
-    unwind_context.emit(&mut product);
+    let obj = module.compile();
 
     let tmp_file = tcx.output_filenames(()).temp_path(OutputType::Object, Some(&name));
-    let obj = product.object.write().unwrap();
-    if let Err(err) = std::fs::write(&tmp_file, obj) {
+    if let Err(err) = std::fs::write(&tmp_file, obj.as_slice()) {
         tcx.sess.fatal(&format!("error writing object file: {}", err));
     }
 
@@ -129,9 +124,9 @@ fn module_codegen(
             for (mono_item, _) in mono_items {
                 match mono_item {
                     MonoItem::Fn(inst) => {
-                        cx.tcx.sess.time("codegen fn", || {
-                            crate::base::codegen_fn(&mut cx, module, inst)
-                        });
+                        cx.tcx
+                            .sess
+                            .time("codegen fn", || crate::base::codegen_fn(&mut cx, module, inst));
                     }
                     MonoItem::Static(def_id) => {
                         crate::constant::codegen_static(tcx, module, def_id)
@@ -248,32 +243,33 @@ pub(crate) fn run_aot(
 
     tcx.sess.abort_if_errors();
 
-    /*
     let isa = crate::build_isa(tcx.sess, &backend_config);
-    let mut allocator_module = make_module(tcx.sess, isa, "allocator_shim".to_string());
-    assert_eq!(pointer_ty(tcx), allocator_module.target_config().pointer_type());
-    let mut allocator_unwind_context = UnwindContext::new(tcx, allocator_module.isa(), true);
-    let created_alloc_shim =
-        crate::allocator::codegen(tcx, &mut allocator_module, &mut allocator_unwind_context);
+    let allocator_module =
+        cranelift_llvm::LlvmModule::with_module("allocator_shim", &*isa, |allocator_module| {
+            assert_eq!(pointer_ty(tcx), allocator_module.target_config().pointer_type());
+            let mut allocator_unwind_context =
+                UnwindContext::new(tcx, allocator_module.isa(), true);
+            let created_alloc_shim =
+                crate::allocator::codegen(tcx, allocator_module, &mut allocator_unwind_context);
 
-    let allocator_module = if created_alloc_shim {
-        let ModuleCodegenResult(module, work_product) = emit_module(
-            tcx,
-            &backend_config,
-            "allocator_shim".to_string(),
-            ModuleKind::Allocator,
-            allocator_module,
-            None,
-            allocator_unwind_context,
-        );
-        if let Some((id, product)) = work_product {
-            work_products.insert(id, product);
-        }
-        Some(module)
-    } else {
-        None
-    };
-    */
+            if created_alloc_shim {
+                let ModuleCodegenResult(module, work_product) = emit_module(
+                    tcx,
+                    &backend_config,
+                    "allocator_shim".to_string(),
+                    ModuleKind::Allocator,
+                    allocator_module,
+                    None,
+                    allocator_unwind_context,
+                );
+                if let Some((id, product)) = work_product {
+                    work_products.insert(id, product);
+                }
+                Some(module)
+            } else {
+                None
+            }
+        });
 
     let metadata_module = if need_metadata_module {
         let _timer = tcx.prof.generic_activity("codegen crate metadata");
@@ -315,7 +311,7 @@ pub(crate) fn run_aot(
     Box::new((
         CodegenResults {
             modules,
-            allocator_module: todo!(),
+            allocator_module,
             metadata_module,
             metadata,
             crate_info: CrateInfo::new(tcx, target_cpu),
