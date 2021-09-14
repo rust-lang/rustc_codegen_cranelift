@@ -500,7 +500,6 @@ impl<T> Deref for Box<T> {
     }
 }
 
-/*
 #[lang = "exchange_malloc"]
 unsafe fn allocate(size: usize, _align: usize) -> *mut u8 {
     libc::malloc(size)
@@ -510,7 +509,6 @@ unsafe fn allocate(size: usize, _align: usize) -> *mut u8 {
 unsafe fn box_free<T: ?Sized>(ptr: *mut T) {
     libc::free(ptr as *mut u8);
 }
-*/
 
 #[lang = "drop"]
 pub trait Drop {

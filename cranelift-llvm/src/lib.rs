@@ -11,7 +11,9 @@ use inkwell::context::Context;
 use inkwell::memory_buffer::MemoryBuffer;
 use inkwell::module::Module;
 use inkwell::passes::PassManager;
-use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetTriple};
+use inkwell::targets::{
+    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetTriple,
+};
 use inkwell::types::{AnyTypeEnum, BasicType, BasicTypeEnum, FloatType, FunctionType, IntType};
 use inkwell::values::{
     AnyValueEnum, BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue, PhiValue,
@@ -34,7 +36,9 @@ pub struct LlvmModule<'ctx> {
 
 impl Drop for LlvmModule<'_> {
     fn drop(&mut self) {
-        self.module.print_to_stderr();
+        if std::thread::panicking() {
+            self.module.print_to_stderr();
+        }
     }
 }
 
@@ -219,7 +223,17 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
         &mut self,
         signature: &Signature,
     ) -> cranelift_module::ModuleResult<cranelift_module::FuncId> {
-        todo!()
+        let func_id = self.declarations.declare_anonymous_function(signature)?;
+
+        let func_val = self.module.add_function(
+            "__anon",
+            translate_sig(self.context, signature),
+            Some(inkwell::module::Linkage::Internal),
+        );
+        // FIXME apply param attributes
+        self.functions.insert(func_id, func_val);
+
+        Ok(func_id)
     }
 
     fn declare_data(
@@ -527,6 +541,28 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
                         );
                         let res = self.builder.build_load(ptr, &res_vals[0].to_string());
                         val_map.insert(res_vals[0], res.as_basic_value_enum());
+                    }
+
+                    InstructionData::Call { opcode: Opcode::Call, args, func_ref } => {
+                        let args = args
+                            .as_slice(&ctx.func.dfg.value_lists)
+                            .iter()
+                            .map(|arg| use_val!(*arg))
+                            .collect::<Vec<_>>();
+
+                        let func_id = FuncId::from_name(&ctx.func.dfg.ext_funcs[*func_ref].name);
+                        let func_val = self.functions[&func_id];
+
+                        let res =
+                            self.builder.build_call(func_val, &args, &res_vals[0].to_string());
+
+                        match res_vals {
+                            [] => {}
+                            [res_val] => {
+                                val_map.insert(*res_val, res.try_as_basic_value().unwrap_left());
+                            }
+                            _ => todo!(),
+                        }
                     }
 
                     InstructionData::Branch {
