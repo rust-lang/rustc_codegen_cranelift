@@ -256,7 +256,12 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
         writable: bool,
         tls: bool,
     ) -> cranelift_module::ModuleResult<cranelift_module::DataId> {
-        todo!()
+        let data_id = self.declarations.declare_anonymous_data(writable, tls)?;
+
+        let data_val = self.module.add_global(todo!() as IntType, None, "__anon");
+        self.data_objects.insert(data_id, data_val);
+
+        Ok(data_id)
     }
 
     fn define_function(
