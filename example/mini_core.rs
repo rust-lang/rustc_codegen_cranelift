@@ -449,6 +449,7 @@ pub trait FnMut<Args>: FnOnce<Args> {
 #[track_caller]
 pub fn panic(_msg: &str) -> ! {
     unsafe {
+        libc::puts("Panicking\n\0" as *const str as *const i8);
         intrinsics::abort();
     }
 }
@@ -457,6 +458,7 @@ pub fn panic(_msg: &str) -> ! {
 #[track_caller]
 fn panic_bounds_check(index: usize, len: usize) -> ! {
     unsafe {
+        libc::puts("index out of bounds\n\0" as *const str as *const i8);
         intrinsics::abort();
     }
 }

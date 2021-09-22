@@ -162,8 +162,6 @@ fn module_codegen(
                 cgu.is_primary(),
             );
 
-            module.print_to_stderr();
-
             let debug_context = cx.debug_context;
             let unwind_context = cx.unwind_context;
             let codegen_results = tcx.sess.time("write object file", || {
