@@ -90,7 +90,12 @@ pub fn translate_sig<'ctx>(context: &'ctx Context, signature: &Signature) -> Fun
         .collect::<Vec<_>>();
     match &*signature.returns {
         [] => context.void_type().fn_type(&params, false),
-        [ret_val] => translate_ty(context, ret_val.value_type).fn_type(&params, false),
+        [ret_abi_param] => translate_ty(context, ret_abi_param.value_type).fn_type(&params, false),
+        [ret_abi_param_a, ret_abi_param_b] => {
+            let ret_ty_a = translate_ty(context, ret_abi_param_a.value_type);
+            let ret_ty_b = translate_ty(context, ret_abi_param_b.value_type);
+            context.struct_type(&[ret_ty_a, ret_ty_b], false).fn_type(&params, false)
+        }
         _ => todo!(),
     }
 }
@@ -203,9 +208,9 @@ pub fn define_function<'ctx>(
                         Opcode::Bint => module
                             .builder
                             .build_int_z_extend(
-                            arg,
-                            module.context.i8_type(),
-                            &res_vals[0].to_string(),
+                                arg,
+                                module.context.i8_type(),
+                                &res_vals[0].to_string(),
                             )
                             .as_basic_value_enum(),
                         Opcode::Ineg => module
@@ -215,25 +220,25 @@ pub fn define_function<'ctx>(
                         Opcode::Uextend => module
                             .builder
                             .build_int_z_extend(
-                            arg,
-                            translate_int_ty(module.context, func.dfg.ctrl_typevar(inst)),
-                            &res_vals[0].to_string(),
+                                arg,
+                                translate_int_ty(module.context, func.dfg.ctrl_typevar(inst)),
+                                &res_vals[0].to_string(),
                             )
                             .as_basic_value_enum(),
                         Opcode::Sextend => module
                             .builder
                             .build_int_s_extend(
-                            arg,
-                            translate_int_ty(module.context, func.dfg.ctrl_typevar(inst)),
-                            &res_vals[0].to_string(),
+                                arg,
+                                translate_int_ty(module.context, func.dfg.ctrl_typevar(inst)),
+                                &res_vals[0].to_string(),
                             )
                             .as_basic_value_enum(),
                         Opcode::Ireduce => module
                             .builder
                             .build_int_truncate(
-                            arg,
-                            translate_int_ty(module.context, func.dfg.ctrl_typevar(inst)),
-                            &res_vals[0].to_string(),
+                                arg,
+                                translate_int_ty(module.context, func.dfg.ctrl_typevar(inst)),
+                                &res_vals[0].to_string(),
                             )
                             .as_basic_value_enum(),
                         Opcode::FcvtFromUint => module
@@ -555,7 +560,40 @@ pub fn define_function<'ctx>(
                     let func_id = FuncId::from_name(&func.dfg.ext_funcs[*func_ref].name);
                     let func_val = module.function_refs[&func_id];
 
-                    let res = module.builder.build_call(func_val, &args, &res_vals[0].to_string());
+                    let res = module.builder.build_call(
+                        func_val,
+                        &args,
+                        &res_vals.get(0).map(|val| val.to_string()).unwrap_or_else(String::new),
+                    );
+
+                    match res_vals {
+                        [] => {}
+                        [res_val] => {
+                            val_map.insert(*res_val, res.try_as_basic_value().unwrap_left());
+                        }
+                        [res_val_a, res_val_b] => {
+                            let res = res.as_any_value_enum().into_struct_value();
+                            val_map.insert(*res_val_a, res.const_extract_value(&mut [0]));
+                            val_map.insert(*res_val_b, res.const_extract_value(&mut [1]));
+                        }
+                        _ => todo!(),
+                    }
+                }
+
+                InstructionData::CallIndirect { opcode: Opcode::CallIndirect, args, sig_ref } => {
+                    let args = args
+                        .as_slice(&func.dfg.value_lists)
+                        .iter()
+                        .map(|arg| use_val!(*arg))
+                        .collect::<Vec<_>>();
+
+                    let func_type = translate_sig(&module.context, &func.dfg.signatures[*sig_ref]);
+                    let func_type = unsafe { std::mem::transmute(func_type) }; // FIXME(TheDan64/inkwell#269) support safe upcasting from FunctionType to PointerType
+                    let func_val = args[0].into_int_value().const_to_pointer(func_type);
+                    let func_val = CallableValue::try_from(func_val).unwrap();
+
+                    let res =
+                        module.builder.build_call(func_val, &args[1..], &res_vals[0].to_string());
 
                     match res_vals {
                         [] => {}
@@ -623,6 +661,23 @@ pub fn define_function<'ctx>(
                         }
                         [ret_val] => {
                             module.builder.build_return(Some(&use_val!(*ret_val) as _));
+                        }
+                        [ret_val_a, ret_val_b] => {
+                            let ret_val_a = use_val!(*ret_val_a);
+                            let ret_val_b = use_val!(*ret_val_b);
+                            let ret_val = module
+                                .context
+                                .struct_type(&[ret_val_a.get_type(), ret_val_b.get_type()], false)
+                                .get_undef();
+                            let ret_val = module
+                                .builder
+                                .build_insert_value(ret_val, ret_val_a, 0, "ret_val")
+                                .unwrap();
+                            let ret_val = module
+                                .builder
+                                .build_insert_value(ret_val, ret_val_b, 1, "ret_val")
+                                .unwrap();
+                            module.builder.build_return(Some(&ret_val));
                         }
                         _ => todo!(),
                     }
