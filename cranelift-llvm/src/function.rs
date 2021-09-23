@@ -568,8 +568,16 @@ pub fn define_function<'ctx>(
                         }
                         [res_val_a, res_val_b] => {
                             let res = res.as_any_value_enum().into_struct_value();
-                            val_map.insert(*res_val_a, res.const_extract_value(&mut [0]));
-                            val_map.insert(*res_val_b, res.const_extract_value(&mut [1]));
+                            let res_a = module
+                                .builder
+                                .build_extract_value(res, 0, &format!("{}", res_val_a))
+                                .unwrap();
+                            let res_b = module
+                                .builder
+                                .build_extract_value(res, 1, &format!("{}", res_val_b))
+                                .unwrap();
+                            val_map.insert(*res_val_a, res_a);
+                            val_map.insert(*res_val_b, res_b);
                         }
                         _ => todo!(),
                     }
