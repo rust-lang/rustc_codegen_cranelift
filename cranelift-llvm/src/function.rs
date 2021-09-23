@@ -566,12 +566,16 @@ pub fn define_function<'ctx>(
                     }
                 }
 
-                InstructionData::Branch { opcode: Opcode::Brnz, args, destination: then_block } => {
+                InstructionData::Branch {
+                    opcode: opcode @ Opcode::Brz | opcode @ Opcode::Brnz,
+                    args,
+                    destination: then_block,
+                } => {
                     let args = args.as_slice(&func.dfg.value_lists);
                     let conditional = module.builder.build_int_truncate(
                         use_int_val!(args[0]),
                         module.context.bool_type(),
-                        "brnz",
+                        if *opcode == Opcode::Brz { "brz" } else { "brnz" },
                     );
                     let then_args = &args[1..];
                     for (arg, phi) in then_args.iter().skip(1).zip(&phi_map[then_block]) {
@@ -591,8 +595,16 @@ pub fn define_function<'ctx>(
                     }
                     module.builder.build_conditional_branch(
                         conditional,
-                        block_map[then_block],
-                        block_map[&else_block],
+                        if *opcode == Opcode::Brz {
+                            block_map[&else_block]
+                        } else {
+                            block_map[then_block]
+                        },
+                        if *opcode == Opcode::Brz {
+                            block_map[then_block]
+                        } else {
+                            block_map[&else_block]
+                        },
                     );
                     break; // Don't codegen the following jump
                 }
