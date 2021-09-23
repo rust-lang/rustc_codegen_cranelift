@@ -538,15 +538,11 @@ pub fn define_function<'ctx>(
 
                 InstructionData::FuncAddr { opcode: Opcode::FuncAddr, func_ref } => {
                     let ptr_ty = module.context.i64_type(); // FIXME
-                    let func_id = FuncId::from_name(&func.dfg.ext_funcs[*func_ref].name);
+                    let func_val = module.get_func(&func.dfg.ext_funcs[*func_ref].name);
 
                     val_map.insert(
                         res_vals[0],
-                        module.function_refs[&func_id]
-                            .as_global_value()
-                            .as_pointer_value()
-                            .const_to_int(ptr_ty)
-                            .into(),
+                        func_val.as_global_value().as_pointer_value().const_to_int(ptr_ty).into(),
                     );
                 }
 
@@ -557,8 +553,7 @@ pub fn define_function<'ctx>(
                         .map(|arg| use_val!(*arg))
                         .collect::<Vec<_>>();
 
-                    let func_id = FuncId::from_name(&func.dfg.ext_funcs[*func_ref].name);
-                    let func_val = module.function_refs[&func_id];
+                    let func_val = module.get_func(&func.dfg.ext_funcs[*func_ref].name);
 
                     let res = module.builder.build_call(
                         func_val,

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use cranelift_codegen::ir::{Function, Signature};
+use cranelift_codegen::ir::{ExternalName, Function, LibCall, Signature};
 use cranelift_codegen::isa::TargetIsa;
 use cranelift_module::{
     DataContext, DataDescription, DataId, FuncId, ModuleCompiledFunction, ModuleDeclarations,
@@ -28,6 +28,7 @@ pub struct LlvmModule<'ctx> {
     builder: Builder<'ctx>,
 
     intrinsic_refs: HashMap<&'static str, FunctionValue<'ctx>>,
+    libcall_refs: HashMap<LibCall, FunctionValue<'ctx>>,
     function_refs: HashMap<FuncId, FunctionValue<'ctx>>,
     data_object_refs: HashMap<DataId, GlobalValue<'ctx>>,
 
@@ -58,6 +59,7 @@ impl<'ctx> LlvmModule<'ctx> {
             builder: context.create_builder(),
 
             intrinsic_refs: HashMap::new(),
+            libcall_refs: HashMap::new(),
             function_refs: HashMap::new(),
             data_object_refs: HashMap::new(),
 
@@ -163,6 +165,55 @@ impl<'ctx> LlvmModule<'ctx> {
 
     fn get_intrinsic(&mut self, name: &'static str, ty: FunctionType<'ctx>) -> FunctionValue<'ctx> {
         *self.intrinsic_refs.entry(name).or_insert_with(|| self.module.add_function(name, ty, None))
+    }
+
+    fn get_func(&mut self, ext_name: &ExternalName) -> FunctionValue<'ctx> {
+        match ext_name {
+            ExternalName::User { .. } => {
+                let func_id = FuncId::from_name(ext_name);
+                self.function_refs[&func_id]
+            }
+            ExternalName::LibCall(libcall) => {
+                let i8p_ty = self.context.i64_type();//self.context.i8_type().ptr_type(inkwell::AddressSpace::Generic);
+                let c_int_ty = self.context.i32_type().into(); // FIXME
+                let size_t_ty = self.context.i64_type().into(); // FIXME
+                let (name, ty) = match *libcall {
+                    LibCall::Memcpy => (
+                        "memcpy",
+                        i8p_ty.fn_type(&[i8p_ty.into(), i8p_ty.into(), size_t_ty], false),
+                    ),
+                    LibCall::Memset => {
+                        ("memset", i8p_ty.fn_type(&[i8p_ty.into(), c_int_ty, size_t_ty], false))
+                    }
+                    LibCall::Memmove => (
+                        "memmove",
+                        i8p_ty.fn_type(&[i8p_ty.into(), i8p_ty.into(), size_t_ty], false),
+                    ),
+                    LibCall::UdivI64 => todo!(),
+                    LibCall::SdivI64 => todo!(),
+                    LibCall::UremI64 => todo!(),
+                    LibCall::SremI64 => todo!(),
+                    LibCall::IshlI64 => todo!(),
+                    LibCall::UshrI64 => todo!(),
+                    LibCall::SshrI64 => todo!(),
+                    LibCall::CeilF32 => todo!(),
+                    LibCall::CeilF64 => todo!(),
+                    LibCall::FloorF32 => todo!(),
+                    LibCall::FloorF64 => todo!(),
+                    LibCall::TruncF32 => todo!(),
+                    LibCall::TruncF64 => todo!(),
+                    LibCall::NearestF32 => todo!(),
+                    LibCall::NearestF64 => todo!(),
+                    LibCall::Probestack | LibCall::ElfTlsGetAddr => todo!(),
+                };
+                *self.libcall_refs.entry(*libcall).or_insert_with(|| {
+                    self.module
+                        .get_function(name)
+                        .unwrap_or_else(|| self.module.add_function(name, ty, None))
+                })
+            }
+            ExternalName::TestCase { .. } => unimplemented!(),
+        }
     }
 }
 
