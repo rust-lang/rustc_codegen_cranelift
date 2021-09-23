@@ -10,7 +10,10 @@ use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::types::{BasicType, BasicTypeEnum, FloatType, FunctionType, IntType};
-use inkwell::values::{BasicValue, BasicValueEnum, IntValue, PhiValue, PointerValue};
+use inkwell::values::{
+    AggregateValue, AnyValue, BasicValue, BasicValueEnum, CallableValue, IntValue, PhiValue,
+    PointerValue,
+};
 use inkwell::{AddressSpace, IntPredicate};
 
 fn translate_int_ty<'ctx>(
@@ -141,20 +144,14 @@ pub fn define_function<'ctx>(
     macro_rules! use_int_val {
         ($val:expr) => {{
             let val = func.dfg.resolve_aliases($val);
-            match val_map[&val] {
-                BasicValueEnum::IntValue(val) => val,
-                _ => unreachable!(),
-            }
+            val_map[&val].into_int_value()
         }};
     }
 
     macro_rules! use_float_val {
         ($val:expr) => {{
             let val = func.dfg.resolve_aliases($val);
-            match val_map[&val] {
-                BasicValueEnum::FloatValue(val) => val,
-                _ => unreachable!(),
-            }
+            val_map[&val].into_float_value()
         }};
     }
 
@@ -192,36 +189,72 @@ pub fn define_function<'ctx>(
                         | opcode @ Opcode::Ineg
                         | opcode @ Opcode::Uextend
                         | opcode @ Opcode::Sextend
-                        | opcode @ Opcode::Ireduce,
+                        | opcode @ Opcode::Ireduce
+                        | opcode @ Opcode::FcvtFromUint
+                        | opcode @ Opcode::FcvtFromSint,
                     arg,
                 } => {
                     let arg = use_int_val!(*arg);
                     let res = match opcode {
-                        Opcode::Bnot => module.builder.build_not(arg, &res_vals[0].to_string()),
-                        Opcode::Bint => module.builder.build_int_z_extend(
+                        Opcode::Bnot => module
+                            .builder
+                            .build_not(arg, &res_vals[0].to_string())
+                            .as_basic_value_enum(),
+                        Opcode::Bint => module
+                            .builder
+                            .build_int_z_extend(
                             arg,
                             module.context.i8_type(),
                             &res_vals[0].to_string(),
-                        ),
-                        Opcode::Ineg => module.builder.build_int_neg(arg, &res_vals[0].to_string()),
-                        Opcode::Uextend => module.builder.build_int_z_extend(
+                            )
+                            .as_basic_value_enum(),
+                        Opcode::Ineg => module
+                            .builder
+                            .build_int_neg(arg, &res_vals[0].to_string())
+                            .as_basic_value_enum(),
+                        Opcode::Uextend => module
+                            .builder
+                            .build_int_z_extend(
                             arg,
                             translate_int_ty(module.context, func.dfg.ctrl_typevar(inst)),
                             &res_vals[0].to_string(),
-                        ),
-                        Opcode::Sextend => module.builder.build_int_s_extend(
+                            )
+                            .as_basic_value_enum(),
+                        Opcode::Sextend => module
+                            .builder
+                            .build_int_s_extend(
                             arg,
                             translate_int_ty(module.context, func.dfg.ctrl_typevar(inst)),
                             &res_vals[0].to_string(),
-                        ),
-                        Opcode::Ireduce => module.builder.build_int_truncate(
+                            )
+                            .as_basic_value_enum(),
+                        Opcode::Ireduce => module
+                            .builder
+                            .build_int_truncate(
                             arg,
                             translate_int_ty(module.context, func.dfg.ctrl_typevar(inst)),
                             &res_vals[0].to_string(),
-                        ),
+                            )
+                            .as_basic_value_enum(),
+                        Opcode::FcvtFromUint => module
+                            .builder
+                            .build_unsigned_int_to_float(
+                                arg,
+                                translate_float_ty(module.context, func.dfg.ctrl_typevar(inst)),
+                                &res_vals[0].to_string(),
+                            )
+                            .as_basic_value_enum(),
+                        Opcode::FcvtFromSint => module
+                            .builder
+                            .build_signed_int_to_float(
+                                arg,
+                                translate_float_ty(module.context, func.dfg.ctrl_typevar(inst)),
+                                &res_vals[0].to_string(),
+                            )
+                            .as_basic_value_enum(),
                         _ => unreachable!(),
                     };
-                    val_map.insert(res_vals[0], res.as_basic_value_enum());
+                    val_map.insert(res_vals[0], res);
                 }
                 InstructionData::Unary { opcode: opcode @ Opcode::Fneg, arg } => {
                     let arg = use_float_val!(*arg);
