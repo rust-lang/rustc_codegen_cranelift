@@ -531,6 +531,20 @@ pub fn define_function<'ctx>(
                     );
                 }
 
+                InstructionData::FuncAddr { opcode: Opcode::FuncAddr, func_ref } => {
+                    let ptr_ty = module.context.i64_type(); // FIXME
+                    let func_id = FuncId::from_name(&func.dfg.ext_funcs[*func_ref].name);
+
+                    val_map.insert(
+                        res_vals[0],
+                        module.function_refs[&func_id]
+                            .as_global_value()
+                            .as_pointer_value()
+                            .const_to_int(ptr_ty)
+                            .into(),
+                    );
+                }
+
                 InstructionData::Call { opcode: Opcode::Call, args, func_ref } => {
                     let args = args
                         .as_slice(&func.dfg.value_lists)
