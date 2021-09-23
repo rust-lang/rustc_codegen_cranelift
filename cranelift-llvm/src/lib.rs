@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cranelift_codegen::ir::{Function, Signature};
 use cranelift_codegen::isa::TargetIsa;
@@ -177,6 +177,11 @@ fn translate_linkage(linkage: cranelift_module::Linkage) -> inkwell::module::Lin
 }
 
 fn data_object_type<'ctx>(context: &'ctx Context, data_ctx: &DataContext) -> BasicTypeEnum<'ctx> {
+    // FIXME use an opaque struct type for data objects when declaring and .set_body() when defining
+    // to allow eager data object definition
+    let ptr_size = 8; // FIXME
+    let ptr_ty = context.i64_type(); // FIXME
+
     if data_ctx.description().function_relocs.is_empty()
         && data_ctx.description().data_relocs.is_empty()
     {
@@ -186,7 +191,37 @@ fn data_object_type<'ctx>(context: &'ctx Context, data_ctx: &DataContext) -> Bas
             .into();
     }
 
-    todo!()
+    let mut relocs = HashSet::new();
+    for &(offset, _) in &data_ctx.description().function_relocs {
+        relocs.insert(offset);
+    }
+    for &(offset, _, _) in &data_ctx.description().data_relocs {
+        relocs.insert(offset);
+    }
+
+    let mut parts: Vec<BasicTypeEnum> = vec![];
+    let mut current_run_len = 0;
+
+    let mut i = 0;
+    let size = data_ctx.description().init.size().try_into().unwrap();
+    while i < size {
+        if relocs.contains(&i) {
+            if current_run_len > 0 {
+                parts.push(context.i8_type().array_type(current_run_len).into());
+                current_run_len = 0;
+            }
+            parts.push(ptr_ty.into());
+            i += ptr_size;
+        } else {
+            current_run_len += 1;
+            i += 1;
+        }
+    }
+    if current_run_len > 0 {
+        parts.push(context.i8_type().array_type(current_run_len).into());
+    }
+
+    context.struct_type(&parts, true).into()
 }
 
 impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
