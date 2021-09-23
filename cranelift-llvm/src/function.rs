@@ -341,12 +341,76 @@ pub fn define_function<'ctx>(
                     };
                     val_map.insert(res_vals[0], res.as_basic_value_enum());
                 }
-                InstructionData::BinaryImm64 { opcode: opcode @ Opcode::BandImm, arg, imm } => {
-                    let arg = use_int_val!(*arg);
-                    let imm = translate_imm64(module.context, func.dfg.ctrl_typevar(inst), *imm);
+                InstructionData::BinaryImm64 {
+                    opcode:
+                        opcode @ Opcode::IaddImm
+                        | opcode @ Opcode::IrsubImm
+                        | opcode @ Opcode::ImulImm
+                        | opcode @ Opcode::UdivImm
+                        | opcode @ Opcode::SdivImm
+                        | opcode @ Opcode::UremImm
+                        | opcode @ Opcode::SremImm
+                        | opcode @ Opcode::IshlImm
+                        | opcode @ Opcode::UshrImm
+                        | opcode @ Opcode::SshrImm
+                        | opcode @ Opcode::BandImm
+                        | opcode @ Opcode::BorImm
+                        | opcode @ Opcode::BxorImm,
+                    arg,
+                    imm,
+                } => {
+                    let lhs = use_int_val!(*arg);
+                    let rhs = translate_imm64(module.context, func.dfg.ctrl_typevar(inst), *imm);
                     let res = match opcode {
+                        Opcode::IaddImm => {
+                            module.builder.build_int_add(lhs, rhs, &res_vals[0].to_string())
+                        }
+                        Opcode::IrsubImm => {
+                            // Note: lhs and rhs are swapped
+                            module.builder.build_int_sub(rhs, lhs, &res_vals[0].to_string())
+                        }
+                        Opcode::ImulImm => {
+                            module.builder.build_int_mul(lhs, rhs, &res_vals[0].to_string())
+                        }
+                        Opcode::UdivImm => module.builder.build_int_unsigned_div(
+                            lhs,
+                            rhs,
+                            &res_vals[0].to_string(),
+                        ),
+                        Opcode::SdivImm => {
+                            module.builder.build_int_signed_div(lhs, rhs, &res_vals[0].to_string())
+                        }
+                        Opcode::UremImm => module.builder.build_int_unsigned_rem(
+                            lhs,
+                            rhs,
+                            &res_vals[0].to_string(),
+                        ),
+                        Opcode::SremImm => {
+                            module.builder.build_int_signed_rem(lhs, rhs, &res_vals[0].to_string())
+                        }
+                        Opcode::IshlImm => {
+                            module.builder.build_left_shift(lhs, rhs, &res_vals[0].to_string())
+                        }
+                        Opcode::UshrImm => module.builder.build_right_shift(
+                            lhs,
+                            rhs,
+                            false,
+                            &res_vals[0].to_string(),
+                        ),
+                        Opcode::SshrImm => module.builder.build_right_shift(
+                            lhs,
+                            rhs,
+                            true,
+                            &res_vals[0].to_string(),
+                        ),
                         Opcode::BandImm => {
-                            module.builder.build_and(arg, imm, &res_vals[0].to_string())
+                            module.builder.build_and(lhs, rhs, &res_vals[0].to_string())
+                        }
+                        Opcode::BorImm => {
+                            module.builder.build_or(lhs, rhs, &res_vals[0].to_string())
+                        }
+                        Opcode::BxorImm => {
+                            module.builder.build_xor(lhs, rhs, &res_vals[0].to_string())
                         }
                         _ => unreachable!(),
                     };
