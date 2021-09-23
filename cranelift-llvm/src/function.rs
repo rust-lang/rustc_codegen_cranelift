@@ -490,6 +490,17 @@ pub fn define_function<'ctx>(
                     val_map.insert(res_vals[0], res.as_basic_value_enum());
                 }
 
+                InstructionData::StackLoad { opcode: Opcode::StackAddr, stack_slot, offset } => {
+                    let ptr = translate_ptr_offset32(
+                        module.context,
+                        &module.builder,
+                        func.dfg.ctrl_typevar(inst),
+                        stack_slot_map[stack_slot],
+                        *offset,
+                    );
+                    val_map.insert(res_vals[0], ptr.as_basic_value_enum());
+                }
+
                 InstructionData::StackStore {
                     opcode: Opcode::StackStore,
                     arg,
