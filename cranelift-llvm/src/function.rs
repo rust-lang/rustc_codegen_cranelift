@@ -5,14 +5,13 @@ use cranelift_codegen::ir::immediates::{Imm64, Offset32};
 use cranelift_codegen::ir::{
     types, Block, Function, InstructionData, Opcode, Signature, StackSlot,
 };
-use cranelift_module::{DataId, FuncId};
+use cranelift_module::DataId;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::types::{BasicType, BasicTypeEnum, FloatType, FunctionType, IntType};
 use inkwell::values::{
-    AggregateValue, AnyValue, BasicValue, BasicValueEnum, CallableValue, IntValue, PhiValue,
-    PointerValue,
+    AnyValue, BasicValue, BasicValueEnum, CallableValue, IntValue, PhiValue, PointerValue,
 };
 use inkwell::{AddressSpace, IntPredicate};
 
@@ -416,6 +415,26 @@ pub fn define_function<'ctx>(
                         }
                         Opcode::BxorImm => {
                             module.builder.build_xor(lhs, rhs, &res_vals[0].to_string())
+                        }
+                        _ => unreachable!(),
+                    };
+                    val_map.insert(res_vals[0], res.as_basic_value_enum());
+                }
+                InstructionData::Ternary {
+                    opcode: opcode @ Opcode::Select,
+                    args: [cond, lhs, rhs],
+                } => {
+                    let cond = use_int_val!(*cond);
+                    let lhs = use_val!(*lhs);
+                    let rhs = use_val!(*rhs);
+                    let res = match opcode {
+                        Opcode::Select => {
+                            let cond = module.builder.build_int_truncate(
+                                cond,
+                                module.context.bool_type(),
+                                "cond",
+                            );
+                            module.builder.build_select(cond, lhs, rhs, &res_vals[0].to_string())
                         }
                         _ => unreachable!(),
                     };
