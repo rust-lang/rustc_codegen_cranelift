@@ -649,6 +649,7 @@ pub fn define_function<'ctx>(
                     );
                     break; // Don't codegen the following jump
                 }
+
                 InstructionData::Jump { opcode: Opcode::Jump, args, destination } => {
                     for (arg, phi) in
                         args.as_slice(&func.dfg.value_lists).iter().zip(&phi_map[destination])
@@ -657,6 +658,28 @@ pub fn define_function<'ctx>(
                     }
                     module.builder.build_unconditional_branch(block_map[destination]);
                 }
+
+                InstructionData::BranchTable {
+                    opcode: Opcode::BrTable,
+                    arg,
+                    destination,
+                    table,
+                } => {
+                    let cond = use_int_val!(*arg);
+                    module.builder.build_switch(
+                        cond,
+                        block_map[destination],
+                        &func.jump_tables[*table]
+                            .as_slice()
+                            .iter()
+                            .enumerate()
+                            .map(|(i, block)| {
+                                (cond.get_type().const_int(i as u64, false), block_map[block])
+                            })
+                            .collect::<Vec<_>>(),
+                    );
+                }
+
                 InstructionData::MultiAry { opcode: Opcode::Return, args } => {
                     match args.as_slice(&func.dfg.value_lists) {
                         [] => {
