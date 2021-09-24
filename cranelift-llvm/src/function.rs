@@ -684,13 +684,20 @@ pub fn define_function<'ctx>(
                         .map(|arg| use_val!(*arg))
                         .collect::<Vec<_>>();
 
-                    let func_type = translate_sig(&module.context, &func.dfg.signatures[*sig_ref]);
-                    let func_type = unsafe { std::mem::transmute(func_type) }; // FIXME(TheDan64/inkwell#269) support safe upcasting from FunctionType to PointerType
-                    let func_val = args[0].into_int_value().const_to_pointer(func_type);
+                    let func_type = translate_sig(&module.context, &func.dfg.signatures[*sig_ref])
+                        .ptr_type(AddressSpace::Generic);
+                    let func_val = module.builder.build_int_to_ptr(
+                        args[0].into_int_value(),
+                        func_type,
+                        "fnptr",
+                    );
                     let func_val = CallableValue::try_from(func_val).unwrap();
 
-                    let res =
-                        module.builder.build_call(func_val, &args[1..], &res_vals[0].to_string());
+                    let res = module.builder.build_call(
+                        func_val,
+                        &args[1..],
+                        &res_vals.get(0).map(|val| val.to_string()).unwrap_or_else(String::new),
+                    );
 
                     match res_vals {
                         [] => {}
