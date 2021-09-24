@@ -502,6 +502,24 @@ pub fn define_function<'ctx>(
                     val_map.insert(res_vals[0], res.as_basic_value_enum());
                 }
 
+                InstructionData::Store {
+                    opcode: Opcode::Store,
+                    args: [arg, ptr],
+                    flags: _,
+                    offset,
+                } => {
+                    let arg = use_val!(*arg);
+                    let ptr = use_int_val!(*ptr);
+                    let ptr = translate_ptr_offset32(
+                        module.context,
+                        &module.builder,
+                        func.dfg.ctrl_typevar(inst),
+                        ptr,
+                        *offset,
+                    );
+                    module.builder.build_store(ptr, arg);
+                }
+
                 InstructionData::StackLoad { opcode: Opcode::StackLoad, stack_slot, offset } => {
                     let ptr = translate_ptr_offset32(
                         module.context,
