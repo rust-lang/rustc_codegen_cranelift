@@ -260,12 +260,26 @@ pub fn define_function<'ctx>(
                     };
                     val_map.insert(res_vals[0], res);
                 }
-                InstructionData::Unary { opcode: opcode @ Opcode::Fneg, arg } => {
+                InstructionData::Unary {
+                    opcode:
+                        opcode @ Opcode::Fneg | opcode @ Opcode::Fpromote | opcode @ Opcode::Fdemote,
+                    arg,
+                } => {
                     let arg = use_float_val!(*arg);
                     let res = match opcode {
                         Opcode::Fneg => {
                             module.builder.build_float_neg(arg, &res_vals[0].to_string())
                         }
+                        Opcode::Fpromote => module.builder.build_float_ext(
+                            arg,
+                            translate_float_ty(&module.context, func.dfg.ctrl_typevar(inst)),
+                            &res_vals[0].to_string(),
+                        ),
+                        Opcode::Fdemote => module.builder.build_float_trunc(
+                            arg,
+                            translate_float_ty(&module.context, func.dfg.ctrl_typevar(inst)),
+                            &res_vals[0].to_string(),
+                        ),
                         _ => unreachable!(),
                     };
                     val_map.insert(res_vals[0], res.as_basic_value_enum());
