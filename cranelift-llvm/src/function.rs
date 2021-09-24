@@ -515,13 +515,12 @@ pub fn define_function<'ctx>(
                 }
 
                 InstructionData::StackLoad { opcode: Opcode::StackAddr, stack_slot, offset } => {
-                    let ptr = translate_ptr_offset32(
-                        module.context,
-                        &module.builder,
-                        func.dfg.ctrl_typevar(inst),
-                        stack_slot_map[stack_slot],
-                        *offset,
-                    );
+                    let ptr = stack_slot_map[stack_slot];
+                    let ptr_ty = ptr.get_type();
+                    let offset: i64 = (*offset).into();
+                    let offset =
+                        ptr_ty.const_int(offset as u64, false /* FIXME right value? */);
+                    let ptr = module.builder.build_int_add(ptr, offset, "ptr_val");
                     val_map.insert(res_vals[0], ptr.as_basic_value_enum());
                 }
 
