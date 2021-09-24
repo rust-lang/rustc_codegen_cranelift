@@ -195,7 +195,9 @@ pub fn define_function<'ctx>(
                         | opcode @ Opcode::Sextend
                         | opcode @ Opcode::Ireduce
                         | opcode @ Opcode::FcvtFromUint
-                        | opcode @ Opcode::FcvtFromSint,
+                        | opcode @ Opcode::FcvtFromSint
+                        | opcode @ Opcode::Clz
+                        | opcode @ Opcode::Ctz,
                     arg,
                 } => {
                     let arg = use_int_val!(*arg);
@@ -256,6 +258,48 @@ pub fn define_function<'ctx>(
                                 &res_vals[0].to_string(),
                             )
                             .as_basic_value_enum(),
+                        Opcode::Clz => {
+                            let trap = module.get_intrinsic(
+                                format!("llvm.ctlz.i{}", func.dfg.ctrl_typevar(inst).bits()),
+                                arg.get_type().fn_type(
+                                    &[
+                                        arg.get_type().as_basic_type_enum(),
+                                        module.context.bool_type().as_basic_type_enum(),
+                                    ],
+                                    false,
+                                ),
+                            );
+                            let res = module.builder.build_call(
+                                trap,
+                                &[
+                                    arg.into(),
+                                    module.context.bool_type().const_zero().into(), /* zero UB? */
+                                ],
+                                &res_vals[0].to_string(),
+                            );
+                            res.try_as_basic_value().unwrap_left()
+                        }
+                        Opcode::Ctz => {
+                            let trap = module.get_intrinsic(
+                                format!("llvm.cttz.i{}", func.dfg.ctrl_typevar(inst).bits()),
+                                arg.get_type().fn_type(
+                                    &[
+                                        arg.get_type().as_basic_type_enum(),
+                                        module.context.bool_type().as_basic_type_enum(),
+                                    ],
+                                    false,
+                                ),
+                            );
+                            let res = module.builder.build_call(
+                                trap,
+                                &[
+                                    arg.into(),
+                                    module.context.bool_type().const_zero().into(), /* zero UB? */
+                                ],
+                                &res_vals[0].to_string(),
+                            );
+                            res.try_as_basic_value().unwrap_left()
+                        }
                         _ => unreachable!(),
                     };
                     val_map.insert(res_vals[0], res);
@@ -759,8 +803,10 @@ pub fn define_function<'ctx>(
                     }
                 }
                 InstructionData::Trap { opcode: Opcode::Trap, code } => {
-                    let trap = module
-                        .get_intrinsic("llvm.trap", module.context.void_type().fn_type(&[], false));
+                    let trap = module.get_intrinsic(
+                        "llvm.trap".to_owned(),
+                        module.context.void_type().fn_type(&[], false),
+                    );
                     module.builder.build_call(trap, &[], &format!("trap {}", code));
                     module.builder.build_unreachable();
                 }

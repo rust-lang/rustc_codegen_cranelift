@@ -27,7 +27,7 @@ pub struct LlvmModule<'ctx> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
 
-    intrinsic_refs: HashMap<&'static str, FunctionValue<'ctx>>,
+    intrinsic_refs: HashMap<String, FunctionValue<'ctx>>,
     libcall_refs: HashMap<LibCall, FunctionValue<'ctx>>,
     function_refs: HashMap<FuncId, FunctionValue<'ctx>>,
     data_object_refs: HashMap<DataId, GlobalValue<'ctx>>,
@@ -163,8 +163,8 @@ impl<'ctx> LlvmModule<'ctx> {
         target_machine.write_to_memory_buffer(&self.module, FileType::Object).unwrap()
     }
 
-    fn get_intrinsic(&mut self, name: &'static str, ty: FunctionType<'ctx>) -> FunctionValue<'ctx> {
-        *self.intrinsic_refs.entry(name).or_insert_with(|| self.module.add_function(name, ty, None))
+    fn get_intrinsic(&mut self, name: String, ty: FunctionType<'ctx>) -> FunctionValue<'ctx> {
+        *self.intrinsic_refs.entry(name.clone()).or_insert_with(|| self.module.add_function(&name, ty, None))
     }
 
     fn get_func(&mut self, ext_name: &ExternalName) -> FunctionValue<'ctx> {
