@@ -197,7 +197,8 @@ pub fn define_function<'ctx>(
                         | opcode @ Opcode::FcvtFromUint
                         | opcode @ Opcode::FcvtFromSint
                         | opcode @ Opcode::Clz
-                        | opcode @ Opcode::Ctz,
+                        | opcode @ Opcode::Ctz
+                        | opcode @ Opcode::Bitrev,
                     arg,
                 } => {
                     let arg = use_int_val!(*arg);
@@ -259,7 +260,7 @@ pub fn define_function<'ctx>(
                             )
                             .as_basic_value_enum(),
                         Opcode::Clz => {
-                            let trap = module.get_intrinsic(
+                            let func = module.get_intrinsic(
                                 format!("llvm.ctlz.i{}", func.dfg.ctrl_typevar(inst).bits()),
                                 arg.get_type().fn_type(
                                     &[
@@ -270,7 +271,7 @@ pub fn define_function<'ctx>(
                                 ),
                             );
                             let res = module.builder.build_call(
-                                trap,
+                                func,
                                 &[
                                     arg.into(),
                                     module.context.bool_type().const_zero().into(), /* zero UB? */
@@ -280,7 +281,7 @@ pub fn define_function<'ctx>(
                             res.try_as_basic_value().unwrap_left()
                         }
                         Opcode::Ctz => {
-                            let trap = module.get_intrinsic(
+                            let func = module.get_intrinsic(
                                 format!("llvm.cttz.i{}", func.dfg.ctrl_typevar(inst).bits()),
                                 arg.get_type().fn_type(
                                     &[
@@ -291,11 +292,24 @@ pub fn define_function<'ctx>(
                                 ),
                             );
                             let res = module.builder.build_call(
-                                trap,
+                                func,
                                 &[
                                     arg.into(),
                                     module.context.bool_type().const_zero().into(), /* zero UB? */
                                 ],
+                                &res_vals[0].to_string(),
+                            );
+                            res.try_as_basic_value().unwrap_left()
+                        }
+                        Opcode::Bitrev => {
+                            let func = module.get_intrinsic(
+                                format!("llvm.bitreverse.i{}", func.dfg.ctrl_typevar(inst).bits()),
+                                arg.get_type()
+                                    .fn_type(&[arg.get_type().as_basic_type_enum()], false),
+                            );
+                            let res = module.builder.build_call(
+                                func,
+                                &[arg.into()],
                                 &res_vals[0].to_string(),
                             );
                             res.try_as_basic_value().unwrap_left()
@@ -333,7 +347,8 @@ pub fn define_function<'ctx>(
                     val_map.insert(res_vals[0], imm.as_basic_value_enum());
                 }
                 InstructionData::UnaryIeee32 { opcode: Opcode::F32const, imm } => {
-                    let imm = module.context.f32_type().const_float(f32::from_bits(imm.bits()).into());
+                    let imm =
+                        module.context.f32_type().const_float(f32::from_bits(imm.bits()).into());
                     val_map.insert(res_vals[0], imm.as_basic_value_enum());
                 }
                 InstructionData::UnaryIeee64 { opcode: Opcode::F64const, imm } => {
