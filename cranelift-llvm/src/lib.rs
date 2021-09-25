@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use cranelift_codegen::ir::{ExternalName, LibCall, Signature};
 use cranelift_codegen::isa::TargetIsa;
@@ -314,27 +314,37 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
             let ptr_size = 8; // FIXME
             let ptr_ty = self.context.i64_type(); // FIXME
 
-            let mut relocs = HashSet::new();
-            for &(offset, _) in &data_ctx.description().function_relocs {
-                relocs.insert(offset);
+            let mut relocs: HashMap<u32, BasicValueEnum> = HashMap::new();
+            for &(offset, func_ref) in &data_ctx.description().function_relocs {
+                relocs.insert(
+                    offset,
+                    self.get_func(&data_ctx.description().function_decls[func_ref])
+                        .as_global_value()
+                        .as_pointer_value()
+                        .const_to_int(ptr_ty)
+                        .into(),
+                );
             }
-            for &(offset, _, _) in &data_ctx.description().data_relocs {
-                relocs.insert(offset);
+            for &(offset, data_ref, addend) in &data_ctx.description().data_relocs {
+                relocs.insert(
+                    offset,
+                    self.data_object_refs
+                        [&DataId::from_name(&data_ctx.description().data_decls[data_ref])]
+                        .as_pointer_value()
+                        .const_to_int(ptr_ty)
+                        .const_add(ptr_ty.const_int(addend as u64, false))
+                        .into(),
+                );
             }
 
             let mut type_parts: Vec<BasicTypeEnum> = vec![];
             let mut data_parts: Vec<BasicValueEnum> = vec![];
-            let mut current_run = 0..0;
 
-            let mut i = 0;
-            let size = data_ctx.description().init.size().try_into().unwrap();
-            while i < size {
-                if relocs.contains(&i) {
-                    if !current_run.is_empty() {
-                        let ty = self
-                            .context
-                            .i8_type()
-                            .array_type(current_run.len().try_into().unwrap());
+            macro_rules! push_byte_range {
+                ($range:expr) => {
+                    if !$range.is_empty() {
+                        let ty =
+                            self.context.i8_type().array_type($range.len().try_into().unwrap());
                         type_parts.push(ty.into());
                         data_parts.push(match data_ctx.description().init {
                             cranelift_module::Init::Zeros { size: _ } => ty.const_zero().into(),
@@ -342,7 +352,7 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
                                 .context
                                 .i8_type()
                                 .const_array(
-                                    &contents[current_run]
+                                    &contents[$range]
                                         .iter()
                                         .map(|&byte| {
                                             self.context.i8_type().const_int(byte.into(), false)
@@ -352,33 +362,25 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
                                 .into(),
                             cranelift_module::Init::Uninitialized => unreachable!(),
                         });
-                        current_run = i as usize..i as usize;
                     }
+                };
+            }
+
+            let mut i = 0;
+            let size = data_ctx.description().init.size().try_into().unwrap();
+            let mut current_run = 0;
+            while i < size {
+                if let Some(reloc) = relocs.get(&i) {
+                    push_byte_range!(current_run..i as usize);
                     type_parts.push(ptr_ty.into());
+                    data_parts.push(reloc.clone());
                     i += ptr_size;
+                    current_run = i as usize;
                 } else {
-                    current_run.end += 1;
                     i += 1;
                 }
             }
-            if !current_run.is_empty() {
-                let ty = self.context.i8_type().array_type(current_run.len().try_into().unwrap());
-                type_parts.push(ty.into());
-                data_parts.push(match data_ctx.description().init {
-                    cranelift_module::Init::Zeros { size: _ } => ty.const_zero().into(),
-                    cranelift_module::Init::Bytes { ref contents } => self
-                        .context
-                        .i8_type()
-                        .const_array(
-                            &contents[current_run]
-                                .iter()
-                                .map(|&byte| self.context.i8_type().const_int(byte.into(), false))
-                                .collect::<Vec<_>>(),
-                        )
-                        .into(),
-                    cranelift_module::Init::Uninitialized => unreachable!(),
-                });
-            }
+            push_byte_range!(current_run..i as usize);
 
             self.data_object_types[&data_id].set_body(&type_parts, true);
             self.data_object_refs[&data_id]
