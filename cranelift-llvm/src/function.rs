@@ -320,27 +320,82 @@ pub fn define_function<'ctx>(
                 }
                 InstructionData::Unary {
                     opcode:
-                        opcode @ Opcode::Fneg | opcode @ Opcode::Fpromote | opcode @ Opcode::Fdemote,
+                        opcode @ Opcode::Fneg
+                        | opcode @ Opcode::Fpromote
+                        | opcode @ Opcode::Fdemote
+                        | opcode @ Opcode::FcvtToUintSat
+                        | opcode @ Opcode::FcvtToSintSat,
                     arg,
                 } => {
+                    //let arg_ty = func.dfg.value_type(*arg);
+                    let ret_ty = func.dfg.ctrl_typevar(inst);
                     let arg = use_float_val!(*arg);
                     let res = match opcode {
-                        Opcode::Fneg => {
-                            module.builder.build_float_neg(arg, &res_vals[0].to_string())
+                        Opcode::Fneg => module
+                            .builder
+                            .build_float_neg(arg, &res_vals[0].to_string())
+                            .as_basic_value_enum(),
+                        Opcode::Fpromote => module
+                            .builder
+                            .build_float_ext(
+                                arg,
+                                translate_float_ty(&module.context, ret_ty),
+                                &res_vals[0].to_string(),
+                            )
+                            .as_basic_value_enum(),
+                        Opcode::Fdemote => module
+                            .builder
+                            .build_float_trunc(
+                                arg,
+                                translate_float_ty(&module.context, ret_ty),
+                                &res_vals[0].to_string(),
+                            )
+                            .as_basic_value_enum(),
+                        Opcode::FcvtToUintSat => {
+                            // FIXME too old LLVM installed locally
+                            /*
+                            let func = module.get_intrinsic(
+                                format!("llvm.fptoui.sat.i{}.f{}", ret_ty.bits(), arg_ty.bits(),),
+                                translate_int_ty(&module.context, ret_ty)
+                                    .fn_type(&[arg.get_type().as_basic_type_enum()], false),
+                            );
+                            let res = module.builder.build_call(
+                                func,
+                                &[arg.into()],
+                                &res_vals[0].to_string(),
+                            );
+                            res.try_as_basic_value().unwrap_left()
+                            */
+                            module.builder.build_float_to_unsigned_int(
+                                arg,
+                                translate_int_ty(&module.context, ret_ty),
+                                &res_vals[0].to_string(),
+                            ).as_basic_value_enum()
                         }
-                        Opcode::Fpromote => module.builder.build_float_ext(
-                            arg,
-                            translate_float_ty(&module.context, func.dfg.ctrl_typevar(inst)),
-                            &res_vals[0].to_string(),
-                        ),
-                        Opcode::Fdemote => module.builder.build_float_trunc(
-                            arg,
-                            translate_float_ty(&module.context, func.dfg.ctrl_typevar(inst)),
-                            &res_vals[0].to_string(),
-                        ),
+                        Opcode::FcvtToSintSat => {
+                            // FIXME too old LLVM installed locally
+                            /*
+                            let func = module.get_intrinsic(
+                                format!("llvm.fptosi.sat.i{}.f{}", ret_ty.bits(), arg_ty.bits(),),
+                                translate_int_ty(&module.context, ret_ty)
+                                    .fn_type(&[arg.get_type().as_basic_type_enum()], false),
+                            );
+                            let res = module.builder.build_call(
+                                func,
+                                &[arg.into()],
+                                &res_vals[0].to_string(),
+                            );
+                            res.try_as_basic_value().unwrap_left()
+                            */
+                            module.builder.build_float_to_signed_int(
+                                arg,
+                                translate_int_ty(&module.context, ret_ty),
+                                &res_vals[0].to_string(),
+                            ).as_basic_value_enum()
+                        }
                         _ => unreachable!(),
                     };
-                    val_map.insert(res_vals[0], res.as_basic_value_enum());
+                    val_map.insert(res_vals[0], res);
                 }
                 InstructionData::UnaryImm { opcode: Opcode::Iconst, imm } => {
                     let imm = translate_imm64(module.context, func.dfg.ctrl_typevar(inst), *imm);
