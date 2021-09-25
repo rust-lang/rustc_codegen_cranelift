@@ -82,7 +82,6 @@ fn create_jit_module<'tcx>(
     crate::main_shim::maybe_create_entry_wrapper(
         tcx,
         &mut jit_module,
-        &mut cx.unwind_context,
         true,
         true,
     );

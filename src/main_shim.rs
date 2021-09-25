@@ -12,7 +12,6 @@ use crate::prelude::*;
 pub(crate) fn maybe_create_entry_wrapper(
     tcx: TyCtxt<'_>,
     module: &mut impl Module,
-    unwind_context: &mut UnwindContext,
     is_jit: bool,
     is_primary_cgu: bool,
 ) {
@@ -36,12 +35,11 @@ pub(crate) fn maybe_create_entry_wrapper(
         return;
     }
 
-    create_entry_fn(tcx, module, unwind_context, main_def_id, is_jit, is_main_fn);
+    create_entry_fn(tcx, module, main_def_id, is_jit, is_main_fn);
 
     fn create_entry_fn(
         tcx: TyCtxt<'_>,
         m: &mut impl Module,
-        unwind_context: &mut UnwindContext,
         rust_main_def_id: DefId,
         ignore_lang_start_wrapper: bool,
         is_main_fn: bool,
@@ -154,6 +152,5 @@ pub(crate) fn maybe_create_entry_wrapper(
         }
         m.define_function(cmain_func_id, &mut ctx, &mut NullTrapSink {}, &mut NullStackMapSink {})
             .unwrap();
-        unwind_context.add_function(cmain_func_id, &ctx, m.isa());
     }
 }

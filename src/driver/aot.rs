@@ -157,7 +157,6 @@ fn module_codegen(
             crate::main_shim::maybe_create_entry_wrapper(
                 tcx,
                 module,
-                &mut cx.unwind_context,
                 false,
                 cgu.is_primary(),
             );
