@@ -70,6 +70,11 @@ impl<'ctx> LlvmModule<'ctx> {
     pub fn compile(&mut self) -> MemoryBuffer {
         self.print_to_stderr();
 
+        if let Err(err) = self.module.verify() {
+            println!("{}", err.to_string_lossy());
+            panic!();
+        }
+
         let pass_manager: PassManager<Module> = PassManager::create(());
         pass_manager.add_instruction_combining_pass();
         pass_manager.add_reassociate_pass();
@@ -296,7 +301,7 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
                 true,
             );
 
-            self.data_object_refs[&data_id].set_initializer(&match data_ctx.description().init {
+            let bytes = match data_ctx.description().init {
                 cranelift_module::Init::Zeros { size } => {
                     self.context.i8_type().array_type(size.try_into().unwrap()).const_zero()
                 }
@@ -309,7 +314,9 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
                     )
                 }
                 cranelift_module::Init::Uninitialized => unreachable!(),
-            });
+            };
+
+            self.data_object_refs[&data_id].set_initializer(&self.data_object_types[&data_id].const_named_struct(&[bytes.into()]));
         } else {
             let ptr_size = 8; // FIXME
             let ptr_ty = self.context.i64_type(); // FIXME
