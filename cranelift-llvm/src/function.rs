@@ -165,10 +165,19 @@ pub fn define_function<'ctx>(
         }};
     }
 
+    macro_rules! def_val {
+        ($val:expr, $ret:expr $(,)?) => {
+            assert!(val_map.insert($val, $ret).is_none());
+        };
+    }
+
+    #[allow(unused_variables)]
+    let val_map = (); // Shadow val_map to ensure all accesses go though use_val!() and def_val!()
+
     for block in func.layout.blocks() {
         if block == func.layout.entry_block().unwrap() {
             for (i, &val) in func.dfg.block_params(block).iter().enumerate() {
-                val_map.insert(val, func_val.get_nth_param(i as u32).unwrap().into());
+                def_val!(val, func_val.get_nth_param(i as u32).unwrap().into());
             }
         } else {
             module.builder.position_at_end(block_map[&block]);
@@ -179,7 +188,7 @@ pub fn define_function<'ctx>(
                     &val.to_string(),
                 );
                 phis.push(phi);
-                val_map.insert(val, phi.as_basic_value());
+                def_val!(val, phi.as_basic_value());
             }
             phi_map.insert(block, phis);
         }
@@ -322,7 +331,7 @@ pub fn define_function<'ctx>(
                         }
                         _ => unreachable!(),
                     };
-                    val_map.insert(res_vals[0], res);
+                    def_val!(res_vals[0], res);
                 }
                 InstructionData::Unary {
                     opcode:
@@ -407,20 +416,20 @@ pub fn define_function<'ctx>(
                         }
                         _ => unreachable!(),
                     };
-                    val_map.insert(res_vals[0], res);
+                    def_val!(res_vals[0], res);
                 }
                 InstructionData::UnaryImm { opcode: Opcode::Iconst, imm } => {
                     let imm = translate_imm64(module.context, func.dfg.ctrl_typevar(inst), *imm);
-                    val_map.insert(res_vals[0], imm.as_basic_value_enum());
+                    def_val!(res_vals[0], imm.as_basic_value_enum());
                 }
                 InstructionData::UnaryIeee32 { opcode: Opcode::F32const, imm } => {
                     let imm =
                         module.context.f32_type().const_float(f32::from_bits(imm.bits()).into());
-                    val_map.insert(res_vals[0], imm.as_basic_value_enum());
+                    def_val!(res_vals[0], imm.as_basic_value_enum());
                 }
                 InstructionData::UnaryIeee64 { opcode: Opcode::F64const, imm } => {
                     let imm = module.context.f64_type().const_float(f64::from_bits(imm.bits()));
-                    val_map.insert(res_vals[0], imm.as_basic_value_enum());
+                    def_val!(res_vals[0], imm.as_basic_value_enum());
                 }
                 InstructionData::Binary {
                     opcode:
@@ -511,7 +520,7 @@ pub fn define_function<'ctx>(
                         }
                         _ => unreachable!(),
                     };
-                    val_map.insert(res_vals[0], res.as_basic_value_enum());
+                    def_val!(res_vals[0], res.as_basic_value_enum());
                 }
                 InstructionData::BinaryImm64 {
                     opcode:
@@ -586,7 +595,7 @@ pub fn define_function<'ctx>(
                         }
                         _ => unreachable!(),
                     };
-                    val_map.insert(res_vals[0], res.as_basic_value_enum());
+                    def_val!(res_vals[0], res.as_basic_value_enum());
                 }
                 InstructionData::Ternary {
                     opcode: opcode @ Opcode::Select,
@@ -606,7 +615,7 @@ pub fn define_function<'ctx>(
                         }
                         _ => unreachable!(),
                     };
-                    val_map.insert(res_vals[0], res.as_basic_value_enum());
+                    def_val!(res_vals[0], res.as_basic_value_enum());
                 }
                 InstructionData::IntCompare { opcode: Opcode::Icmp, args: [lhs, rhs], cond } => {
                     let lhs = use_int_val!(*lhs);
@@ -630,7 +639,7 @@ pub fn define_function<'ctx>(
                         rhs,
                         &res_vals[0].to_string(),
                     );
-                    val_map.insert(res_vals[0], res.as_basic_value_enum());
+                    def_val!(res_vals[0], res.as_basic_value_enum());
                 }
                 InstructionData::IntCompareImm { opcode: Opcode::IcmpImm, arg, cond, imm } => {
                     let arg = use_int_val!(*arg);
@@ -654,7 +663,7 @@ pub fn define_function<'ctx>(
                         imm,
                         &res_vals[0].to_string(),
                     );
-                    val_map.insert(res_vals[0], res.as_basic_value_enum());
+                    def_val!(res_vals[0], res.as_basic_value_enum());
                 }
 
                 InstructionData::Load { opcode: Opcode::Load, arg, flags: _, offset } => {
@@ -667,7 +676,7 @@ pub fn define_function<'ctx>(
                         *offset,
                     );
                     let res = module.builder.build_load(ptr, &res_vals[0].to_string());
-                    val_map.insert(res_vals[0], res.as_basic_value_enum());
+                    def_val!(res_vals[0], res.as_basic_value_enum());
                 }
 
                 InstructionData::Store {
@@ -697,7 +706,7 @@ pub fn define_function<'ctx>(
                         *offset,
                     );
                     let res = module.builder.build_load(ptr, &res_vals[0].to_string());
-                    val_map.insert(res_vals[0], res.as_basic_value_enum());
+                    def_val!(res_vals[0], res.as_basic_value_enum());
                 }
 
                 InstructionData::StackLoad { opcode: Opcode::StackAddr, stack_slot, offset } => {
@@ -707,7 +716,7 @@ pub fn define_function<'ctx>(
                     let offset =
                         ptr_ty.const_int(offset as u64, false /* FIXME right value? */);
                     let ptr = module.builder.build_int_add(ptr, offset, "ptr_val");
-                    val_map.insert(res_vals[0], ptr.as_basic_value_enum());
+                    def_val!(res_vals[0], ptr.as_basic_value_enum());
                 }
 
                 InstructionData::StackStore {
@@ -734,7 +743,7 @@ pub fn define_function<'ctx>(
                     let ptr_ty = module.context.i64_type(); // FIXME
                     let data_id =
                         DataId::from_name(&func.global_values[*global_value].symbol_name());
-                    val_map.insert(
+                    def_val!(
                         res_vals[0],
                         module.data_object_refs[&data_id]
                             .as_pointer_value()
@@ -747,7 +756,7 @@ pub fn define_function<'ctx>(
                     let ptr_ty = module.context.i64_type(); // FIXME
                     let func_val = module.get_func(&func.dfg.ext_funcs[*func_ref].name);
 
-                    val_map.insert(
+                    def_val!(
                         res_vals[0],
                         func_val.as_global_value().as_pointer_value().const_to_int(ptr_ty).into(),
                     );
@@ -771,7 +780,7 @@ pub fn define_function<'ctx>(
                     match res_vals {
                         [] => {}
                         [res_val] => {
-                            val_map.insert(*res_val, res.try_as_basic_value().unwrap_left());
+                            def_val!(*res_val, res.try_as_basic_value().unwrap_left());
                         }
                         [res_val_a, res_val_b] => {
                             let res = res.as_any_value_enum().into_struct_value();
@@ -783,8 +792,8 @@ pub fn define_function<'ctx>(
                                 .builder
                                 .build_extract_value(res, 1, &format!("{}", res_val_b))
                                 .unwrap();
-                            val_map.insert(*res_val_a, res_a);
-                            val_map.insert(*res_val_b, res_b);
+                            def_val!(*res_val_a, res_a);
+                            def_val!(*res_val_b, res_b);
                         }
                         _ => todo!(),
                     }
@@ -816,7 +825,7 @@ pub fn define_function<'ctx>(
                     match res_vals {
                         [] => {}
                         [res_val] => {
-                            val_map.insert(*res_val, res.try_as_basic_value().unwrap_left());
+                            def_val!(*res_val, res.try_as_basic_value().unwrap_left());
                         }
                         _ => todo!(),
                     }
@@ -835,7 +844,7 @@ pub fn define_function<'ctx>(
                     );
                     let then_args = &args[1..];
                     for (arg, phi) in then_args.iter().skip(1).zip(&phi_map[then_block]) {
-                        phi.add_incoming(&[(&val_map[arg] as _, block_map[&then_block])]);
+                        phi.add_incoming(&[(&use_val!(*arg) as _, block_map[&then_block])]);
                     }
                     let (else_block, else_args) =
                         match &func.dfg[func.layout.next_inst(inst).unwrap()] {
@@ -847,7 +856,7 @@ pub fn define_function<'ctx>(
                             _ => unreachable!(),
                         };
                     for (arg, phi) in else_args.iter().skip(1).zip(&phi_map[&else_block]) {
-                        phi.add_incoming(&[(&val_map[arg] as _, block_map[&else_block])]);
+                        phi.add_incoming(&[(&use_val!(*arg) as _, block_map[&else_block])]);
                     }
                     module.builder.build_conditional_branch(
                         conditional,
@@ -869,7 +878,7 @@ pub fn define_function<'ctx>(
                     for (arg, phi) in
                         args.as_slice(&func.dfg.value_lists).iter().zip(&phi_map[destination])
                     {
-                        phi.add_incoming(&[(&val_map[arg] as _, block_map[&block])]);
+                        phi.add_incoming(&[(&use_val!(*arg) as _, block_map[&block])]);
                     }
                     module.builder.build_unconditional_branch(block_map[destination]);
                 }
