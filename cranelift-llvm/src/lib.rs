@@ -12,7 +12,7 @@ use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetTriple,
 };
 use inkwell::types::{BasicTypeEnum, FunctionType, StructType};
-use inkwell::values::{FunctionValue, GlobalValue};
+use inkwell::values::{BasicValueEnum, FunctionValue, GlobalValue};
 use inkwell::OptimizationLevel;
 
 mod function;
@@ -161,62 +161,9 @@ fn translate_linkage(linkage: cranelift_module::Linkage) -> inkwell::module::Lin
         cranelift_module::Linkage::Import => inkwell::module::Linkage::External,
         cranelift_module::Linkage::Local => inkwell::module::Linkage::Internal,
         cranelift_module::Linkage::Preemptible => inkwell::module::Linkage::ExternalWeak,
-        cranelift_module::Linkage::Hidden => todo!(),
+        cranelift_module::Linkage::Hidden => inkwell::module::Linkage::External,
         cranelift_module::Linkage::Export => inkwell::module::Linkage::External,
     }
-}
-
-fn data_object_type<'ctx>(
-    context: &'ctx Context,
-    data_ctx: &DataContext,
-) -> Vec<BasicTypeEnum<'ctx>> {
-    // FIXME use an opaque struct type for data objects when declaring and .set_body() when defining
-    // to allow eager data object definition
-    let ptr_size = 8; // FIXME
-    let ptr_ty = context.i64_type(); // FIXME
-
-    if data_ctx.description().function_relocs.is_empty()
-        && data_ctx.description().data_relocs.is_empty()
-    {
-        return vec![
-            context
-                .i8_type()
-                .array_type(data_ctx.description().init.size().try_into().unwrap())
-                .into(),
-        ];
-    }
-
-    let mut relocs = HashSet::new();
-    for &(offset, _) in &data_ctx.description().function_relocs {
-        relocs.insert(offset);
-    }
-    for &(offset, _, _) in &data_ctx.description().data_relocs {
-        relocs.insert(offset);
-    }
-
-    let mut parts: Vec<BasicTypeEnum> = vec![];
-    let mut current_run_len = 0;
-
-    let mut i = 0;
-    let size = data_ctx.description().init.size().try_into().unwrap();
-    while i < size {
-        if relocs.contains(&i) {
-            if current_run_len > 0 {
-                parts.push(context.i8_type().array_type(current_run_len).into());
-                current_run_len = 0;
-            }
-            parts.push(ptr_ty.into());
-            i += ptr_size;
-        } else {
-            current_run_len += 1;
-            i += 1;
-        }
-    }
-    if current_run_len > 0 {
-        parts.push(context.i8_type().array_type(current_run_len).into());
-    }
-
-    parts
 }
 
 impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
@@ -332,26 +279,108 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
         data_id: DataId,
         data_ctx: &DataContext,
     ) -> cranelift_module::ModuleResult<()> {
-        self.data_object_types[&data_id].set_body(&data_object_type(&self.context, data_ctx), true);
         self.data_object_refs[&data_id].set_externally_initialized(false);
 
-        assert!(
-            data_ctx.description().function_relocs.is_empty()
-                && data_ctx.description().data_relocs.is_empty()
-        );
-        let data_val = self.data_object_refs[&data_id];
-        data_val.set_initializer(&match data_ctx.description().init {
-            cranelift_module::Init::Zeros { size } => {
-                self.context.i8_type().array_type(size.try_into().unwrap()).const_zero()
+        if data_ctx.description().function_relocs.is_empty()
+            && data_ctx.description().data_relocs.is_empty()
+        {
+            self.data_object_types[&data_id].set_body(
+                &[self
+                    .context
+                    .i8_type()
+                    .array_type(data_ctx.description().init.size().try_into().unwrap())
+                    .into()],
+                true,
+            );
+
+            self.data_object_refs[&data_id].set_initializer(&match data_ctx.description().init {
+                cranelift_module::Init::Zeros { size } => {
+                    self.context.i8_type().array_type(size.try_into().unwrap()).const_zero()
+                }
+                cranelift_module::Init::Bytes { ref contents } => {
+                    self.context.i8_type().const_array(
+                        &contents
+                            .iter()
+                            .map(|&byte| self.context.i8_type().const_int(byte.into(), false))
+                            .collect::<Vec<_>>(),
+                    )
+                }
+                cranelift_module::Init::Uninitialized => unreachable!(),
+            });
+        } else {
+            let ptr_size = 8; // FIXME
+            let ptr_ty = self.context.i64_type(); // FIXME
+
+            let mut relocs = HashSet::new();
+            for &(offset, _) in &data_ctx.description().function_relocs {
+                relocs.insert(offset);
             }
-            cranelift_module::Init::Bytes { ref contents } => self.context.i8_type().const_array(
-                &contents
-                    .iter()
-                    .map(|&byte| self.context.i8_type().const_int(byte.into(), false))
-                    .collect::<Vec<_>>(),
-            ),
-            cranelift_module::Init::Uninitialized => unreachable!(),
-        });
+            for &(offset, _, _) in &data_ctx.description().data_relocs {
+                relocs.insert(offset);
+            }
+
+            let mut type_parts: Vec<BasicTypeEnum> = vec![];
+            let mut data_parts: Vec<BasicValueEnum> = vec![];
+            let mut current_run = 0..0;
+
+            let mut i = 0;
+            let size = data_ctx.description().init.size().try_into().unwrap();
+            while i < size {
+                if relocs.contains(&i) {
+                    if !current_run.is_empty() {
+                        let ty = self
+                            .context
+                            .i8_type()
+                            .array_type(current_run.len().try_into().unwrap());
+                        type_parts.push(ty.into());
+                        data_parts.push(match data_ctx.description().init {
+                            cranelift_module::Init::Zeros { size: _ } => ty.const_zero().into(),
+                            cranelift_module::Init::Bytes { ref contents } => self
+                                .context
+                                .i8_type()
+                                .const_array(
+                                    &contents[current_run]
+                                        .iter()
+                                        .map(|&byte| {
+                                            self.context.i8_type().const_int(byte.into(), false)
+                                        })
+                                        .collect::<Vec<_>>(),
+                                )
+                                .into(),
+                            cranelift_module::Init::Uninitialized => unreachable!(),
+                        });
+                        current_run = i as usize..i as usize;
+                    }
+                    type_parts.push(ptr_ty.into());
+                    i += ptr_size;
+                } else {
+                    current_run.end += 1;
+                    i += 1;
+                }
+            }
+            if !current_run.is_empty() {
+                let ty = self.context.i8_type().array_type(current_run.len().try_into().unwrap());
+                type_parts.push(ty.into());
+                data_parts.push(match data_ctx.description().init {
+                    cranelift_module::Init::Zeros { size: _ } => ty.const_zero().into(),
+                    cranelift_module::Init::Bytes { ref contents } => self
+                        .context
+                        .i8_type()
+                        .const_array(
+                            &contents[current_run]
+                                .iter()
+                                .map(|&byte| self.context.i8_type().const_int(byte.into(), false))
+                                .collect::<Vec<_>>(),
+                        )
+                        .into(),
+                    cranelift_module::Init::Uninitialized => unreachable!(),
+                });
+            }
+
+            self.data_object_types[&data_id].set_body(&type_parts, true);
+            self.data_object_refs[&data_id]
+                .set_initializer(&self.data_object_types[&data_id].const_named_struct(&data_parts));
+        }
 
         Ok(())
     }

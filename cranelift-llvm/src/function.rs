@@ -102,7 +102,7 @@ pub fn translate_sig<'ctx>(context: &'ctx Context, signature: &Signature) -> Fun
 pub fn define_function<'ctx>(
     module: &mut crate::LlvmModule<'ctx>,
     func_id: cranelift_module::FuncId,
-    func: Function,
+    func: &Function,
 ) {
     struct PrintOnPanic<F: Fn() -> String>(F);
     impl<F: Fn() -> String> Drop for PrintOnPanic<F> {
