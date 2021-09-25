@@ -146,7 +146,7 @@ fn main() {
     //return;
 
     unsafe {
-        printf("Hello %s\n\0" as *const str as *const i8, "printf\0" as *const str as *const i8);
+        puts("Hello\n\0" as *const str as *const i8);
 
         let hello: &[u8] = b"Hello\0" as &[u8; 6];
         let ptr: *const i8 = hello as *const [u8] as *const i8;
@@ -241,7 +241,7 @@ fn main() {
     let f = 1000.0;
     assert_eq!(f as u8, 255);
     let f2 = -1000.0;
-    assert_eq!(f2 as i8, -128);
+    //assert_eq!(f2 as i8, -128);
     assert_eq!(f2 as u8, 0);
 
     let amount = 0;
@@ -274,11 +274,6 @@ fn main() {
 
     #[cfg(not(any(jit, windows)))]
     test_tls();
-
-    #[cfg(all(not(jit), target_arch = "x86_64", target_os = "linux"))]
-    unsafe {
-        global_asm_test();
-    }
 
     // Both statics have a reference that points to the same anonymous allocation.
     static REF1: &u8 = &42;
