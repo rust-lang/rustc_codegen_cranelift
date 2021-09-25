@@ -332,6 +332,14 @@ pub fn define_function<'ctx>(
                     let imm = translate_imm64(module.context, func.dfg.ctrl_typevar(inst), *imm);
                     val_map.insert(res_vals[0], imm.as_basic_value_enum());
                 }
+                InstructionData::UnaryIeee32 { opcode: Opcode::F32const, imm } => {
+                    let imm = module.context.f32_type().const_float(f32::from_bits(imm.bits()).into());
+                    val_map.insert(res_vals[0], imm.as_basic_value_enum());
+                }
+                InstructionData::UnaryIeee64 { opcode: Opcode::F64const, imm } => {
+                    let imm = module.context.f64_type().const_float(f64::from_bits(imm.bits()));
+                    val_map.insert(res_vals[0], imm.as_basic_value_enum());
+                }
                 InstructionData::Binary {
                     opcode:
                         opcode @ Opcode::Iadd
@@ -346,7 +354,8 @@ pub fn define_function<'ctx>(
                         | opcode @ Opcode::Sshr
                         | opcode @ Opcode::Band
                         | opcode @ Opcode::Bor
-                        | opcode @ Opcode::Bxor,
+                        | opcode @ Opcode::Bxor
+                        | opcode @ Opcode::Iconcat,
                     args: [lhs, rhs],
                 } => {
                     let lhs = use_int_val!(*lhs);
@@ -398,6 +407,25 @@ pub fn define_function<'ctx>(
                         Opcode::Bor => module.builder.build_or(lhs, rhs, &res_vals[0].to_string()),
                         Opcode::Bxor => {
                             module.builder.build_xor(lhs, rhs, &res_vals[0].to_string())
+                        }
+                        Opcode::Iconcat => {
+                            assert!(func.dfg.ctrl_typevar(inst) == types::I64);
+                            let lsb = module.builder.build_int_z_extend(
+                                lhs,
+                                module.context.i128_type(),
+                                "lsb",
+                            );
+                            let msb_unshifted = module.builder.build_int_z_extend(
+                                rhs,
+                                module.context.i128_type(),
+                                "msb_unshifted",
+                            );
+                            let msb_shifted = module.builder.build_left_shift(
+                                msb_unshifted,
+                                module.context.i8_type().const_int(64, false),
+                                "msb_shifted",
+                            );
+                            module.builder.build_or(lsb, msb_shifted, &res_vals[0].to_string())
                         }
                         _ => unreachable!(),
                     };
