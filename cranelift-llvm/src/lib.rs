@@ -161,7 +161,10 @@ fn translate_linkage(linkage: cranelift_module::Linkage) -> inkwell::module::Lin
         cranelift_module::Linkage::Import => inkwell::module::Linkage::External,
         cranelift_module::Linkage::Local => inkwell::module::Linkage::Internal,
         cranelift_module::Linkage::Preemptible => inkwell::module::Linkage::ExternalWeak,
-        cranelift_module::Linkage::Hidden => inkwell::module::Linkage::External,
+        cranelift_module::Linkage::Hidden => {
+            // FIXME set hidden visibility
+            inkwell::module::Linkage::External
+        }
         cranelift_module::Linkage::Export => inkwell::module::Linkage::External,
     }
 }

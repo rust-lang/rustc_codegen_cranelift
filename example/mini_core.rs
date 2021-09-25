@@ -611,6 +611,8 @@ pub macro cfg() { /* compiler built-in */ }
 #[rustc_macro_transparency = "semitransparent"]
 pub macro global_asm() { /* compiler built-in */ }
 
+pub static A_STATIC: u8 = 42;
+
 #[lang = "panic_location"]
 struct PanicLocation {
     file: &'static str,

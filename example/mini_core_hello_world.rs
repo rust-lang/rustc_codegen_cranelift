@@ -236,23 +236,6 @@ fn main() {
 
     assert_eq!(((|()| 42u8) as fn(()) -> u8)(()), 42);
 
-    #[cfg(not(any(jit, windows)))]
-    {
-        extern {
-            #[linkage = "extern_weak"]
-            static ABC: *const u8;
-        }
-
-        {
-            extern {
-                #[linkage = "extern_weak"]
-                static ABC: *const u8;
-            }
-        }
-
-        unsafe { assert_eq!(ABC as usize, 0); }
-    }
-
     &mut (|| Some(0 as *const ())) as &mut dyn FnMut() -> Option<*const ()>;
 
     let f = 1000.0;
