@@ -1,10 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use cranelift_codegen::ir::{ExternalName, Function, LibCall, Signature};
+use cranelift_codegen::ir::{ExternalName, LibCall, Signature};
 use cranelift_codegen::isa::TargetIsa;
-use cranelift_module::{
-    DataContext, DataDescription, DataId, FuncId, ModuleCompiledFunction, ModuleDeclarations,
-};
+use cranelift_module::{DataContext, DataId, FuncId, ModuleCompiledFunction, ModuleDeclarations};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::memory_buffer::MemoryBuffer;
@@ -13,7 +11,7 @@ use inkwell::passes::PassManager;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetTriple,
 };
-use inkwell::types::{BasicTypeEnum, FunctionType};
+use inkwell::types::{BasicTypeEnum, FunctionType, StructType};
 use inkwell::values::{FunctionValue, GlobalValue};
 use inkwell::OptimizationLevel;
 
@@ -31,9 +29,7 @@ pub struct LlvmModule<'ctx> {
     libcall_refs: HashMap<LibCall, FunctionValue<'ctx>>,
     function_refs: HashMap<FuncId, FunctionValue<'ctx>>,
     data_object_refs: HashMap<DataId, GlobalValue<'ctx>>,
-
-    function_defs: HashMap<FuncId, Function>,
-    data_object_defs: HashMap<DataId, DataDescription>,
+    data_object_types: HashMap<DataId, StructType<'ctx>>,
 }
 
 impl Drop for LlvmModule<'_> {
@@ -62,9 +58,7 @@ impl<'ctx> LlvmModule<'ctx> {
             libcall_refs: HashMap::new(),
             function_refs: HashMap::new(),
             data_object_refs: HashMap::new(),
-
-            function_defs: HashMap::new(),
-            data_object_defs: HashMap::new(),
+            data_object_types: HashMap::new(),
         });
         x
     }
@@ -73,65 +67,7 @@ impl<'ctx> LlvmModule<'ctx> {
         self.module.print_to_stderr();
     }
 
-    pub fn finalize(&mut self) {
-        for (func_id, func) in self.declarations.get_functions() {
-            if !self.function_refs.contains_key(&func_id) {
-                let func_val = self.module.add_function(
-                    &func.name,
-                    function::translate_sig(self.context, &func.signature),
-                    Some(translate_linkage(func.linkage)),
-                );
-                // FIXME apply param attributes
-                self.function_refs.insert(func_id, func_val);
-            }
-        }
-
-        for (data_id, data) in self.declarations.get_data_objects() {
-            if !self.data_object_refs.contains_key(&data_id) {
-                let data_val = self.module.add_global(
-                    self.context.i8_type(), // dummy
-                    None,
-                    &data.name,
-                );
-                data_val.set_externally_initialized(true);
-                data_val.set_constant(!self.declarations.get_data_decl(data_id).writable);
-                self.data_object_refs.insert(data_id, data_val);
-            }
-        }
-
-        let func_defs = std::mem::take(&mut self.function_defs);
-        let data_defs = std::mem::take(&mut self.data_object_defs);
-
-        for (func_id, func) in func_defs {
-            function::define_function(self, func_id, func);
-        }
-
-        for (data_id, data) in data_defs {
-            assert!(data.function_relocs.is_empty() && data.data_relocs.is_empty());
-            let data_val = self.data_object_refs[&data_id];
-            data_val.set_constant(!self.declarations.get_data_decl(data_id).writable);
-            data_val.set_initializer(&match data.init {
-                cranelift_module::Init::Uninitialized => self
-                    .context
-                    .i8_type()
-                    .array_type(data.init.size().try_into().unwrap())
-                    .get_undef(),
-                cranelift_module::Init::Zeros { size } => {
-                    self.context.i8_type().array_type(size.try_into().unwrap()).const_zero()
-                }
-                cranelift_module::Init::Bytes { contents } => self.context.i8_type().const_array(
-                    &contents
-                        .iter()
-                        .map(|&byte| self.context.i8_type().const_int(byte.into(), false))
-                        .collect::<Vec<_>>(),
-                ),
-            });
-        }
-    }
-
     pub fn compile(&mut self) -> MemoryBuffer {
-        self.finalize();
-
         self.print_to_stderr();
 
         let pass_manager: PassManager<Module> = PassManager::create(());
@@ -164,7 +100,10 @@ impl<'ctx> LlvmModule<'ctx> {
     }
 
     fn get_intrinsic(&mut self, name: String, ty: FunctionType<'ctx>) -> FunctionValue<'ctx> {
-        *self.intrinsic_refs.entry(name.clone()).or_insert_with(|| self.module.add_function(&name, ty, None))
+        *self
+            .intrinsic_refs
+            .entry(name.clone())
+            .or_insert_with(|| self.module.add_function(&name, ty, None))
     }
 
     fn get_func(&mut self, ext_name: &ExternalName) -> FunctionValue<'ctx> {
@@ -174,7 +113,7 @@ impl<'ctx> LlvmModule<'ctx> {
                 self.function_refs[&func_id]
             }
             ExternalName::LibCall(libcall) => {
-                let i8p_ty = self.context.i64_type();//self.context.i8_type().ptr_type(inkwell::AddressSpace::Generic);
+                let i8p_ty = self.context.i64_type(); //self.context.i8_type().ptr_type(inkwell::AddressSpace::Generic);
                 let c_int_ty = self.context.i32_type().into(); // FIXME
                 let size_t_ty = self.context.i64_type().into(); // FIXME
                 let (name, ty) = match *libcall {
@@ -227,7 +166,10 @@ fn translate_linkage(linkage: cranelift_module::Linkage) -> inkwell::module::Lin
     }
 }
 
-fn data_object_type<'ctx>(context: &'ctx Context, data_ctx: &DataContext) -> BasicTypeEnum<'ctx> {
+fn data_object_type<'ctx>(
+    context: &'ctx Context,
+    data_ctx: &DataContext,
+) -> Vec<BasicTypeEnum<'ctx>> {
     // FIXME use an opaque struct type for data objects when declaring and .set_body() when defining
     // to allow eager data object definition
     let ptr_size = 8; // FIXME
@@ -236,10 +178,12 @@ fn data_object_type<'ctx>(context: &'ctx Context, data_ctx: &DataContext) -> Bas
     if data_ctx.description().function_relocs.is_empty()
         && data_ctx.description().data_relocs.is_empty()
     {
-        return context
-            .i8_type()
-            .array_type(data_ctx.description().init.size().try_into().unwrap())
-            .into();
+        return vec![
+            context
+                .i8_type()
+                .array_type(data_ctx.description().init.size().try_into().unwrap())
+                .into(),
+        ];
     }
 
     let mut relocs = HashSet::new();
@@ -272,7 +216,7 @@ fn data_object_type<'ctx>(context: &'ctx Context, data_ctx: &DataContext) -> Bas
         parts.push(context.i8_type().array_type(current_run_len).into());
     }
 
-    context.struct_type(&parts, true).into()
+    parts
 }
 
 impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
@@ -290,7 +234,18 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
         linkage: cranelift_module::Linkage,
         signature: &Signature,
     ) -> cranelift_module::ModuleResult<FuncId> {
-        let (func_id, _) = self.declarations.declare_function(name, linkage, signature)?;
+        let (func_id, linkage) = self.declarations.declare_function(name, linkage, signature)?;
+
+        let func_val = self.function_refs.entry(func_id).or_insert_with(|| {
+            let func_val = self.module.add_function(
+                name,
+                function::translate_sig(self.context, signature),
+                None,
+            );
+            // FIXME apply param attributes
+            func_val
+        });
+        func_val.set_linkage(translate_linkage(linkage));
 
         Ok(func_id)
     }
@@ -299,7 +254,17 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
         &mut self,
         signature: &Signature,
     ) -> cranelift_module::ModuleResult<FuncId> {
-        self.declarations.declare_anonymous_function(signature)
+        let func_id = self.declarations.declare_anonymous_function(signature)?;
+
+        let func_val = self.module.add_function(
+            &self.declarations.get_function_decl(func_id).name,
+            function::translate_sig(self.context, signature),
+            Some(inkwell::module::Linkage::Internal),
+        );
+        // FIXME apply param attributes
+        self.function_refs.insert(func_id, func_val);
+
+        Ok(func_id)
     }
 
     fn declare_data(
@@ -309,7 +274,17 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
         writable: bool,
         tls: bool,
     ) -> cranelift_module::ModuleResult<DataId> {
-        let (data_id, _) = self.declarations.declare_data(name, linkage, writable, tls)?;
+        let (data_id, linkage) = self.declarations.declare_data(name, linkage, writable, tls)?;
+
+        let data_val = self.data_object_refs.entry(data_id).or_insert_with(|| {
+            let data_type = self.context.opaque_struct_type(&format!("{}_t", data_id));
+            let data_val = self.module.add_global(data_type, None, name);
+            data_val.set_externally_initialized(true); // Will be set to false when actually defining it
+            data_val.set_constant(!writable);
+            self.data_object_types.insert(data_id, data_type);
+            data_val
+        });
+        data_val.set_linkage(translate_linkage(linkage));
 
         Ok(data_id)
     }
@@ -319,7 +294,16 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
         writable: bool,
         tls: bool,
     ) -> cranelift_module::ModuleResult<DataId> {
-        self.declarations.declare_anonymous_data(writable, tls)
+        let data_id = self.declarations.declare_anonymous_data(writable, tls)?;
+
+        let data_type = self.context.opaque_struct_type(&format!("{}_t", data_id));
+        let data_val =
+            self.module.add_global(data_type, None, &self.declarations.get_data_decl(data_id).name);
+        data_val.set_constant(!writable);
+        self.data_object_refs.insert(data_id, data_val);
+        self.data_object_types.insert(data_id, data_type);
+
+        Ok(data_id)
     }
 
     fn define_function(
@@ -329,16 +313,7 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
         _trap_sink: &mut dyn cranelift_codegen::binemit::TrapSink,
         _stack_map_sink: &mut dyn cranelift_codegen::binemit::StackMapSink,
     ) -> cranelift_module::ModuleResult<cranelift_module::ModuleCompiledFunction> {
-        let func = self.declarations.get_function_decl(func_id);
-
-        let func_val = self.module.add_function(
-            &func.name,
-            function::translate_sig(self.context, &func.signature),
-            Some(translate_linkage(func.linkage)),
-        );
-        // FIXME apply param attributes
-        self.function_refs.insert(func_id, func_val);
-        self.function_defs.insert(func_id, ctx.func.clone());
+        function::define_function(self, func_id, &ctx.func);
 
         Ok(ModuleCompiledFunction { size: 0 })
     }
@@ -357,12 +332,26 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
         data_id: DataId,
         data_ctx: &DataContext,
     ) -> cranelift_module::ModuleResult<()> {
-        let data = self.declarations.get_data_decl(data_id);
+        self.data_object_types[&data_id].set_body(&data_object_type(&self.context, data_ctx), true);
+        self.data_object_refs[&data_id].set_externally_initialized(false);
 
-        let data_val =
-            self.module.add_global(data_object_type(&self.context, data_ctx), None, &data.name);
-        self.data_object_refs.insert(data_id, data_val);
-        self.data_object_defs.insert(data_id, data_ctx.description().clone());
+        assert!(
+            data_ctx.description().function_relocs.is_empty()
+                && data_ctx.description().data_relocs.is_empty()
+        );
+        let data_val = self.data_object_refs[&data_id];
+        data_val.set_initializer(&match data_ctx.description().init {
+            cranelift_module::Init::Zeros { size } => {
+                self.context.i8_type().array_type(size.try_into().unwrap()).const_zero()
+            }
+            cranelift_module::Init::Bytes { ref contents } => self.context.i8_type().const_array(
+                &contents
+                    .iter()
+                    .map(|&byte| self.context.i8_type().const_int(byte.into(), false))
+                    .collect::<Vec<_>>(),
+            ),
+            cranelift_module::Init::Uninitialized => unreachable!(),
+        });
 
         Ok(())
     }
