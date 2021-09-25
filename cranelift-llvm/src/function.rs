@@ -366,11 +366,14 @@ pub fn define_function<'ctx>(
                             );
                             res.try_as_basic_value().unwrap_left()
                             */
-                            module.builder.build_float_to_unsigned_int(
-                                arg,
-                                translate_int_ty(&module.context, ret_ty),
-                                &res_vals[0].to_string(),
-                            ).as_basic_value_enum()
+                            module
+                                .builder
+                                .build_float_to_unsigned_int(
+                                    arg,
+                                    translate_int_ty(&module.context, ret_ty),
+                                    &res_vals[0].to_string(),
+                                )
+                                .as_basic_value_enum()
                         }
                         Opcode::FcvtToSintSat => {
                             // FIXME too old LLVM installed locally
@@ -387,11 +390,14 @@ pub fn define_function<'ctx>(
                             );
                             res.try_as_basic_value().unwrap_left()
                             */
-                            module.builder.build_float_to_signed_int(
-                                arg,
-                                translate_int_ty(&module.context, ret_ty),
-                                &res_vals[0].to_string(),
-                            ).as_basic_value_enum()
+                            module
+                                .builder
+                                .build_float_to_signed_int(
+                                    arg,
+                                    translate_int_ty(&module.context, ret_ty),
+                                    &res_vals[0].to_string(),
+                                )
+                                .as_basic_value_enum()
                         }
                         _ => unreachable!(),
                     };
@@ -715,7 +721,10 @@ pub fn define_function<'ctx>(
                     module.builder.build_store(ptr, arg);
                 }
 
-                InstructionData::UnaryGlobalValue { opcode: Opcode::GlobalValue, global_value } => {
+                InstructionData::UnaryGlobalValue {
+                    opcode: Opcode::GlobalValue | Opcode::TlsValue,
+                    global_value,
+                } => {
                     let ptr_ty = module.context.i64_type(); // FIXME
                     let data_id =
                         DataId::from_name(&func.global_values[*global_value].symbol_name());

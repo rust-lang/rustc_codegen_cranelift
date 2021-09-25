@@ -236,6 +236,7 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
             let data_val = self.module.add_global(data_type, None, name);
             data_val.set_externally_initialized(true); // Will be set to false when actually defining it
             data_val.set_constant(!writable);
+            data_val.set_thread_local(tls);
             self.data_object_types.insert(data_id, data_type);
             data_val
         });
@@ -255,6 +256,7 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
         let data_val =
             self.module.add_global(data_type, None, &self.declarations.get_data_decl(data_id).name);
         data_val.set_constant(!writable);
+        data_val.set_thread_local(tls);
         self.data_object_refs.insert(data_id, data_val);
         self.data_object_types.insert(data_id, data_type);
 

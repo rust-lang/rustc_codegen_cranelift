@@ -619,3 +619,21 @@ struct PanicLocation {
     line: u32,
     column: u32,
 }
+
+#[cfg(not(windows))]
+#[thread_local]
+static mut A: u8 = 42;
+
+#[no_mangle]
+#[cfg(not(windows))]
+pub fn set_tls(a: u8) {
+    unsafe {
+        A = a;
+    }
+}
+
+#[no_mangle]
+#[cfg(not(windows))]
+pub fn get_tls() -> u8 {
+    unsafe { A }
+}
