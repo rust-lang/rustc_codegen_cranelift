@@ -32,14 +32,6 @@ pub struct LlvmModule<'ctx> {
     data_object_types: HashMap<DataId, StructType<'ctx>>,
 }
 
-impl Drop for LlvmModule<'_> {
-    fn drop(&mut self) {
-        if std::thread::panicking() {
-            self.module.print_to_stderr();
-        }
-    }
-}
-
 impl<'ctx> LlvmModule<'ctx> {
     pub fn with_module<T>(
         name: &str,

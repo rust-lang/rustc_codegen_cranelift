@@ -123,6 +123,11 @@ pub fn define_function<'ctx>(
 
     let func_val = module.function_refs[&func_id];
 
+    let _llvm_func_bomb = PrintOnPanic(|| {
+        func_val.print_to_stderr();
+        "".to_string()
+    });
+
     let mut block_map: HashMap<Block, BasicBlock> = HashMap::new();
     let mut phi_map: HashMap<Block, Vec<PhiValue>> = HashMap::new();
     let mut val_map: HashMap<cranelift_codegen::ir::Value, BasicValueEnum<'ctx>> = HashMap::new();
