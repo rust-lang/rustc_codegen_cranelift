@@ -126,6 +126,8 @@ pub fn define_function<'ctx>(
     let mut block_map: HashMap<Block, BasicBlock> = HashMap::new();
     let mut phi_map: HashMap<Block, Vec<PhiValue>> = HashMap::new();
     let mut val_map: HashMap<cranelift_codegen::ir::Value, BasicValueEnum<'ctx>> = HashMap::new();
+    let mut val_placeholder_map: HashMap<cranelift_codegen::ir::Value, PhiValue<'ctx>> =
+        HashMap::new();
     for block in func.layout.blocks() {
         block_map.insert(block, module.context.append_basic_block(func_val, &block.to_string()));
     }
@@ -147,14 +149,32 @@ pub fn define_function<'ctx>(
     macro_rules! use_val {
         ($val:expr) => {{
             let val = func.dfg.resolve_aliases($val);
-            val_map[&val]
+            *val_map.entry(val).or_insert_with(|| {
+                let phi = module.builder.build_phi(
+                    translate_ty(module.context, func.dfg.value_type(val)),
+                    &val.to_string(),
+                );
+                val_placeholder_map.insert(val, phi);
+                phi.as_basic_value()
+            })
         }};
     }
 
     macro_rules! def_val {
-        ($val:expr, $ret:expr $(,)?) => {
-            assert!(val_map.insert($val, $ret).is_none());
-        };
+        ($val:expr, $ret:expr $(,)?) => {{
+            let val = $val;
+            let ret: BasicValueEnum = $ret;
+            match val_map.entry(val) {
+                std::collections::hash_map::Entry::Occupied(mut occ) => {
+                    val_placeholder_map[&val].replace_all_uses_with(&ret);
+                    val_placeholder_map[&val].as_instruction().erase_from_basic_block();
+                    occ.insert(ret);
+                }
+                std::collections::hash_map::Entry::Vacant(vac) => {
+                    vac.insert(ret);
+                }
+            }
+        }};
     }
 
     #[allow(unused_variables)]
