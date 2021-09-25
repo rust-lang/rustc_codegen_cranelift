@@ -194,7 +194,11 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
         let func_val = self.function_refs.entry(func_id).or_insert_with(|| {
             let func_val = self.module.add_function(
                 name,
-                function::translate_sig(self.context, signature),
+                function::translate_sig(
+                    self.context,
+                    signature,
+                    name == "printf", // FIXME hack to make printf work
+                ),
                 None,
             );
             // FIXME apply param attributes
@@ -213,7 +217,7 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
 
         let func_val = self.module.add_function(
             &self.declarations.get_function_decl(func_id).name,
-            function::translate_sig(self.context, signature),
+            function::translate_sig(self.context, signature, false),
             Some(inkwell::module::Linkage::Internal),
         );
         // FIXME apply param attributes
@@ -318,7 +322,9 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
                 cranelift_module::Init::Uninitialized => unreachable!(),
             };
 
-            self.data_object_refs[&data_id].set_initializer(&self.data_object_types[&data_id].const_named_struct(&[bytes.into()]));
+            self.data_object_refs[&data_id].set_initializer(
+                &self.data_object_types[&data_id].const_named_struct(&[bytes.into()]),
+            );
         } else {
             let ptr_size = 8; // FIXME
             let ptr_ty = self.context.i64_type(); // FIXME

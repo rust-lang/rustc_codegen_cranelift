@@ -458,7 +458,7 @@ pub fn panic(_msg: &str) -> ! {
 #[track_caller]
 fn panic_bounds_check(index: usize, len: usize) -> ! {
     unsafe {
-        libc::puts("index out of bounds\n\0" as *const str as *const i8);
+        libc::printf("index out of bounds: the len is %d but the index is %d\n\0" as *const str as *const i8, len, index);
         intrinsics::abort();
     }
 }

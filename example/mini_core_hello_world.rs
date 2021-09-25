@@ -146,7 +146,7 @@ fn main() {
     //return;
 
     unsafe {
-        puts("Hello\n\0" as *const str as *const i8);
+        printf("Hello %s\n\0" as *const str as *const i8, "printf\0" as *const str as *const i8);
 
         let hello: &[u8] = b"Hello\0" as &[u8; 6];
         let ptr: *const i8 = hello as *const [u8] as *const i8;
@@ -235,6 +235,23 @@ fn main() {
     }
 
     assert_eq!(((|()| 42u8) as fn(()) -> u8)(()), 42);
+
+    #[cfg(not(any(jit, windows)))]
+    {
+        extern {
+            #[linkage = "extern_weak"]
+            static ABC: *const u8;
+        }
+
+        {
+            extern {
+                #[linkage = "extern_weak"]
+                static ABC: *const u8;
+            }
+        }
+
+        unsafe { assert_eq!(ABC as usize, 0); }
+    }
 
     &mut (|| Some(0 as *const ())) as &mut dyn FnMut() -> Option<*const ()>;
 

@@ -81,7 +81,11 @@ fn translate_ptr_offset32<'ctx>(
     builder.build_int_to_ptr(ptr, pointee_ty.ptr_type(AddressSpace::Generic), "ptr")
 }
 
-pub fn translate_sig<'ctx>(context: &'ctx Context, signature: &Signature) -> FunctionType<'ctx> {
+pub fn translate_sig<'ctx>(
+    context: &'ctx Context,
+    signature: &Signature,
+    is_var_args: bool, // FIXME add native vararg support to Cranelift
+) -> FunctionType<'ctx> {
     let params = signature
         .params
         .iter()
@@ -89,11 +93,13 @@ pub fn translate_sig<'ctx>(context: &'ctx Context, signature: &Signature) -> Fun
         .collect::<Vec<_>>();
     match &*signature.returns {
         [] => context.void_type().fn_type(&params, false),
-        [ret_abi_param] => translate_ty(context, ret_abi_param.value_type).fn_type(&params, false),
+        [ret_abi_param] => {
+            translate_ty(context, ret_abi_param.value_type).fn_type(&params, is_var_args)
+        }
         [ret_abi_param_a, ret_abi_param_b] => {
             let ret_ty_a = translate_ty(context, ret_abi_param_a.value_type);
             let ret_ty_b = translate_ty(context, ret_abi_param_b.value_type);
-            context.struct_type(&[ret_ty_a, ret_ty_b], false).fn_type(&params, false)
+            context.struct_type(&[ret_ty_a, ret_ty_b], false).fn_type(&params, is_var_args)
         }
         _ => todo!(),
     }
@@ -791,8 +797,9 @@ pub fn define_function<'ctx>(
                         .map(|arg| use_val!(*arg))
                         .collect::<Vec<_>>();
 
-                    let func_type = translate_sig(&module.context, &func.dfg.signatures[*sig_ref])
-                        .ptr_type(AddressSpace::Generic);
+                    let func_type =
+                        translate_sig(&module.context, &func.dfg.signatures[*sig_ref], false)
+                            .ptr_type(AddressSpace::Generic);
                     let func_val = module.builder.build_int_to_ptr(
                         args[0].into_int_value(),
                         func_type,
