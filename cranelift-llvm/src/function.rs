@@ -151,20 +151,6 @@ pub fn define_function<'ctx>(
         }};
     }
 
-    macro_rules! use_int_val {
-        ($val:expr) => {{
-            let val = func.dfg.resolve_aliases($val);
-            val_map[&val].into_int_value()
-        }};
-    }
-
-    macro_rules! use_float_val {
-        ($val:expr) => {{
-            let val = func.dfg.resolve_aliases($val);
-            val_map[&val].into_float_value()
-        }};
-    }
-
     macro_rules! def_val {
         ($val:expr, $ret:expr $(,)?) => {
             assert!(val_map.insert($val, $ret).is_none());
@@ -216,7 +202,7 @@ pub fn define_function<'ctx>(
                         | opcode @ Opcode::Bitrev,
                     arg,
                 } => {
-                    let arg = use_int_val!(*arg);
+                    let arg = use_val!(*arg).into_int_value();
                     let res = match opcode {
                         Opcode::Bnot => module
                             .builder
@@ -344,7 +330,7 @@ pub fn define_function<'ctx>(
                 } => {
                     //let arg_ty = func.dfg.value_type(*arg);
                     let ret_ty = func.dfg.ctrl_typevar(inst);
-                    let arg = use_float_val!(*arg);
+                    let arg = use_val!(*arg).into_float_value();
                     let res = match opcode {
                         Opcode::Fneg => module
                             .builder
@@ -449,8 +435,8 @@ pub fn define_function<'ctx>(
                         | opcode @ Opcode::Iconcat,
                     args: [lhs, rhs],
                 } => {
-                    let lhs = use_int_val!(*lhs);
-                    let rhs = use_int_val!(*rhs);
+                    let lhs = use_val!(*lhs).into_int_value();
+                    let rhs = use_val!(*rhs).into_int_value();
                     let res = match opcode {
                         Opcode::Iadd => {
                             module.builder.build_int_add(lhs, rhs, &res_vals[0].to_string())
@@ -540,7 +526,7 @@ pub fn define_function<'ctx>(
                     arg,
                     imm,
                 } => {
-                    let lhs = use_int_val!(*arg);
+                    let lhs = use_val!(*arg).into_int_value();
                     let rhs = translate_imm64(module.context, func.dfg.ctrl_typevar(inst), *imm);
                     let res = match opcode {
                         Opcode::IaddImm => {
@@ -601,7 +587,7 @@ pub fn define_function<'ctx>(
                     opcode: opcode @ Opcode::Select,
                     args: [cond, lhs, rhs],
                 } => {
-                    let cond = use_int_val!(*cond);
+                    let cond = use_val!(*cond).into_int_value();
                     let lhs = use_val!(*lhs);
                     let rhs = use_val!(*rhs);
                     let res = match opcode {
@@ -618,8 +604,8 @@ pub fn define_function<'ctx>(
                     def_val!(res_vals[0], res.as_basic_value_enum());
                 }
                 InstructionData::IntCompare { opcode: Opcode::Icmp, args: [lhs, rhs], cond } => {
-                    let lhs = use_int_val!(*lhs);
-                    let rhs = use_int_val!(*rhs);
+                    let lhs = use_val!(*lhs).into_int_value();
+                    let rhs = use_val!(*rhs).into_int_value();
                     let res = module.builder.build_int_compare(
                         match cond {
                             IntCC::Equal => IntPredicate::EQ,
@@ -642,7 +628,7 @@ pub fn define_function<'ctx>(
                     def_val!(res_vals[0], res.as_basic_value_enum());
                 }
                 InstructionData::IntCompareImm { opcode: Opcode::IcmpImm, arg, cond, imm } => {
-                    let arg = use_int_val!(*arg);
+                    let arg = use_val!(*arg).into_int_value();
                     let imm = translate_imm64(module.context, func.dfg.ctrl_typevar(inst), *imm);
                     let res = module.builder.build_int_compare(
                         match cond {
@@ -667,7 +653,7 @@ pub fn define_function<'ctx>(
                 }
 
                 InstructionData::Load { opcode: Opcode::Load, arg, flags: _, offset } => {
-                    let arg = use_int_val!(*arg);
+                    let arg = use_val!(*arg).into_int_value();
                     let ptr = translate_ptr_offset32(
                         module.context,
                         &module.builder,
@@ -686,7 +672,7 @@ pub fn define_function<'ctx>(
                     offset,
                 } => {
                     let arg = use_val!(*arg);
-                    let ptr = use_int_val!(*ptr);
+                    let ptr = use_val!(*ptr).into_int_value();
                     let ptr = translate_ptr_offset32(
                         module.context,
                         &module.builder,
@@ -838,7 +824,7 @@ pub fn define_function<'ctx>(
                 } => {
                     let args = args.as_slice(&func.dfg.value_lists);
                     let conditional = module.builder.build_int_truncate(
-                        use_int_val!(args[0]),
+                        use_val!(args[0]).into_int_value(),
                         module.context.bool_type(),
                         if *opcode == Opcode::Brz { "brz" } else { "brnz" },
                     );
@@ -889,7 +875,7 @@ pub fn define_function<'ctx>(
                     destination,
                     table,
                 } => {
-                    let cond = use_int_val!(*arg);
+                    let cond = use_val!(*arg).into_int_value();
                     module.builder.build_switch(
                         cond,
                         block_map[destination],
