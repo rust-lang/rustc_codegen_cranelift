@@ -236,6 +236,10 @@ pub fn define_function<'ctx>(
             let res_vals = func.dfg.inst_results(inst);
             match &func.dfg[inst] {
                 InstructionData::NullAry { opcode: Opcode::Nop } => {}
+                InstructionData::NullAry { opcode: Opcode::Fence } => {
+                    module.builder.build_fence(AtomicOrdering::SequentiallyConsistent, 0, "");
+                }
+
                 InstructionData::Unary { opcode: Opcode::Bitcast, arg } => {
                     let arg = use_val!(*arg);
                     let res = module.builder.build_bitcast(
