@@ -861,8 +861,11 @@ pub fn define_function<'ctx>(
                         if *opcode == Opcode::Brz { "brz" } else { "brnz" },
                     );
                     let then_args = &args[1..];
-                    for (arg, phi) in then_args.iter().skip(1).zip(&phi_map[then_block]) {
-                        phi.add_incoming(&[(&use_val!(*arg) as _, block_map[&then_block])]);
+                    for (arg, phi) in then_args.iter().zip(&phi_map[then_block]) {
+                        phi.add_incoming(&[(
+                            &use_val!(*arg) as _,
+                            module.builder.get_insert_block().unwrap(),
+                        )]);
                     }
                     let (else_block, else_args) =
                         match &func.dfg[func.layout.next_inst(inst).unwrap()] {
@@ -873,8 +876,11 @@ pub fn define_function<'ctx>(
                             } => (else_block, else_args.as_slice(&func.dfg.value_lists)),
                             _ => unreachable!(),
                         };
-                    for (arg, phi) in else_args.iter().skip(1).zip(&phi_map[&else_block]) {
-                        phi.add_incoming(&[(&use_val!(*arg) as _, block_map[&else_block])]);
+                    for (arg, phi) in else_args.iter().zip(&phi_map[&else_block]) {
+                        phi.add_incoming(&[(
+                            &use_val!(*arg) as _,
+                            module.builder.get_insert_block().unwrap(),
+                        )]);
                     }
                     module.builder.build_conditional_branch(
                         conditional,
@@ -896,7 +902,10 @@ pub fn define_function<'ctx>(
                     for (arg, phi) in
                         args.as_slice(&func.dfg.value_lists).iter().zip(&phi_map[destination])
                     {
-                        phi.add_incoming(&[(&use_val!(*arg) as _, block_map[&block])]);
+                        phi.add_incoming(&[(
+                            &use_val!(*arg) as _,
+                            module.builder.get_insert_block().unwrap(),
+                        )]);
                     }
                     module.builder.build_unconditional_branch(block_map[destination]);
                 }
