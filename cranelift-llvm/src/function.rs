@@ -730,6 +730,33 @@ pub fn define_function<'ctx>(
                     };
                     def_val!(res_vals[0], res.as_basic_value_enum());
                 }
+                InstructionData::Binary {
+                    opcode:
+                        opcode @ Opcode::Fadd
+                        | opcode @ Opcode::Fsub
+                        | opcode @ Opcode::Fmul
+                        | opcode @ Opcode::Fdiv,
+                    args: [lhs, rhs],
+                } => {
+                    let lhs = use_val!(*lhs).into_float_value();
+                    let rhs = use_val!(*rhs).into_float_value();
+                    let res = match opcode {
+                        Opcode::Fadd => {
+                            module.builder.build_float_add(lhs, rhs, &res_vals[0].to_string())
+                        }
+                        Opcode::Fsub => {
+                            module.builder.build_float_sub(lhs, rhs, &res_vals[0].to_string())
+                        }
+                        Opcode::Fmul => {
+                            module.builder.build_float_mul(lhs, rhs, &res_vals[0].to_string())
+                        }
+                        Opcode::Fdiv => {
+                            module.builder.build_float_div(lhs, rhs, &res_vals[0].to_string())
+                        }
+                        _ => unreachable!(),
+                    };
+                    def_val!(res_vals[0], res.as_basic_value_enum());
+                }
                 InstructionData::Ternary {
                     opcode: opcode @ Opcode::Select,
                     args: [cond, lhs, rhs],
