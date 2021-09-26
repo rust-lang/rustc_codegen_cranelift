@@ -184,22 +184,23 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
         let (func_id, linkage) = self.declarations.declare_function(name, linkage, signature)?;
 
         let func_val = self.function_refs.entry(func_id).or_insert_with(|| {
-            let func_val = self.module.add_function(
-                name,
-                function::translate_sig(
-                    self.context,
-                    signature,
-                    // FIXME hack to make common variadic functions work
-                    name == "printf"
-                        || name == "syscall"
-                        || name == "fcntl"
-                        || name == "ioctl"
-                        || name == "prctl"
-                        || name == "open"
-                        || name == "open64",
-                ),
-                None,
+            let func_ty = function::translate_sig(
+                self.context,
+                signature,
+                // FIXME hack to make common variadic functions work
+                name == "printf"
+                    || name == "syscall"
+                    || name == "fcntl"
+                    || name == "ioctl"
+                    || name == "prctl"
+                    || name == "open"
+                    || name == "open64",
             );
+            if let Some(func_val) = self.module.get_function(name) {
+                assert_eq!(func_ty, func_val.get_type());
+                return func_val;
+            }
+            let func_val = self.module.add_function(name, func_ty, None);
             // FIXME apply param attributes
             func_val
         });
