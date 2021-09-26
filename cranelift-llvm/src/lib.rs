@@ -189,7 +189,14 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
                 function::translate_sig(
                     self.context,
                     signature,
-                    name == "printf", // FIXME hack to make printf work
+                    // FIXME hack to make common variadic functions work
+                    name == "printf"
+                        || name == "syscall"
+                        || name == "fcntl"
+                        || name == "ioctl"
+                        || name == "prctl"
+                        || name == "open"
+                        || name == "open64",
                 ),
                 None,
             );
