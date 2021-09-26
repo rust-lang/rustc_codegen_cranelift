@@ -7,11 +7,7 @@ use cranelift_codegen::binemit::{NullStackMapSink, NullTrapSink};
 use rustc_ast::expand::allocator::{AllocatorKind, AllocatorTy, ALLOCATOR_METHODS};
 
 /// Returns whether an allocator shim was created
-pub(crate) fn codegen(
-    tcx: TyCtxt<'_>,
-    module: &mut impl Module,
-    unwind_context: &mut UnwindContext,
-) -> bool {
+pub(crate) fn codegen(tcx: TyCtxt<'_>, module: &mut impl Module) -> bool {
     let any_dynamic_crate = tcx.dependency_formats(()).iter().any(|(_, list)| {
         use rustc_middle::middle::dependency_format::Linkage;
         list.iter().any(|&linkage| linkage == Linkage::Dynamic)
@@ -19,19 +15,14 @@ pub(crate) fn codegen(
     if any_dynamic_crate {
         false
     } else if let Some(kind) = tcx.allocator_kind(()) {
-        codegen_inner(module, unwind_context, kind, tcx.lang_items().oom().is_some());
+        codegen_inner(module, kind, tcx.lang_items().oom().is_some());
         true
     } else {
         false
     }
 }
 
-fn codegen_inner(
-    module: &mut impl Module,
-    unwind_context: &mut UnwindContext,
-    kind: AllocatorKind,
-    has_alloc_error_handler: bool,
-) {
+fn codegen_inner(module: &mut impl Module, kind: AllocatorKind, has_alloc_error_handler: bool) {
     let usize_ty = module.target_config().pointer_type();
 
     for method in ALLOCATOR_METHODS {
@@ -94,7 +85,6 @@ fn codegen_inner(
         module
             .define_function(func_id, &mut ctx, &mut NullTrapSink {}, &mut NullStackMapSink {})
             .unwrap();
-        unwind_context.add_function(func_id, &ctx, module.isa());
     }
 
     let sig = Signature {
@@ -133,5 +123,4 @@ fn codegen_inner(
     module
         .define_function(func_id, &mut ctx, &mut NullTrapSink {}, &mut NullStackMapSink {})
         .unwrap();
-    unwind_context.add_function(func_id, &ctx, module.isa());
 }

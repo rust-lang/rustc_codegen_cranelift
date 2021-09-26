@@ -11,10 +11,6 @@ use rustc_middle::middle::cstore::EncodedMetadata;
 use rustc_middle::mir::mono::{CodegenUnit, MonoItem};
 use rustc_session::cgu_reuse_tracker::CguReuse;
 use rustc_session::config::{DebugInfo, OutputType};
-use rustc_session::Session;
-
-use cranelift_codegen::isa::TargetIsa;
-use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use crate::{prelude::*, BackendConfig};
 
@@ -26,24 +22,12 @@ impl<HCX> HashStable<HCX> for ModuleCodegenResult {
     }
 }
 
-fn make_module(sess: &Session, isa: Box<dyn TargetIsa>, name: String) -> ObjectModule {
-    let mut builder =
-        ObjectBuilder::new(isa, name + ".o", cranelift_module::default_libcall_names()).unwrap();
-    // Unlike cg_llvm, cg_clif defaults to disabling -Zfunction-sections. For cg_llvm binary size
-    // is important, while cg_clif cares more about compilation times. Enabling -Zfunction-sections
-    // can easily double the amount of time necessary to perform linking.
-    builder.per_function_section(sess.opts.debugging_opts.function_sections.unwrap_or(false));
-    ObjectModule::new(builder)
-}
-
 fn emit_module(
     tcx: TyCtxt<'_>,
     backend_config: &BackendConfig,
     name: String,
     kind: ModuleKind,
     module: &mut cranelift_llvm::LlvmModule<'_>,
-    debug: Option<DebugContext<'_>>,
-    unwind_context: UnwindContext,
 ) -> ModuleCodegenResult {
     module.compile();
 
@@ -154,15 +138,8 @@ fn module_codegen(
                     }
                 }
             }
-            crate::main_shim::maybe_create_entry_wrapper(
-                tcx,
-                module,
-                false,
-                cgu.is_primary(),
-            );
+            crate::main_shim::maybe_create_entry_wrapper(tcx, module, false, cgu.is_primary());
 
-            let debug_context = cx.debug_context;
-            let unwind_context = cx.unwind_context;
             let codegen_results = tcx.sess.time("write object file", || {
                 emit_module(
                     tcx,
@@ -170,8 +147,6 @@ fn module_codegen(
                     cgu.name().as_str().to_string(),
                     ModuleKind::Regular,
                     module,
-                    debug_context,
-                    unwind_context,
                 )
             });
 
@@ -244,10 +219,7 @@ pub(crate) fn run_aot(
     let allocator_module =
         cranelift_llvm::LlvmModule::with_module("allocator_shim", &*isa, |allocator_module| {
             assert_eq!(pointer_ty(tcx), allocator_module.target_config().pointer_type());
-            let mut allocator_unwind_context =
-                UnwindContext::new(tcx, allocator_module.isa(), true);
-            let created_alloc_shim =
-                crate::allocator::codegen(tcx, allocator_module, &mut allocator_unwind_context);
+            let created_alloc_shim = crate::allocator::codegen(tcx, allocator_module);
 
             if created_alloc_shim {
                 let ModuleCodegenResult(module, work_product) = emit_module(
@@ -256,8 +228,6 @@ pub(crate) fn run_aot(
                     "allocator_shim".to_string(),
                     ModuleKind::Allocator,
                     allocator_module,
-                    None,
-                    allocator_unwind_context,
                 );
                 if let Some((id, product)) = work_product {
                     work_products.insert(id, product);

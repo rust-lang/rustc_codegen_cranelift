@@ -78,13 +78,8 @@ fn create_jit_module<'tcx>(
 
     let mut cx = crate::CodegenCx::new(tcx, backend_config.clone(), jit_module.isa(), false);
 
-    crate::allocator::codegen(tcx, &mut jit_module, &mut cx.unwind_context);
-    crate::main_shim::maybe_create_entry_wrapper(
-        tcx,
-        &mut jit_module,
-        true,
-        true,
-    );
+    crate::allocator::codegen(tcx, &mut jit_module);
+    crate::main_shim::maybe_create_entry_wrapper(tcx, &mut jit_module, true, true);
 
     (jit_module, cx)
 }
