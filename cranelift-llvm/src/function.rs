@@ -11,7 +11,7 @@ use inkwell::types::{BasicType, BasicTypeEnum, FloatType, FunctionType, IntType}
 use inkwell::values::{
     AnyValue, BasicValue, BasicValueEnum, CallableValue, IntValue, PhiValue, PointerValue,
 };
-use inkwell::{AddressSpace, IntPredicate};
+use inkwell::{AddressSpace, AtomicOrdering, IntPredicate};
 
 fn translate_int_ty<'ctx>(
     context: &'ctx Context,
@@ -62,6 +62,16 @@ fn translate_imm64<'ctx>(
     let ty = translate_int_ty(context, ty);
     let imm: i64 = imm.into();
     ty.const_int(imm as u64, false /* FIXME right value? */)
+}
+
+fn translate_ptr_no_offset<'ctx>(
+    context: &'ctx Context,
+    builder: &Builder<'ctx>,
+    pointee_ty: cranelift_codegen::ir::Type,
+    ptr: IntValue<'ctx>,
+) -> PointerValue<'ctx> {
+    let pointee_ty = translate_int_ty(context, pointee_ty);
+    builder.build_int_to_ptr(ptr, pointee_ty.ptr_type(AddressSpace::Generic), "ptr")
 }
 
 fn translate_ptr_offset32<'ctx>(
@@ -710,7 +720,7 @@ pub fn define_function<'ctx>(
                     def_val!(res_vals[0], res.as_basic_value_enum());
                 }
 
-                InstructionData::Load { opcode: Opcode::Load, arg, flags: _, offset } => {
+                InstructionData::Load { opcode: Opcode::Load, arg, flags, offset } => {
                     let arg = use_val!(*arg).into_int_value();
                     let ptr = translate_ptr_offset32(
                         module.context,
@@ -720,13 +730,21 @@ pub fn define_function<'ctx>(
                         *offset,
                     );
                     let res = module.builder.build_load(ptr, &res_vals[0].to_string());
+                    if flags.aligned() {
+                        res.as_instruction_value()
+                            .unwrap()
+                            .set_alignment(func.dfg.ctrl_typevar(inst).bytes())
+                            .unwrap();
+                    } else {
+                        res.as_instruction_value().unwrap().set_alignment(1).unwrap();
+                    }
                     def_val!(res_vals[0], res.as_basic_value_enum());
                 }
 
                 InstructionData::Store {
                     opcode: Opcode::Store,
                     args: [arg, ptr],
-                    flags: _,
+                    flags,
                     offset,
                 } => {
                     let arg = use_val!(*arg);
@@ -738,7 +756,12 @@ pub fn define_function<'ctx>(
                         ptr,
                         *offset,
                     );
-                    module.builder.build_store(ptr, arg);
+                    let inst_val = module.builder.build_store(ptr, arg);
+                    if flags.aligned() {
+                        inst_val.set_alignment(func.dfg.ctrl_typevar(inst).bytes()).unwrap();
+                    } else {
+                        inst_val.set_alignment(1).unwrap();
+                    }
                 }
 
                 InstructionData::StackLoad { opcode: Opcode::StackLoad, stack_slot, offset } => {
@@ -750,6 +773,7 @@ pub fn define_function<'ctx>(
                         *offset,
                     );
                     let res = module.builder.build_load(ptr, &res_vals[0].to_string());
+                    res.as_instruction_value().unwrap().set_alignment(1).unwrap(); // FIXME determine and set actual alignment
                     def_val!(res_vals[0], res.as_basic_value_enum());
                 }
 
@@ -777,7 +801,54 @@ pub fn define_function<'ctx>(
                         stack_slot_map[stack_slot],
                         *offset,
                     );
-                    module.builder.build_store(ptr, arg);
+                    let inst_val = module.builder.build_store(ptr, arg);
+                    inst_val.set_alignment(1).unwrap(); // FIXME determine and set actual alignment
+                }
+
+                InstructionData::LoadNoOffset { opcode: Opcode::AtomicLoad, arg, flags } => {
+                    let arg = use_val!(*arg).into_int_value();
+                    let ptr = translate_ptr_no_offset(
+                        module.context,
+                        &module.builder,
+                        func.dfg.ctrl_typevar(inst),
+                        arg,
+                    );
+                    let res = module.builder.build_load(ptr, &res_vals[0].to_string());
+                    res.as_instruction_value()
+                        .unwrap()
+                        .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
+                        .unwrap();
+                    if flags.aligned() {
+                        res.as_instruction_value()
+                            .unwrap()
+                            .set_alignment(func.dfg.ctrl_typevar(inst).bytes())
+                            .unwrap();
+                    } else {
+                        res.as_instruction_value().unwrap().set_alignment(1).unwrap();
+                    }
+                    def_val!(res_vals[0], res.as_basic_value_enum());
+                }
+
+                InstructionData::StoreNoOffset {
+                    opcode: Opcode::AtomicStore,
+                    args: [arg, ptr],
+                    flags,
+                } => {
+                    let arg = use_val!(*arg);
+                    let ptr = use_val!(*ptr).into_int_value();
+                    let ptr = translate_ptr_no_offset(
+                        module.context,
+                        &module.builder,
+                        func.dfg.ctrl_typevar(inst),
+                        ptr,
+                    );
+                    let inst_val = module.builder.build_store(ptr, arg);
+                    inst_val.set_atomic_ordering(AtomicOrdering::SequentiallyConsistent).unwrap();
+                    if flags.aligned() {
+                        inst_val.set_alignment(func.dfg.ctrl_typevar(inst).bytes()).unwrap();
+                    } else {
+                        inst_val.set_alignment(1).unwrap();
+                    }
                 }
 
                 InstructionData::UnaryGlobalValue {
