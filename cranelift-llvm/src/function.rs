@@ -234,6 +234,15 @@ pub fn define_function<'ctx>(
             let res_vals = func.dfg.inst_results(inst);
             match &func.dfg[inst] {
                 InstructionData::NullAry { opcode: Opcode::Nop } => {}
+                InstructionData::Unary { opcode: Opcode::Bitcast, arg } => {
+                    let arg = use_val!(*arg);
+                    let res = module.builder.build_bitcast(
+                        arg,
+                        translate_ty(module.context, func.dfg.ctrl_typevar(inst)),
+                        &res_vals[0].to_string(),
+                    );
+                    def_val!(res_vals[0], res);
+                }
                 InstructionData::Unary {
                     opcode:
                         opcode @ Opcode::Bnot
