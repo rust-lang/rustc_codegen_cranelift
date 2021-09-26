@@ -1074,6 +1074,19 @@ pub fn define_function<'ctx>(
                         [res_val] => {
                             def_val!(*res_val, res.try_as_basic_value().unwrap_left());
                         }
+                        [res_val_a, res_val_b] => {
+                            let res = res.as_any_value_enum().into_struct_value();
+                            let res_a = module
+                                .builder
+                                .build_extract_value(res, 0, &format!("{}", res_val_a))
+                                .unwrap();
+                            let res_b = module
+                                .builder
+                                .build_extract_value(res, 1, &format!("{}", res_val_b))
+                                .unwrap();
+                            def_val!(*res_val_a, res_a);
+                            def_val!(*res_val_b, res_b);
+                        }
                         _ => todo!(),
                     }
                 }
