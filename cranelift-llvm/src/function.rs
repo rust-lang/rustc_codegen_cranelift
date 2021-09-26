@@ -489,20 +489,27 @@ pub fn define_function<'ctx>(
                             module.builder.build_int_signed_rem(lhs, rhs, &res_vals[0].to_string())
                         }
                         Opcode::Ishl => {
+                            let rhs = module.builder.build_int_cast(rhs, lhs.get_type(), "amt");
                             module.builder.build_left_shift(lhs, rhs, &res_vals[0].to_string())
                         }
-                        Opcode::Ushr => module.builder.build_right_shift(
-                            lhs,
-                            rhs,
-                            false,
-                            &res_vals[0].to_string(),
-                        ),
-                        Opcode::Sshr => module.builder.build_right_shift(
-                            lhs,
-                            rhs,
-                            true,
-                            &res_vals[0].to_string(),
-                        ),
+                        Opcode::Ushr => {
+                            let rhs = module.builder.build_int_cast(rhs, lhs.get_type(), "amt");
+                            module.builder.build_right_shift(
+                                lhs,
+                                rhs,
+                                false,
+                                &res_vals[0].to_string(),
+                            )
+                        }
+                        Opcode::Sshr => {
+                            let rhs = module.builder.build_int_cast(rhs, lhs.get_type(), "amt");
+                            module.builder.build_right_shift(
+                                lhs,
+                                rhs,
+                                true,
+                                &res_vals[0].to_string(),
+                            )
+                        }
                         Opcode::Band => {
                             module.builder.build_and(lhs, rhs, &res_vals[0].to_string())
                         }
