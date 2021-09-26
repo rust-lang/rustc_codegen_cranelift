@@ -2,10 +2,8 @@ use std::collections::HashMap;
 
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::immediates::{Imm64, Offset32};
-use cranelift_codegen::ir::{
-    types, Block, Function, InstructionData, Opcode, Signature, StackSlot,
-};
-use cranelift_module::DataId;
+use cranelift_codegen::ir::{types, Block, InstructionData, Opcode, Signature, StackSlot};
+use cranelift_module::{DataId, Module as _, ModuleResult};
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
@@ -108,8 +106,8 @@ pub fn translate_sig<'ctx>(
 pub fn define_function<'ctx>(
     module: &mut crate::LlvmModule<'ctx>,
     func_id: cranelift_module::FuncId,
-    func: &Function,
-) {
+    ctx: &mut cranelift_codegen::Context,
+) -> ModuleResult<()> {
     struct PrintOnPanic<F: Fn() -> String>(F);
     impl<F: Fn() -> String> Drop for PrintOnPanic<F> {
         fn drop(&mut self) {
@@ -118,6 +116,21 @@ pub fn define_function<'ctx>(
             }
         }
     }
+
+    let isa = module.isa();
+    if isa.flags().enable_nan_canonicalization() {
+        ctx.canonicalize_nans(isa)?;
+    }
+
+    ctx.compute_cfg();
+    ctx.legalize(isa)?;
+
+    ctx.compute_domtree();
+    // Mandatory for LLVM as dead phi nodes are not allowed
+    // v
+    ctx.eliminate_unreachable_code(isa)?;
+
+    let func = &ctx.func;
 
     let _func_bomb = PrintOnPanic(|| format!("{}", func));
 
@@ -769,7 +782,7 @@ pub fn define_function<'ctx>(
                 }
 
                 InstructionData::UnaryGlobalValue {
-                    opcode: Opcode::GlobalValue | Opcode::TlsValue,
+                    opcode: Opcode::SymbolValue | Opcode::TlsValue,
                     global_value,
                 } => {
                     let ptr_ty = module.context.i64_type(); // FIXME
@@ -991,4 +1004,6 @@ pub fn define_function<'ctx>(
     if !func_val.verify(true) {
         panic!();
     }
+
+    Ok(())
 }

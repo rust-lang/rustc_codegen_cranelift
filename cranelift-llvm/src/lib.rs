@@ -266,7 +266,7 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
         _trap_sink: &mut dyn cranelift_codegen::binemit::TrapSink,
         _stack_map_sink: &mut dyn cranelift_codegen::binemit::StackMapSink,
     ) -> cranelift_module::ModuleResult<cranelift_module::ModuleCompiledFunction> {
-        function::define_function(self, func_id, &ctx.func);
+        function::define_function(self, func_id, ctx)?;
 
         Ok(ModuleCompiledFunction { size: 0 })
     }
