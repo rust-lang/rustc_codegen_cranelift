@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cranelift_codegen::ir::condcodes::IntCC;
+use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::immediates::{Imm64, Offset32};
 use cranelift_codegen::ir::{types, Block, InstructionData, Opcode, Signature, StackSlot};
 use cranelift_module::{DataId, Module as _, ModuleResult};
@@ -11,7 +11,7 @@ use inkwell::types::{BasicType, BasicTypeEnum, FloatType, FunctionType, IntType}
 use inkwell::values::{
     AnyValue, BasicValue, BasicValueEnum, CallableValue, IntValue, PhiValue, PointerValue,
 };
-use inkwell::{AddressSpace, AtomicOrdering, IntPredicate};
+use inkwell::{AddressSpace, AtomicOrdering, FloatPredicate, IntPredicate};
 
 fn translate_int_ty<'ctx>(
     context: &'ctx Context,
@@ -794,6 +794,32 @@ pub fn define_function<'ctx>(
                         },
                         arg,
                         imm,
+                        &res_vals[0].to_string(),
+                    );
+                    def_val!(res_vals[0], res.as_basic_value_enum());
+                }
+                InstructionData::FloatCompare { opcode: Opcode::Fcmp, args: [lhs, rhs], cond } => {
+                    let lhs = use_val!(*lhs).into_float_value();
+                    let rhs = use_val!(*rhs).into_float_value();
+                    let res = module.builder.build_float_compare(
+                        match cond {
+                            FloatCC::Equal => FloatPredicate::OEQ,
+                            FloatCC::NotEqual => FloatPredicate::UNE,
+                            FloatCC::Ordered => FloatPredicate::ORD,
+                            FloatCC::Unordered => FloatPredicate::UNO,
+                            FloatCC::OrderedNotEqual => FloatPredicate::ONE,
+                            FloatCC::UnorderedOrEqual => FloatPredicate::UEQ,
+                            FloatCC::LessThan => FloatPredicate::OLT,
+                            FloatCC::LessThanOrEqual => FloatPredicate::OLE,
+                            FloatCC::GreaterThan => FloatPredicate::OGT,
+                            FloatCC::GreaterThanOrEqual => FloatPredicate::OGE,
+                            FloatCC::UnorderedOrLessThan => FloatPredicate::ULT,
+                            FloatCC::UnorderedOrLessThanOrEqual => FloatPredicate::ULE,
+                            FloatCC::UnorderedOrGreaterThan => FloatPredicate::UGT,
+                            FloatCC::UnorderedOrGreaterThanOrEqual => FloatPredicate::UGE,
+                        },
+                        lhs,
+                        rhs,
                         &res_vals[0].to_string(),
                     );
                     def_val!(res_vals[0], res.as_basic_value_enum());
