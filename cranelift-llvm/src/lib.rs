@@ -219,6 +219,7 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
             function::translate_sig(self.context, signature, false),
             Some(inkwell::module::Linkage::Internal),
         );
+        func_val.set_linkage(inkwell::module::Linkage::Internal);
         // FIXME apply param attributes
         self.function_refs.insert(func_id, func_val);
 
@@ -260,6 +261,7 @@ impl<'ctx> cranelift_module::Module for LlvmModule<'ctx> {
             self.module.add_global(data_type, None, &self.declarations.get_data_decl(data_id).name);
         data_val.set_constant(!writable);
         data_val.set_thread_local(tls);
+        data_val.set_linkage(inkwell::module::Linkage::Internal);
         self.data_object_refs.insert(data_id, data_val);
         self.data_object_types.insert(data_id, data_type);
 
