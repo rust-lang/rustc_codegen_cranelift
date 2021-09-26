@@ -224,7 +224,8 @@ pub fn define_function<'ctx>(
                         | opcode @ Opcode::FcvtFromSint
                         | opcode @ Opcode::Clz
                         | opcode @ Opcode::Ctz
-                        | opcode @ Opcode::Bitrev,
+                        | opcode @ Opcode::Bitrev
+                        | opcode @ Opcode::Popcnt,
                     arg,
                 } => {
                     let arg = use_val!(*arg).into_int_value();
@@ -330,6 +331,19 @@ pub fn define_function<'ctx>(
                         Opcode::Bitrev => {
                             let func = module.get_intrinsic(
                                 format!("llvm.bitreverse.i{}", func.dfg.ctrl_typevar(inst).bits()),
+                                arg.get_type()
+                                    .fn_type(&[arg.get_type().as_basic_type_enum()], false),
+                            );
+                            let res = module.builder.build_call(
+                                func,
+                                &[arg.into()],
+                                &res_vals[0].to_string(),
+                            );
+                            res.try_as_basic_value().unwrap_left()
+                        }
+                        Opcode::Popcnt => {
+                            let func = module.get_intrinsic(
+                                format!("llvm.ctpop.i{}", func.dfg.ctrl_typevar(inst).bits()),
                                 arg.get_type()
                                     .fn_type(&[arg.get_type().as_basic_type_enum()], false),
                             );
