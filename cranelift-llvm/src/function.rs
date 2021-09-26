@@ -527,6 +527,8 @@ pub fn define_function<'ctx>(
                         | opcode @ Opcode::Ishl
                         | opcode @ Opcode::Ushr
                         | opcode @ Opcode::Sshr
+                        | opcode @ Opcode::Rotl
+                        | opcode @ Opcode::Rotr
                         | opcode @ Opcode::Band
                         | opcode @ Opcode::Bor
                         | opcode @ Opcode::Bxor
@@ -582,6 +584,46 @@ pub fn define_function<'ctx>(
                                 true,
                                 &res_vals[0].to_string(),
                             )
+                        }
+                        Opcode::Rotl => {
+                            let rhs = module.builder.build_int_cast(rhs, lhs.get_type(), "amt");
+                            let func = module.get_intrinsic(
+                                format!("llvm.fshl.i{}", func.dfg.ctrl_typevar(inst).bits()),
+                                lhs.get_type().fn_type(
+                                    &[
+                                        lhs.get_type().as_basic_type_enum(),
+                                        lhs.get_type().as_basic_type_enum(),
+                                        lhs.get_type().as_basic_type_enum(),
+                                    ],
+                                    false,
+                                ),
+                            );
+                            let res = module.builder.build_call(
+                                func,
+                                &[lhs.into(), lhs.into(), rhs.into()],
+                                &res_vals[0].to_string(),
+                            );
+                            res.try_as_basic_value().unwrap_left().into_int_value()
+                        }
+                        Opcode::Rotr => {
+                            let rhs = module.builder.build_int_cast(rhs, lhs.get_type(), "amt");
+                            let func = module.get_intrinsic(
+                                format!("llvm.fshr.i{}", func.dfg.ctrl_typevar(inst).bits()),
+                                lhs.get_type().fn_type(
+                                    &[
+                                        lhs.get_type().as_basic_type_enum(),
+                                        lhs.get_type().as_basic_type_enum(),
+                                        lhs.get_type().as_basic_type_enum(),
+                                    ],
+                                    false,
+                                ),
+                            );
+                            let res = module.builder.build_call(
+                                func,
+                                &[lhs.into(), lhs.into(), rhs.into()],
+                                &res_vals[0].to_string(),
+                            );
+                            res.try_as_basic_value().unwrap_left().into_int_value()
                         }
                         Opcode::Band => {
                             module.builder.build_and(lhs, rhs, &res_vals[0].to_string())
