@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::immediates::{Imm64, Offset32};
-use cranelift_codegen::ir::{types, Block, InstructionData, Opcode, Signature, StackSlot};
+use cranelift_codegen::ir::{
+    types, AtomicRmwOp, Block, InstructionData, Opcode, Signature, StackSlot,
+};
 use cranelift_module::{DataId, Module as _, ModuleResult};
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
@@ -11,7 +13,7 @@ use inkwell::types::{BasicType, BasicTypeEnum, FloatType, FunctionType, IntType}
 use inkwell::values::{
     AnyValue, BasicValue, BasicValueEnum, CallableValue, IntValue, PhiValue, PointerValue,
 };
-use inkwell::{AddressSpace, AtomicOrdering, FloatPredicate, IntPredicate};
+use inkwell::{AddressSpace, AtomicOrdering, AtomicRMWBinOp, FloatPredicate, IntPredicate};
 
 fn translate_int_ty<'ctx>(
     context: &'ctx Context,
@@ -981,6 +983,44 @@ pub fn define_function<'ctx>(
                     } else {
                         inst_val.set_alignment(1).unwrap();
                     }
+                }
+
+                InstructionData::AtomicRmw {
+                    opcode: Opcode::AtomicRmw,
+                    args: [ptr, val],
+                    flags: _,
+                    op,
+                } => {
+                    let ptr = use_val!(*ptr).into_int_value();
+                    let val = use_val!(*val).into_int_value();
+                    let ptr = translate_ptr_no_offset(
+                        module.context,
+                        &module.builder,
+                        func.dfg.ctrl_typevar(inst),
+                        ptr,
+                    );
+                    let res = module
+                        .builder
+                        .build_atomicrmw(
+                            match op {
+                                AtomicRmwOp::Add => AtomicRMWBinOp::Add,
+                                AtomicRmwOp::Sub => AtomicRMWBinOp::Sub,
+                                AtomicRmwOp::And => AtomicRMWBinOp::And,
+                                AtomicRmwOp::Nand => AtomicRMWBinOp::Nand,
+                                AtomicRmwOp::Or => AtomicRMWBinOp::Or,
+                                AtomicRmwOp::Xor => AtomicRMWBinOp::Xor,
+                                AtomicRmwOp::Xchg => AtomicRMWBinOp::Xchg,
+                                AtomicRmwOp::Umin => AtomicRMWBinOp::UMin,
+                                AtomicRmwOp::Umax => AtomicRMWBinOp::UMax,
+                                AtomicRmwOp::Smin => AtomicRMWBinOp::Min,
+                                AtomicRmwOp::Smax => AtomicRMWBinOp::Max,
+                            },
+                            ptr,
+                            val,
+                            AtomicOrdering::SequentiallyConsistent,
+                        )
+                        .unwrap();
+                    def_val!(res_vals[0], res.as_basic_value_enum());
                 }
 
                 InstructionData::UnaryGlobalValue {
