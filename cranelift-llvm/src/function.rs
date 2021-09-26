@@ -219,7 +219,6 @@ pub fn define_function<'ctx>(
     }
 
     for block in func.layout.blocks() {
-        println!("{}:", block);
         module.builder.position_at_end(block_map[&block]);
         for inst in func.layout.block_insts(block) {
             let res_vals = func.dfg.inst_results(inst);
@@ -995,7 +994,7 @@ pub fn define_function<'ctx>(
                     module.builder.build_unreachable();
                 }
                 inst => {
-                    println!("  {:?}", inst);
+                    panic!("[{}] {:?}", block, inst);
                 }
             }
         }
