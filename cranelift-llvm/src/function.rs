@@ -243,6 +243,34 @@ pub fn define_function<'ctx>(
                     );
                     def_val!(res_vals[0], res);
                 }
+                InstructionData::Unary { opcode: Opcode::Isplit, arg } => {
+                    let arg = use_val!(*arg).into_int_value();
+                    assert!(func.dfg.ctrl_typevar(inst) == types::I128);
+                    let lsb = module
+                        .builder
+                        .build_int_truncate(
+                            arg,
+                            module.context.i64_type(),
+                            &res_vals[0].to_string(),
+                        )
+                        .as_basic_value_enum();
+                    let msb_untruncated = module.builder.build_right_shift(
+                        arg,
+                        module.context.i128_type().const_int(64, false),
+                        false,
+                        &format!("{}_untrunc", res_vals[1]),
+                    );
+                    let msb = module
+                        .builder
+                        .build_int_truncate(
+                            msb_untruncated,
+                            module.context.i64_type(),
+                            &res_vals[1].to_string(),
+                        )
+                        .as_basic_value_enum();
+                    def_val!(res_vals[0], lsb);
+                    def_val!(res_vals[1], msb);
+                }
                 InstructionData::Unary {
                     opcode:
                         opcode @ Opcode::Bnot
@@ -576,7 +604,7 @@ pub fn define_function<'ctx>(
                             );
                             let msb_shifted = module.builder.build_left_shift(
                                 msb_unshifted,
-                                module.context.i8_type().const_int(64, false),
+                                module.context.i128_type().const_int(64, false),
                                 "msb_shifted",
                             );
                             module.builder.build_or(lsb, msb_shifted, &res_vals[0].to_string())
