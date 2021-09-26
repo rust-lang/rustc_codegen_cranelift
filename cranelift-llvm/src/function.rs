@@ -1023,6 +1023,37 @@ pub fn define_function<'ctx>(
                     def_val!(res_vals[0], res.as_basic_value_enum());
                 }
 
+                InstructionData::AtomicCas {
+                    opcode: Opcode::AtomicCas,
+                    args: [ptr, test_old, new],
+                    flags: _,
+                } => {
+                    let ptr = use_val!(*ptr).into_int_value();
+                    let test_old = use_val!(*test_old);
+                    let new = use_val!(*new);
+                    let ptr = translate_ptr_no_offset(
+                        module.context,
+                        &module.builder,
+                        func.dfg.ctrl_typevar(inst),
+                        ptr,
+                    );
+                    let res_struct = module
+                        .builder
+                        .build_cmpxchg(
+                            ptr,
+                            test_old,
+                            new,
+                            AtomicOrdering::SequentiallyConsistent,
+                            AtomicOrdering::SequentiallyConsistent,
+                        )
+                        .unwrap();
+                    let res = module
+                        .builder
+                        .build_extract_value(res_struct, 0, &res_vals[0].to_string())
+                        .unwrap();
+                    def_val!(res_vals[0], res);
+                }
+
                 InstructionData::UnaryGlobalValue {
                     opcode: Opcode::SymbolValue | Opcode::TlsValue,
                     global_value,
