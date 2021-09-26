@@ -70,7 +70,7 @@ fn translate_ptr_no_offset<'ctx>(
     pointee_ty: cranelift_codegen::ir::Type,
     ptr: IntValue<'ctx>,
 ) -> PointerValue<'ctx> {
-    let pointee_ty = translate_int_ty(context, pointee_ty);
+    let pointee_ty = translate_ty(context, pointee_ty);
     builder.build_int_to_ptr(ptr, pointee_ty.ptr_type(AddressSpace::Generic), "ptr")
 }
 
@@ -82,7 +82,7 @@ fn translate_ptr_offset32<'ctx>(
     offset: Offset32,
 ) -> PointerValue<'ctx> {
     let ptr_ty = ptr.get_type();
-    let pointee_ty = translate_int_ty(context, pointee_ty);
+    let pointee_ty = translate_ty(context, pointee_ty);
     let offset: i64 = offset.into();
     let offset = ptr_ty.const_int(offset as u64, false /* FIXME right value? */);
     let ptr = builder.build_int_add(ptr, offset, "ptr_val");
