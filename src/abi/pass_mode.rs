@@ -88,6 +88,19 @@ fn cast_target_to_abi_params(cast: CastTarget) -> SmallVec<[AbiParam; 2]> {
     args
 }
 
+pub(crate) fn clif_vector_type<'tcx>(tcx: TyCtxt<'tcx>, layout: TyAndLayout<'tcx>) -> Option<Type> {
+    let (element, count) = match layout.abi {
+        Abi::Vector { element, count } => (element, count),
+        _ => unreachable!(),
+    };
+
+    match scalar_to_clif_type(tcx, element).by(u16::try_from(count).unwrap()) {
+        // Cranelift currently only implements icmp for 128bit vectors.
+        Some(vector_ty) if vector_ty.bits() == 128 => Some(vector_ty),
+        _ => None,
+    }
+}
+
 impl<'tcx> ArgAbiExt<'tcx> for ArgAbi<'tcx, Ty<'tcx>> {
     fn get_abi_param(&self, tcx: TyCtxt<'tcx>) -> SmallVec<[AbiParam; 2]> {
         match self.mode {
@@ -98,7 +111,7 @@ impl<'tcx> ArgAbiExt<'tcx> for ArgAbi<'tcx, Ty<'tcx>> {
                     attrs
                 )],
                 Abi::Vector { .. } => {
-                    let vector_ty = crate::intrinsics::clif_vector_type(tcx, self.layout).unwrap();
+                    let vector_ty = clif_vector_type(tcx, self.layout).unwrap();
                     smallvec![AbiParam::new(vector_ty)]
                 }
                 _ => unreachable!("{:?}", self.layout.abi),
@@ -144,7 +157,7 @@ impl<'tcx> ArgAbiExt<'tcx> for ArgAbi<'tcx, Ty<'tcx>> {
                     (None, vec![AbiParam::new(scalar_to_clif_type(tcx, scalar))])
                 }
                 Abi::Vector { .. } => {
-                    let vector_ty = crate::intrinsics::clif_vector_type(tcx, self.layout).unwrap();
+                    let vector_ty = clif_vector_type(tcx, self.layout).unwrap();
                     (None, vec![AbiParam::new(vector_ty)])
                 }
                 _ => unreachable!("{:?}", self.layout.abi),

@@ -150,7 +150,7 @@ pub(crate) fn clif_vector_type<'tcx>(tcx: TyCtxt<'tcx>, layout: TyAndLayout<'tcx
 
     match scalar_to_clif_type(tcx, element).by(u16::try_from(count).unwrap()) {
         // Cranelift currently only implements icmp for 128bit vectors.
-        Some(vector_ty) if vector_ty.bits() == 128 => Some(vector_ty),
+        //Some(vector_ty) if vector_ty.bits() == 128 => Some(vector_ty),
         _ => None,
     }
 }
