@@ -101,11 +101,6 @@ fn main() {
 
     println!("{:?}", std::intrinsics::caller_location());
 
-    #[cfg(target_arch = "x86_64")]
-    unsafe {
-        test_simd();
-    }
-
     Box::pin(move |mut _task_context| {
         yield ();
     }).as_mut().resume(0);
