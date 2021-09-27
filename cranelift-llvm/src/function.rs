@@ -9,7 +9,7 @@ use cranelift_module::{DataId, Module as _, ModuleResult};
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::types::{BasicType, BasicTypeEnum, FloatType, FunctionType, IntType};
+use inkwell::types::{BasicType, BasicTypeEnum, FloatType, FunctionType, IntType, VectorType};
 use inkwell::values::{
     AnyValue, BasicValue, BasicValueEnum, CallableValue, IntValue, PhiValue, PointerValue,
 };
@@ -40,19 +40,40 @@ fn translate_float_ty<'ctx>(
     }
 }
 
+fn translate_vector_ty<'ctx>(
+    context: &'ctx Context,
+    ty: cranelift_codegen::ir::Type,
+) -> VectorType<'ctx> {
+    assert!(ty.is_vector());
+    match ty.lane_type() {
+        types::I8 => context.i8_type().vec_type(ty.lane_count().into()).into(),
+        types::I16 => context.i16_type().vec_type(ty.lane_count().into()).into(),
+        types::I32 => context.i32_type().vec_type(ty.lane_count().into()).into(),
+        types::I64 => context.i64_type().vec_type(ty.lane_count().into()).into(),
+        types::I128 => context.i128_type().vec_type(ty.lane_count().into()).into(),
+        types::F32 => context.f32_type().vec_type(ty.lane_count().into()).into(),
+        types::F64 => context.f64_type().vec_type(ty.lane_count().into()).into(),
+        _ => unreachable!(),
+    }
+}
+
 fn translate_ty<'ctx>(
     context: &'ctx Context,
     ty: cranelift_codegen::ir::Type,
 ) -> BasicTypeEnum<'ctx> {
-    match ty {
-        types::I8 => context.i8_type().into(),
-        types::I16 => context.i16_type().into(),
-        types::I32 => context.i32_type().into(),
-        types::I64 => context.i64_type().into(),
-        types::I128 => context.i128_type().into(),
-        types::F32 => context.f32_type().into(),
-        types::F64 => context.f64_type().into(),
-        _ => todo!(),
+    if !ty.is_vector() {
+        match ty.lane_type() {
+            types::I8 => context.i8_type().into(),
+            types::I16 => context.i16_type().into(),
+            types::I32 => context.i32_type().into(),
+            types::I64 => context.i64_type().into(),
+            types::I128 => context.i128_type().into(),
+            types::F32 => context.f32_type().into(),
+            types::F64 => context.f64_type().into(),
+            _ => unreachable!(),
+        }
+    } else {
+        translate_vector_ty(context, ty).into()
     }
 }
 
@@ -241,7 +262,7 @@ pub fn define_function<'ctx>(
                     module.builder.build_fence(AtomicOrdering::SequentiallyConsistent, 0, "");
                 }
 
-                InstructionData::Unary { opcode: Opcode::Bitcast, arg } => {
+                InstructionData::Unary { opcode: Opcode::Bitcast | Opcode::RawBitcast, arg } => {
                     let arg = use_val!(*arg);
                     let res = module.builder.build_bitcast(
                         arg,
@@ -304,7 +325,7 @@ pub fn define_function<'ctx>(
                             .builder
                             .build_int_z_extend(
                                 arg,
-                                module.context.i8_type(),
+                                translate_int_ty(module.context, func.dfg.ctrl_typevar(inst)),
                                 &res_vals[0].to_string(),
                             )
                             .as_basic_value_enum(),
@@ -722,6 +743,18 @@ pub fn define_function<'ctx>(
                     };
                     def_val!(res_vals[0], res.as_basic_value_enum());
                 }
+                InstructionData::BinaryImm8 { opcode: opcode @ Opcode::Extractlane, arg, imm } => {
+                    let lhs = use_val!(*arg);
+                    let res = match opcode {
+                        Opcode::Extractlane => module.builder.build_extract_element(
+                            lhs.into_vector_value(),
+                            module.context.i8_type().const_int((*imm).into(), false),
+                            &res_vals[0].to_string(),
+                        ),
+                        _ => unreachable!(),
+                    };
+                    def_val!(res_vals[0], res.as_basic_value_enum());
+                }
                 InstructionData::BinaryImm64 {
                     opcode:
                         opcode @ Opcode::IaddImm
@@ -840,6 +873,24 @@ pub fn define_function<'ctx>(
                             );
                             module.builder.build_select(cond, lhs, rhs, &res_vals[0].to_string())
                         }
+                        _ => unreachable!(),
+                    };
+                    def_val!(res_vals[0], res.as_basic_value_enum());
+                }
+                InstructionData::TernaryImm8 {
+                    opcode: opcode @ Opcode::Insertlane,
+                    args: [lhs, rhs],
+                    imm,
+                } => {
+                    let lhs = use_val!(*lhs);
+                    let rhs = use_val!(*rhs);
+                    let res = match opcode {
+                        Opcode::Insertlane => module.builder.build_insert_element(
+                            lhs.into_vector_value(),
+                            rhs,
+                            module.context.i8_type().const_int((*imm).into(), false),
+                            &res_vals[0].to_string(),
+                        ),
                         _ => unreachable!(),
                     };
                     def_val!(res_vals[0], res.as_basic_value_enum());
@@ -1117,6 +1168,21 @@ pub fn define_function<'ctx>(
                         .build_extract_value(res_struct, 0, &res_vals[0].to_string())
                         .unwrap();
                     def_val!(res_vals[0], res);
+                }
+
+                InstructionData::UnaryConst { opcode: Opcode::Vconst, constant_handle } => {
+                    let vec_ty = translate_vector_ty(module.context, func.dfg.ctrl_typevar(inst));
+                    let constant = func.dfg.constants.get(*constant_handle);
+                    let const_vec = module.context.i8_type().const_array(
+                        &constant
+                            .as_slice()
+                            .iter()
+                            .map(|&byte| module.context.i8_type().const_int(byte.into(), false))
+                            .collect::<Vec<_>>(),
+                    );
+                    let res =
+                        module.builder.build_bitcast(const_vec, vec_ty, &res_vals[0].to_string());
+                    def_val!(res_vals[0], res.as_basic_value_enum());
                 }
 
                 InstructionData::UnaryGlobalValue {
