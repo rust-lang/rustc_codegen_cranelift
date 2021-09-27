@@ -1172,9 +1172,11 @@ pub fn define_function<'ctx>(
                     destination: then_block,
                 } => {
                     let args = args.as_slice(&func.dfg.value_lists);
-                    let conditional = module.builder.build_int_truncate(
-                        use_val!(args[0]).into_int_value(),
-                        module.context.bool_type(),
+                    let conditional = use_val!(args[0]).into_int_value();
+                    let conditional = module.builder.build_int_compare(
+                        if *opcode == Opcode::Brz { IntPredicate::EQ } else { IntPredicate::NE },
+                        conditional,
+                        conditional.get_type().const_zero(),
                         if *opcode == Opcode::Brz { "brz" } else { "brnz" },
                     );
                     let then_args = &args[1..];
@@ -1201,16 +1203,8 @@ pub fn define_function<'ctx>(
                     }
                     module.builder.build_conditional_branch(
                         conditional,
-                        if *opcode == Opcode::Brz {
-                            block_map[&else_block]
-                        } else {
-                            block_map[then_block]
-                        },
-                        if *opcode == Opcode::Brz {
-                            block_map[then_block]
-                        } else {
-                            block_map[&else_block]
-                        },
+                        block_map[then_block],
+                        block_map[&else_block],
                     );
                     break; // Don't codegen the following jump
                 }
