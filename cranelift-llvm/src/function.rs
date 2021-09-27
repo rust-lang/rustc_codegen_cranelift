@@ -526,6 +526,8 @@ pub fn define_function<'ctx>(
                         opcode @ Opcode::Iadd
                         | opcode @ Opcode::Isub
                         | opcode @ Opcode::Imul
+                        | opcode @ Opcode::Umulhi
+                        | opcode @ Opcode::Smulhi
                         | opcode @ Opcode::Udiv
                         | opcode @ Opcode::Sdiv
                         | opcode @ Opcode::Urem
@@ -552,6 +554,64 @@ pub fn define_function<'ctx>(
                         }
                         Opcode::Imul => {
                             module.builder.build_int_mul(lhs, rhs, &res_vals[0].to_string())
+                        }
+                        Opcode::Umulhi => {
+                            assert!(func.dfg.ctrl_typevar(inst) == types::I64);
+                            let lhs = module.builder.build_int_z_extend(
+                                lhs,
+                                module.context.i128_type(),
+                                "umulhi_lhs",
+                            );
+                            let rhs = module.builder.build_int_z_extend(
+                                rhs,
+                                module.context.i128_type(),
+                                "umulhi_rhs",
+                            );
+                            let val = module.builder.build_int_mul(
+                                lhs,
+                                rhs,
+                                &format!("{}_mul", res_vals[0]),
+                            );
+                            let msb_untruncated = module.builder.build_right_shift(
+                                val,
+                                module.context.i128_type().const_int(64, false),
+                                false,
+                                &format!("{}_shifted", res_vals[0]),
+                            );
+                            module.builder.build_int_truncate(
+                                msb_untruncated,
+                                module.context.i64_type(),
+                                &res_vals[0].to_string(),
+                            )
+                        }
+                        Opcode::Smulhi => {
+                            assert!(func.dfg.ctrl_typevar(inst) == types::I64);
+                            let lhs = module.builder.build_int_s_extend(
+                                lhs,
+                                module.context.i128_type(),
+                                "umulhi_lhs",
+                            );
+                            let rhs = module.builder.build_int_s_extend(
+                                rhs,
+                                module.context.i128_type(),
+                                "umulhi_rhs",
+                            );
+                            let val = module.builder.build_int_mul(
+                                lhs,
+                                rhs,
+                                &format!("{}_mul", res_vals[0]),
+                            );
+                            let msb_untruncated = module.builder.build_right_shift(
+                                val,
+                                module.context.i128_type().const_int(64, false),
+                                false,
+                                &format!("{}_shifted", res_vals[0]),
+                            );
+                            module.builder.build_int_truncate(
+                                msb_untruncated,
+                                module.context.i64_type(),
+                                &res_vals[0].to_string(),
+                            )
                         }
                         Opcode::Udiv => module.builder.build_int_unsigned_div(
                             lhs,
