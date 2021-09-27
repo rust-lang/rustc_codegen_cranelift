@@ -9,4 +9,5 @@ edition = "2021"
 cranelift-codegen = { git = "https://github.com/bytecodealliance/wasmtime.git", features = ["unwind", "all-arch"] }
 cranelift-module = { git = "https://github.com/bytecodealliance/wasmtime.git" }
 target-lexicon = "0.12.0"
-inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm7-0"] }
+#inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm7-0"] }
+inkwell = { git = "https://github.com/bjorn3/inkwell", branch = "phi_replace_all_uses_with_any_value", features = ["llvm7-0"] }
