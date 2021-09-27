@@ -60,7 +60,7 @@ impl<'ctx> LlvmModule<'ctx> {
     }
 
     pub fn compile(&mut self) -> MemoryBuffer {
-        self.print_to_stderr();
+        //self.print_to_stderr();
 
         if let Err(err) = self.module.verify() {
             println!("{}", err.to_string_lossy());
@@ -77,7 +77,9 @@ impl<'ctx> LlvmModule<'ctx> {
         pass_manager.add_instruction_combining_pass();
         pass_manager.add_reassociate_pass();
         pass_manager.run_on(&self.module);
-        self.print_to_stderr();
+        //self.print_to_stderr();
+        self.module.print_to_file(format!("/tmp/{}.ll", self.module.get_name().to_str().unwrap())).unwrap();
+
 
         Target::initialize_x86(&InitializationConfig::default());
         let opt = OptimizationLevel::Default;
