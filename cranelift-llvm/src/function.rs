@@ -170,6 +170,7 @@ pub fn define_function<'ctx>(
             module.context.i8_type().array_type(stack_slot_data.size),
             &format!("{}_ptr", stack_slot),
         );
+        ptr.as_instruction().unwrap().set_alignment(16).unwrap(); // FIXME add alignment specification to clif ir
         stack_slot_map.insert(
             stack_slot,
             module.builder.build_ptr_to_int(ptr, ptr_ty, &format!("{}", stack_slot)),
