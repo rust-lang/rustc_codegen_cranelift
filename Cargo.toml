@@ -26,6 +26,7 @@ smallvec = "1.6.1"
 cranelift-llvm = { path = "./cranelift-llvm" }
 
 [workspace]
+exclude = ["build_sysroot"]
 
 # Uncomment to use local checkout of cranelift
 #[patch."https://github.com/bytecodealliance/wasmtime.git"]
