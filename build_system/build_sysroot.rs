@@ -182,7 +182,6 @@ fn build_clif_sysroot_for_triple(
     let mut rustflags = "--clif -Zforce-unstable-if-unmarked".to_string();
     if channel == "release" {
         build_cmd.arg("--release");
-        rustflags.push_str(" -Zmir-opt-level=3");
     }
     if let Some(linker) = linker {
         use std::fmt::Write;
