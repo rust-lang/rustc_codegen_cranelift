@@ -108,12 +108,11 @@ impl Writer for WriterRelocate {
         match address {
             Address::Constant(val) => self.write_udata(val, size),
             Address::Symbol { symbol, addend } => {
-                let offset = self.len() as u64;
                 self.relocs.push(DebugReloc {
-                    offset: offset as u32,
+                    offset: self.len().try_into().unwrap(),
                     size,
                     name: DebugRelocName::Symbol(symbol),
-                    addend: addend as i64,
+                    addend,
                     kind: object::RelocationKind::Absolute,
                 });
                 self.write_udata(0, size)

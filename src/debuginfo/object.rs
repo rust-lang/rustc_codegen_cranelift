@@ -37,7 +37,14 @@ impl WriteDebugInfo for ObjectProduct {
         }
         .into_bytes();
 
-        let segment = self.object.segment_name(StandardSegment::Debug).to_vec();
+        let segment = self
+            .object
+            .segment_name(if id == SectionId::EhFrame {
+                StandardSegment::Text
+            } else {
+                StandardSegment::Debug
+            })
+            .to_vec();
         // FIXME use SHT_X86_64_UNWIND for .eh_frame
         let section_id = self.object.add_section(
             segment,
