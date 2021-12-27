@@ -4,7 +4,7 @@ use cranelift_module::FuncId;
 use cranelift_object::ObjectProduct;
 
 use object::write::{Relocation, StandardSegment};
-use object::{RelocationEncoding, SectionKind};
+use object::{RelocationEncoding, SectionFlags, SectionKind};
 
 use gimli::SectionId;
 
@@ -39,7 +39,11 @@ impl WriteDebugInfo for ObjectProduct {
 
         let segment = self
             .object
-            .segment_name(StandardSegment::Debug)
+            .segment_name(if id == SectionId::EhFrame {
+                StandardSegment::Text
+            } else {
+                StandardSegment::Debug
+            })
             .to_vec();
         // FIXME use SHT_X86_64_UNWIND for .eh_frame
         let section_id = self.object.add_section(
@@ -47,6 +51,16 @@ impl WriteDebugInfo for ObjectProduct {
             name,
             if id == SectionId::EhFrame { SectionKind::ReadOnlyData } else { SectionKind::Debug },
         );
+
+        if id == SectionId::EhFrame && self.object.format() == object::BinaryFormat::MachO {
+            self.object.section_mut(section_id).flags = SectionFlags::MachO {
+                flags: object::macho::S_COALESCED
+                    | object::macho::S_ATTR_NO_TOC
+                    | object::macho::S_ATTR_STRIP_STATIC_SYMS
+                    | object::macho::S_ATTR_LIVE_SUPPORT,
+            };
+        }
+
         self.object
             .section_mut(section_id)
             .set_data(data, if id == SectionId::EhFrame { 8 } else { 1 });
