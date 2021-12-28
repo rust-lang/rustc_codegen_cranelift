@@ -30,7 +30,7 @@ impl UnwindContext {
         let cie_id = if let Some(mut cie) = isa.create_systemv_cie() {
             if pic_eh_frame {
                 cie.fde_address_encoding =
-                    gimli::DwEhPe(gimli::DW_EH_PE_pcrel.0 | gimli::DW_EH_PE_sdata4.0);
+                    gimli::DwEhPe(gimli::DW_EH_PE_pcrel.0 | gimli::DW_EH_PE_absptr.0);
             }
             Some(frame_table.add_cie(cie))
         } else {

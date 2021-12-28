@@ -83,18 +83,28 @@ impl WriteDebugInfo for ObjectProduct {
                     .expect("Debug reloc for undef sym???")
             }
         };
-        self.object
-            .add_relocation(
-                from.0,
-                Relocation {
-                    offset: u64::from(reloc.offset),
-                    symbol,
-                    kind: reloc.kind,
-                    encoding: RelocationEncoding::Generic,
-                    size: reloc.size * 8,
-                    addend: i64::try_from(symbol_offset).unwrap() + reloc.addend,
-                },
-            )
-            .unwrap();
+        dbg!(symbol, symbol_offset, reloc);
+        if reloc.size == 4 {
+            self.object.section_mut(from.0).data_mut()
+                [reloc.offset as usize..reloc.offset as usize + reloc.size as usize]
+                .copy_from_slice(&u32::to_le_bytes((symbol_offset as i64 + reloc.addend - reloc.offset as i64) as u32));
+        } else {
+            self.object.section_mut(from.0).data_mut()
+                [reloc.offset as usize..reloc.offset as usize + reloc.size as usize]
+                .copy_from_slice(&u64::to_le_bytes((symbol_offset as i64 + reloc.addend - reloc.offset as i64) as u64));
+        }
+        /*self.object
+        .add_relocation(
+            from.0,
+            Relocation {
+                offset: u64::from(reloc.offset),
+                symbol,
+                kind: reloc.kind,
+                encoding: RelocationEncoding::Generic,
+                size: reloc.size * 8,
+                addend: i64::try_from(symbol_offset).unwrap() + reloc.addend,
+            },
+        )
+        .unwrap();*/
     }
 }

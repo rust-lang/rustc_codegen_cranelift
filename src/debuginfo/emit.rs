@@ -39,7 +39,7 @@ impl DebugContext<'_> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct DebugReloc {
     pub(crate) offset: u32,
     pub(crate) size: u8,
@@ -48,7 +48,7 @@ pub(crate) struct DebugReloc {
     pub(crate) kind: object::RelocationKind,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) enum DebugRelocName {
     Section(SectionId),
     Symbol(usize),
@@ -171,6 +171,7 @@ impl Writer for WriterRelocate {
                 gimli::DW_EH_PE_pcrel => {
                     let size = match eh_pe.format() {
                         gimli::DW_EH_PE_sdata4 => 4,
+                        gimli::DW_EH_PE_absptr => 8, // FIXME pointer size
                         _ => return Err(gimli::write::Error::UnsupportedPointerEncoding(eh_pe)),
                     };
                     self.relocs.push(DebugReloc {
