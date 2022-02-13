@@ -5,7 +5,7 @@ set -e
 source scripts/config.sh
 source scripts/ext_config.sh
 export RUSTC=false # ensure that cg_llvm isn't accidentally used
-MY_RUSTC="$(pwd)/build/bin/cg_clif $RUSTFLAGS -L crate=target/out --out-dir target/out -Cdebuginfo=2"
+MY_RUSTC="$(pwd)/build/bin/cg_clif.exe $RUSTFLAGS -L crate=target/out --out-dir target/out -Cdebuginfo=2"
 
 function no_sysroot_tests() {
     echo "[BUILD] mini_core"

@@ -158,20 +158,20 @@ jobs:
         rustc y.rs -o y.exe -g
         ./y.exe prepare
 
-    - name: Build
-      #name: Test
+    - name: Test
+      shell: bash
       run: |
         # Enable backtraces for easier debugging
-        #export RUST_BACKTRACE=1
+        export RUST_BACKTRACE=1
 
         # Reduce amount of benchmark runs as they are slow
-        #export COMPILE_RUNS=2
-        #export RUN_RUNS=2
+        export COMPILE_RUNS=2
+        export RUN_RUNS=2
 
         # Enable extra checks
-        #export CG_CLIF_ENABLE_VERIFIER=1
+        export CG_CLIF_ENABLE_VERIFIER=1
 
-        ./y.exe build
+        ./test.sh
 
     - name: Package prebuilt cg_clif
       # don't use compression as xzip isn't supported by tar on windows and bzip2 hangs
