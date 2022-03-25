@@ -8,6 +8,8 @@ export RUSTC=false # ensure that cg_llvm isn't accidentally used
 MY_RUSTC="$(pwd)/build/bin/cg_clif.exe $RUSTFLAGS -L crate=target/out --out-dir target/out -Cdebuginfo=2"
 
 function no_sysroot_tests() {
+    ls build/bin
+
     echo "[BUILD] mini_core"
     $MY_RUSTC example/mini_core.rs --crate-name mini_core --crate-type lib,dylib --target "$TARGET_TRIPLE"
 
