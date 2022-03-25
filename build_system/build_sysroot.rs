@@ -48,7 +48,7 @@ pub(crate) fn build_sysroot(
     build_cargo_wrapper_cmd
         .arg("scripts/cargo-clif.rs")
         .arg("-o")
-        .arg(target_dir.join("cargo-clif"))
+        .arg(target_dir.join(if cfg!(windows) { "cargo-clif.exe" } else { "cargo-clif" }))
         .arg("-g");
     spawn_and_wait(build_cargo_wrapper_cmd);
 
