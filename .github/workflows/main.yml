@@ -171,6 +171,7 @@ jobs:
         # Enable extra checks
         export CG_CLIF_ENABLE_VERIFIER=1
 
+        rustup run nightly-2022-03-25 bash -c 'env'
         rustup run nightly-2022-03-25 bash ./test.sh
 
     - name: Package prebuilt cg_clif
