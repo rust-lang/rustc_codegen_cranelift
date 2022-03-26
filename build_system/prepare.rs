@@ -51,7 +51,7 @@ pub(crate) fn prepare() {
     fs::copy(
         Path::new("simple-raytracer/target/debug").join(get_file_name("main", "bin")),
         // FIXME use get_file_name here too once testing is migrated to rust
-        "simple-raytracer/raytracer_cg_llvm",
+        "simple-raytracer/raytracer_cg_llvm.exe",
     )
     .unwrap();
 }

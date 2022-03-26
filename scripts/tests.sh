@@ -98,13 +98,13 @@ function extended_sysroot_tests() {
     pushd simple-raytracer
     if [[ "$HOST_TRIPLE" = "$TARGET_TRIPLE" ]]; then
         echo "[BENCH COMPILE] ebobby/simple-raytracer"
-        hyperfine --runs "${RUN_RUNS:-10}" --warmup 1 --prepare "../build/cargo-clif clean" \
+        hyperfine --runs "${RUN_RUNS:-10}" --warmup 1 --prepare "../build/cargo-clif.exe clean" \
         "RUSTC=rustc RUSTFLAGS='' cargo build" \
-        "../build/cargo-clif build"
+        "../build/cargo-clif.exe build"
 
         echo "[BENCH RUN] ebobby/simple-raytracer"
-        cp ./target/debug/main ./raytracer_cg_clif
-        hyperfine --runs "${RUN_RUNS:-10}" ./raytracer_cg_llvm ./raytracer_cg_clif
+        cp ./target/debug/main.exe ./raytracer_cg_clif.exe
+        hyperfine --runs "${RUN_RUNS:-10}" ./raytracer_cg_llvm.exe ./raytracer_cg_clif.exe
     else
         ../build/cargo-clif clean
         echo "[BENCH COMPILE] ebobby/simple-raytracer (skipped)"
