@@ -171,7 +171,7 @@ jobs:
         # Enable extra checks
         export CG_CLIF_ENABLE_VERIFIER=1
 
-        ./test.sh
+        rustup run nightly-2022-03-25 bash ./test.sh
 
     - name: Package prebuilt cg_clif
       # don't use compression as xzip isn't supported by tar on windows and bzip2 hangs
