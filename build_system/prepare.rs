@@ -11,6 +11,9 @@ use super::utils::{copy_dir_recursively, spawn_and_wait};
 pub(crate) fn prepare() {
     prepare_sysroot();
 
+    eprintln!("[INSTALL] hyperfine");
+    Command::new("cargo").arg("install").arg("hyperfine").spawn().unwrap().wait().unwrap();
+
     clone_repo_shallow_github(
         "rand",
         "rust-random",
@@ -40,6 +43,17 @@ pub(crate) fn prepare() {
         "simple-raytracer",
         "804a7a21b9e673a482797aa289a18ed480e4d813",
     );
+
+    eprintln!("[LLVM BUILD] simple-raytracer");
+    let mut build_cmd = Command::new("cargo");
+    build_cmd.arg("build").env_remove("CARGO_TARGET_DIR").current_dir("simple-raytracer");
+    spawn_and_wait(build_cmd);
+    fs::copy(
+        Path::new("simple-raytracer/target/debug").join(get_file_name("main", "bin")),
+        // FIXME use get_file_name here too once testing is migrated to rust
+        "simple-raytracer/raytracer_cg_llvm",
+    )
+    .unwrap();
 }
 
 fn prepare_sysroot() {
