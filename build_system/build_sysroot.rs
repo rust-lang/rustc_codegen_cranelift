@@ -184,7 +184,7 @@ fn build_clif_sysroot_for_triple(
     // Build sysroot
     let mut build_cmd = Command::new("cargo");
     build_cmd.arg("build").arg("--target").arg(triple).current_dir("build_sysroot");
-    let mut rustflags = "-Zforce-unstable-if-unmarked -Cpanic=abort".to_string();
+    let mut rustflags = "".to_string();
     rustflags.push_str(&format!(" -Zcodegen-backend={}", cg_clif_dylib_path.to_str().unwrap()));
     if channel == "release" {
         build_cmd.arg("--release");

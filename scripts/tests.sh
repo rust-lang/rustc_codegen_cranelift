@@ -47,16 +47,6 @@ function no_sysroot_tests() {
     echo "[BUILD] example"
     $MY_RUSTC example/example.rs --crate-type lib --target "$TARGET_TRIPLE"
 
-    if [[ "$JIT_SUPPORTED" = "1" ]]; then
-        echo "[JIT] mini_core_hello_world"
-        CG_CLIF_JIT_ARGS="abc bcd" $MY_RUSTC -Zunstable-options -Cllvm-args=mode=jit -Cprefer-dynamic example/mini_core_hello_world.rs --cfg jit --target "$HOST_TRIPLE"
-
-        echo "[JIT-lazy] mini_core_hello_world"
-        CG_CLIF_JIT_ARGS="abc bcd" $MY_RUSTC -Zunstable-options -Cllvm-args=mode=jit-lazy -Cprefer-dynamic example/mini_core_hello_world.rs --cfg jit --target "$HOST_TRIPLE"
-    else
-        echo "[JIT] mini_core_hello_world (skipped)"
-    fi
-
     echo "[AOT] mini_core_hello_world"
     $MY_RUSTC example/mini_core_hello_world.rs --crate-name mini_core_hello_world --crate-type bin -g --target "$TARGET_TRIPLE"
     $RUN_WRAPPER ./target/out/mini_core_hello_world abc bcd
@@ -64,33 +54,8 @@ function no_sysroot_tests() {
 }
 
 function base_sysroot_tests() {
-    echo "[AOT] arbitrary_self_types_pointers_and_wrappers"
-    $MY_RUSTC example/arbitrary_self_types_pointers_and_wrappers.rs --crate-name arbitrary_self_types_pointers_and_wrappers --crate-type bin --target "$TARGET_TRIPLE"
-    $RUN_WRAPPER ./target/out/arbitrary_self_types_pointers_and_wrappers
-
-    echo "[AOT] issue_91827_extern_types"
-    $MY_RUSTC example/issue-91827-extern-types.rs --crate-name issue_91827_extern_types --crate-type bin --target "$TARGET_TRIPLE"
-    $RUN_WRAPPER ./target/out/issue_91827_extern_types
-
-    echo "[BUILD] alloc_system"
-    $MY_RUSTC example/alloc_system.rs --crate-type lib --target "$TARGET_TRIPLE"
-
-    echo "[AOT] alloc_example"
-    $MY_RUSTC example/alloc_example.rs --crate-type bin --target "$TARGET_TRIPLE"
-    $RUN_WRAPPER ./target/out/alloc_example
-
-    if [[ "$JIT_SUPPORTED" = "1" ]]; then
-        echo "[JIT] std_example"
-        $MY_RUSTC -Zunstable-options -Cllvm-args=mode=jit -Cprefer-dynamic example/std_example.rs --target "$HOST_TRIPLE"
-
-        echo "[JIT-lazy] std_example"
-        $MY_RUSTC -Zunstable-options -Cllvm-args=mode=jit-lazy -Cprefer-dynamic example/std_example.rs --target "$HOST_TRIPLE"
-    else
-        echo "[JIT] std_example (skipped)"
-    fi
-
     echo "[AOT] std_example"
-    $MY_RUSTC example/std_example.rs --crate-type bin --target "$TARGET_TRIPLE"
+    $MY_RUSTC example/std_example.rs --crate-type bin --target "$TARGET_TRIPLE" --edition 2021 --emit link,llvm-ir
     $RUN_WRAPPER ./target/out/std_example arg
 
     echo "[AOT] dst_field_align"

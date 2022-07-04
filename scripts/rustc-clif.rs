@@ -13,8 +13,6 @@ fn main() {
     );
 
     let mut args = std::env::args_os().skip(1).collect::<Vec<_>>();
-    args.push(OsString::from("-Cpanic=abort"));
-    args.push(OsString::from("-Zpanic-abort-tests"));
     let mut codegen_backend_arg = OsString::from("-Zcodegen-backend=");
     codegen_backend_arg.push(cg_clif_dylib_path);
     args.push(codegen_backend_arg);

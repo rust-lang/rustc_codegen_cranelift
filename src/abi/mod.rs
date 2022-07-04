@@ -4,12 +4,13 @@ mod comments;
 mod pass_mode;
 mod returning;
 
+use cranelift_codegen::isa::BlockConv;
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
 use rustc_middle::ty::layout::FnAbiOf;
 use rustc_target::abi::call::{Conv, FnAbi};
 use rustc_target::spec::abi::Abi;
 
-use cranelift_codegen::ir::{AbiParam, SigRef};
+use cranelift_codegen::ir::{AbiParam, SigRef, JumpTableData};
 
 use self::pass_mode::*;
 use crate::prelude::*;
@@ -315,6 +316,7 @@ pub(crate) fn codegen_terminator_call<'tcx>(
     args: &[Operand<'tcx>],
     destination: Place<'tcx>,
     target: Option<BasicBlock>,
+    cleanup: Option<BasicBlock>,
 ) {
     let fn_ty = fx.monomorphize(func.ty(fx.mir, fx.tcx));
     let fn_sig =
@@ -484,10 +486,25 @@ pub(crate) fn codegen_terminator_call<'tcx>(
             )
             .collect::<Vec<Value>>();
 
-        let call_inst = match func_ref {
-            CallTarget::Direct(func_ref) => fx.bcx.ins().call(func_ref, &call_args),
-            CallTarget::Indirect(sig, func_ptr) => {
-                fx.bcx.ins().call_indirect(sig, func_ptr, &call_args)
+        let call_inst = if let Some(cleanup) = cleanup {
+            let cleanup = fx.get_block(cleanup);
+            let landing_pad = fx.bcx.create_block_with_block_conv(BlockConv::EhLandingPad);
+            // FIXME add jump from `landing_pad` to `cleanup`
+            let mut alternative_returns = JumpTableData::new();
+            alternative_returns.push_entry(landing_pad);
+            let alternative_returns = fx.bcx.func.create_jump_table(alternative_returns);
+            match func_ref {
+                CallTarget::Direct(func_ref) => fx.bcx.ins().invoke(func_ref, &call_args, todo!(), alternative_returns),
+                CallTarget::Indirect(sig, func_ptr) => {
+                    fx.bcx.ins().invoke_indirect(sig, func_ptr, &call_args, todo!(), alternative_returns)
+                }
+            }
+        } else {
+            match func_ref {
+                CallTarget::Direct(func_ref) => fx.bcx.ins().call(func_ref, &call_args),
+                CallTarget::Indirect(sig, func_ptr) => {
+                    fx.bcx.ins().call_indirect(sig, func_ptr, &call_args)
+                }
             }
         };
 

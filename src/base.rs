@@ -274,11 +274,7 @@ fn codegen_fn_content(fx: &mut FunctionCx<'_, '_, '_>) {
         fx.bcx.switch_to_block(block);
 
         if bb_data.is_cleanup {
-            // Unwinding after panicking is not supported
-            continue;
-
-            // FIXME Once unwinding is supported and Cranelift supports marking blocks as cold, do
-            // so for cleanup blocks.
+            fx.bcx.set_cold_block(fx.bcx.current_block().unwrap());
         }
 
         fx.bcx.ins().nop();
@@ -422,7 +418,7 @@ fn codegen_fn_content(fx: &mut FunctionCx<'_, '_, '_>) {
                 destination,
                 target,
                 fn_span,
-                cleanup: _,
+                cleanup,
                 from_hir_call: _,
             } => {
                 fx.tcx.sess.time("codegen call", || {
@@ -433,6 +429,7 @@ fn codegen_fn_content(fx: &mut FunctionCx<'_, '_, '_>) {
                         args,
                         *destination,
                         *target,
+                        *cleanup,
                     )
                 });
             }
