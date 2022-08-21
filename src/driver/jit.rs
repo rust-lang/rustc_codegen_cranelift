@@ -318,13 +318,32 @@ fn load_imported_symbols_for_jit(
 
     let mut imported_symbols = Vec::new();
     for path in dylib_paths {
-        use object::{Object, ObjectSymbol};
+        use object::{BinaryFormat, Object, ObjectSymbol};
         let lib = libloading::Library::new(&path).unwrap();
         let obj = std::fs::read(path).unwrap();
         let obj = object::File::parse(&*obj).unwrap();
-        imported_symbols.extend(obj.dynamic_symbols().filter_map(|symbol| {
-            let name = symbol.name().unwrap().to_string();
-            if name.is_empty() || !symbol.is_global() || symbol.is_undefined() {
+
+        let symbol_names: Vec<String> = if obj.format() == BinaryFormat::Pe {
+            let exports = obj.exports().unwrap();
+            exports
+                .into_iter()
+                .map(|export| std::str::from_utf8(export.name()).unwrap().to_string())
+                .collect()
+        } else {
+            obj.dynamic_symbols()
+                .filter_map(|symbol| {
+                    let name = symbol.name().unwrap().to_string();
+                    if !symbol.is_global() || symbol.is_undefined() {
+                        return None;
+                    }
+                    Some(name)
+                })
+                .collect()
+        };
+
+        imported_symbols.extend(symbol_names.into_iter().filter_map(|name| {
+            println!("Loading sym name: {}", name);
+            if name.is_empty() {
                 return None;
             }
             if name.starts_with("rust_metadata_") {
