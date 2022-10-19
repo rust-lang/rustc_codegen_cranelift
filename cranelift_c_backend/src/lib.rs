@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::io;
 use std::path::Path;
@@ -11,8 +12,10 @@ use cranelift_module::{
 };
 
 pub struct CModule {
-    declarations: ModuleDeclarations,
     libcall_names: Box<dyn Fn(ir::LibCall) -> String + Send + Sync>,
+
+    declarations: ModuleDeclarations,
+    data_object_types: HashMap<DataId, String>,
 
     source: String,
 }
@@ -20,8 +23,11 @@ pub struct CModule {
 impl CModule {
     pub fn new(libcall_names: Box<dyn Fn(ir::LibCall) -> String + Send + Sync>) -> Self {
         CModule {
-            declarations: ModuleDeclarations::default(),
             libcall_names,
+
+            declarations: ModuleDeclarations::default(),
+            data_object_types: HashMap::new(),
+
             source: String::new(),
         }
     }
@@ -89,18 +95,22 @@ impl Module for CModule {
         writable: bool,
         tls: bool,
     ) -> ModuleResult<DataId> {
-        let (data_id, linkage) = self.declarations.declare_data(name, linkage, writable, tls)?;
-        // FIXME add forward declaration
+        let (data_id, _linkage) = self.declarations.declare_data(name, linkage, writable, tls)?;
+
+        let type_name = self.declare_data_object_type(data_id);
+        let data_decl = self.declarations.get_data_decl(data_id);
+        write!(self.source, "{};\n", data_decl_to_c(data_decl, &type_name)).unwrap();
+
         Ok(data_id)
     }
 
-    fn declare_anonymous_data(
-        &mut self,
-        writable: bool,
-        tls: bool,
-    ) -> ModuleResult<DataId> {
+    fn declare_anonymous_data(&mut self, writable: bool, tls: bool) -> ModuleResult<DataId> {
         let data_id = self.declarations.declare_anonymous_data(writable, tls)?;
-        // FIXME add forward declaration
+
+        let type_name = self.declare_data_object_type(data_id);
+        let data_decl = self.declarations.get_data_decl(data_id);
+        write!(self.source, "{};\n", data_decl_to_c(data_decl, &type_name)).unwrap();
+
         Ok(data_id)
     }
 
@@ -126,9 +136,16 @@ impl Module for CModule {
     }
 
     fn define_data(&mut self, data_id: DataId, data_ctx: &DataContext) -> ModuleResult<()> {
+        let type_ = DataObjectType::new(match data_ctx.description().init {
+            Init::Uninitialized => unreachable!(),
+            Init::Zeros { size } => size,
+            Init::Bytes { ref contents } => contents.len(),
+        });
+
+        let type_name = self.define_data_object_type(data_id, &type_);
         let data_decl = self.declarations.get_data_decl(data_id);
 
-        let mut data = data_decl_to_c(data_decl);
+        let mut data = data_decl_to_c(data_decl, &type_name);
         let align =
             data_ctx.description().align.unwrap_or(1 /* FIXME correct default alignment */);
         let alignment = if align == 1 {
@@ -164,6 +181,62 @@ impl Drop for CModule {
     fn drop(&mut self) {
         if std::thread::panicking() {
             eprintln!("module:\n{}", self.source);
+        }
+    }
+}
+
+impl CModule {
+    fn declare_data_object_type(&mut self, data_id: DataId) -> String {
+        self.data_object_types
+            .entry(data_id)
+            .or_insert_with(|| {
+                let name = "__type_".to_owned()
+                    + name_use_to_c(&self.declarations.get_data_decl(data_id).name).as_ref();
+                writeln!(self.source, "struct {name};").unwrap();
+                name
+            })
+            .clone()
+    }
+
+    fn define_data_object_type(&mut self, data_id: DataId, type_: &DataObjectType) -> String {
+        let name = self
+            .data_object_types
+            .entry(data_id)
+            .or_insert_with(|| {
+                "__type_".to_owned()
+                    + name_use_to_c(&self.declarations.get_data_decl(data_id).name).as_ref()
+            })
+            .clone();
+        writeln!(self.source, "struct {name} {{").unwrap();
+        for (i, &element) in type_.0.iter().enumerate() {
+            match element {
+                DataObjectTypeElement::Bytes(count) => {
+                    writeln!(self.source, "    char field{i}[{count}];").unwrap()
+                }
+                DataObjectTypeElement::Pointer => {
+                    writeln!(self.source, "    void *field{i};").unwrap()
+                }
+            }
+        }
+        writeln!(self.source, "}};").unwrap();
+        name
+    }
+}
+
+struct DataObjectType(Vec<DataObjectTypeElement>);
+
+#[derive(Copy, Clone)]
+enum DataObjectTypeElement {
+    Bytes(usize),
+    Pointer,
+}
+
+impl DataObjectType {
+    fn new(size: usize) -> Self {
+        if size == 0 {
+            DataObjectType(vec![])
+        } else {
+            DataObjectType(vec![DataObjectTypeElement::Bytes(size)])
         }
     }
 }
@@ -207,11 +280,11 @@ fn mangle_name(name: &str) -> Option<String> {
     }
 }
 
-fn data_decl_to_c(data_decl: &cranelift_module::DataDeclaration) -> String {
+fn data_decl_to_c(data_decl: &cranelift_module::DataDeclaration, type_name: &str) -> String {
     let linkage = linkage_to_c(data_decl.linkage);
     let thread_local = if data_decl.tls { "__thread " } else { "" };
     let (name_prefix, name_postfix) = name_decl_to_c(&data_decl.name);
 
     // FIXME handle alignment
-    format!("{linkage}{thread_local}char {name_prefix}[]{name_postfix}")
+    format!("{linkage}{thread_local}struct {type_name} {name_prefix}{name_postfix}")
 }
