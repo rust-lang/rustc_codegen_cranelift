@@ -24,14 +24,16 @@ libloading = { version = "0.7.3", optional = true }
 once_cell = "1.10.0"
 smallvec = "1.8.1"
 
+cranelift_c_backend = { path = "cranelift_c_backend" }
+
 [patch.crates-io]
 # Uncomment to use local checkout of cranelift
-#cranelift-codegen = { path = "../wasmtime/cranelift/codegen" }
-#cranelift-frontend = { path = "../wasmtime/cranelift/frontend" }
-#cranelift-module = { path = "../wasmtime/cranelift/module" }
-#cranelift-native = { path = "../wasmtime/cranelift/native" }
-#cranelift-jit = { path = "../wasmtime/cranelift/jit" }
-#cranelift-object = { path = "../wasmtime/cranelift/object" }
+cranelift-codegen = { path = "../wasmtime/cranelift/codegen" }
+cranelift-frontend = { path = "../wasmtime/cranelift/frontend" }
+cranelift-module = { path = "../wasmtime/cranelift/module" }
+cranelift-native = { path = "../wasmtime/cranelift/native" }
+cranelift-jit = { path = "../wasmtime/cranelift/jit" }
+cranelift-object = { path = "../wasmtime/cranelift/object" }
 
 #gimli = { path = "../" }
 
@@ -43,3 +45,9 @@ inline_asm = []
 
 [package.metadata.rust-analyzer]
 rustc_private = true
+
+[profile.release.package.rustc_codegen_cranelift]
+debug = 1
+
+[profile.release.package.cranelift_c_backend]
+debug = 1

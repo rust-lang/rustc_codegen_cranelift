@@ -17,7 +17,7 @@ use rustc_session::cgu_reuse_tracker::CguReuse;
 use rustc_session::config::{OutputFilenames, OutputType};
 use rustc_session::Session;
 
-use cranelift_object::{ObjectBuilder, ObjectModule};
+use cranelift_c_backend::CModule;
 
 use crate::concurrency_limiter::{ConcurrencyLimiter, ConcurrencyLimiterToken};
 use crate::global_asm::GlobalAsmConfig;
@@ -121,29 +121,21 @@ impl OngoingCodegen {
     }
 }
 
-fn make_module(sess: &Session, backend_config: &BackendConfig, name: String) -> ObjectModule {
-    let isa = crate::build_isa(sess, backend_config);
+fn make_module(sess: &Session, backend_config: &BackendConfig, name: String) -> CModule {
+    //let isa = crate::build_isa(sess, backend_config);
 
-    let mut builder =
-        ObjectBuilder::new(isa, name + ".o", cranelift_module::default_libcall_names()).unwrap();
-    // Unlike cg_llvm, cg_clif defaults to disabling -Zfunction-sections. For cg_llvm binary size
-    // is important, while cg_clif cares more about compilation times. Enabling -Zfunction-sections
-    // can easily double the amount of time necessary to perform linking.
-    builder.per_function_section(sess.opts.unstable_opts.function_sections.unwrap_or(false));
-    ObjectModule::new(builder)
+    CModule::new(cranelift_module::default_libcall_names())
 }
 
 fn emit_cgu(
     output_filenames: &OutputFilenames,
     prof: &SelfProfilerRef,
     name: String,
-    module: ObjectModule,
+    module: CModule,
     global_asm_object_file: Option<PathBuf>,
 ) -> Result<ModuleCodegenResult, String> {
-    let product = module.finish();
-
     let module_regular =
-        emit_module(output_filenames, prof, product.object, ModuleKind::Regular, name.clone())?;
+        emit_module(output_filenames, prof, module, ModuleKind::Regular, name.clone())?;
 
     Ok(ModuleCodegenResult {
         module_regular,
@@ -161,21 +153,15 @@ fn emit_cgu(
 fn emit_module(
     output_filenames: &OutputFilenames,
     prof: &SelfProfilerRef,
-    object: cranelift_object::object::write::Object<'_>,
+    module: CModule,
     kind: ModuleKind,
     name: String,
 ) -> Result<CompiledModule, String> {
     let tmp_file = output_filenames.temp_path(OutputType::Object, Some(&name));
-    let mut file = match File::create(&tmp_file) {
-        Ok(file) => file,
-        Err(err) => return Err(format!("error creating object file: {}", err)),
-    };
 
-    if let Err(err) = object.write_stream(&mut file) {
+    if let Err(err) = module.finish(&tmp_file) {
         return Err(format!("error writing object file: {}", err));
     }
-
-    prof.artifact_size("object_file", &*name, file.metadata().unwrap().len());
 
     Ok(CompiledModule { name, kind, object: Some(tmp_file), dwarf_object: None, bytecode: None })
 }
@@ -383,12 +369,10 @@ pub(crate) fn run_aot(
     let created_alloc_shim = crate::allocator::codegen(tcx, &mut allocator_module);
 
     let allocator_module = if created_alloc_shim {
-        let product = allocator_module.finish();
-
         match emit_module(
             tcx.output_filenames(()),
             &tcx.sess.prof,
-            product.object,
+            allocator_module,
             ModuleKind::Allocator,
             "allocator_shim".to_owned(),
         ) {

@@ -669,3 +669,6 @@ pub fn get_tls() -> u8 {
 
     A
 }
+
+#[no_mangle]
+pub static B: u8 = 43;
