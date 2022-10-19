@@ -4,6 +4,7 @@ mod comments;
 mod pass_mode;
 mod returning;
 
+use cranelift_codegen::isa::TargetFrontendConfig;
 use cranelift_module::ModuleError;
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
 use rustc_middle::ty::layout::FnAbiOf;
@@ -19,11 +20,11 @@ pub(crate) use self::returning::codegen_return;
 
 fn clif_sig_from_fn_abi<'tcx>(
     tcx: TyCtxt<'tcx>,
-    default_call_conv: CallConv,
+    target_config: TargetFrontendConfig,
     fn_abi: &FnAbi<'tcx, Ty<'tcx>>,
 ) -> Signature {
     let call_conv = match fn_abi.conv {
-        Conv::Rust | Conv::C => default_call_conv,
+        Conv::Rust | Conv::C => target_config.default_call_conv,
         Conv::RustCold => CallConv::Cold,
         Conv::X86_64SysV => CallConv::SystemV,
         Conv::X86_64Win64 => CallConv::WindowsFastcall,
@@ -51,13 +52,13 @@ fn clif_sig_from_fn_abi<'tcx>(
 
 pub(crate) fn get_function_sig<'tcx>(
     tcx: TyCtxt<'tcx>,
-    triple: &target_lexicon::Triple,
+    target_config: TargetFrontendConfig,
     inst: Instance<'tcx>,
 ) -> Signature {
     assert!(!inst.substs.needs_infer());
     clif_sig_from_fn_abi(
         tcx,
-        CallConv::triple_default(triple),
+        target_config,
         &RevealAllLayoutCx(tcx).fn_abi_of_instance(inst, ty::List::empty()),
     )
 }
@@ -69,7 +70,7 @@ pub(crate) fn import_function<'tcx>(
     inst: Instance<'tcx>,
 ) -> FuncId {
     let name = tcx.symbol_name(inst).name;
-    let sig = get_function_sig(tcx, module.isa().triple(), inst);
+    let sig = get_function_sig(tcx, module.target_config(), inst);
     match module.declare_function(name, Linkage::Import, &sig) {
         Ok(func_id) => func_id,
         Err(ModuleError::IncompatibleDeclaration(_)) => tcx.sess.fatal(&format!(
@@ -462,7 +463,7 @@ pub(crate) fn codegen_terminator_call<'tcx>(
             }
 
             let (ptr, method) = crate::vtable::get_ptr_and_method_ref(fx, args[0].value, idx);
-            let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config.default_call_conv, &fn_abi);
+            let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config, &fn_abi);
             let sig = fx.bcx.import_signature(sig);
 
             (CallTarget::Indirect(sig, method), Some(ptr.get_addr(fx)))
@@ -482,7 +483,7 @@ pub(crate) fn codegen_terminator_call<'tcx>(
             }
 
             let func = codegen_operand(fx, func).load_scalar(fx);
-            let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config.default_call_conv, &fn_abi);
+            let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config, &fn_abi);
             let sig = fx.bcx.import_signature(sig);
 
             (CallTarget::Indirect(sig, func), None)
@@ -586,7 +587,7 @@ pub(crate) fn codegen_drop<'tcx>(
                 let fn_abi =
                     RevealAllLayoutCx(fx.tcx).fn_abi_of_instance(virtual_drop, ty::List::empty());
 
-                let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config.default_call_conv, &fn_abi);
+                let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config, &fn_abi);
                 let sig = fx.bcx.import_signature(sig);
                 fx.bcx.ins().call_indirect(sig, drop_fn, &[ptr]);
             }
@@ -623,7 +624,7 @@ pub(crate) fn codegen_drop<'tcx>(
                 let fn_abi =
                     RevealAllLayoutCx(fx.tcx).fn_abi_of_instance(virtual_drop, ty::List::empty());
 
-                let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config.default_call_conv, &fn_abi);
+                let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config, &fn_abi);
                 let sig = fx.bcx.import_signature(sig);
                 fx.bcx.ins().call_indirect(sig, drop_fn, &[data]);
             }

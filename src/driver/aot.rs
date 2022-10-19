@@ -256,7 +256,7 @@ fn module_codegen(
 
         let mut module = make_module(tcx.sess, &backend_config, cgu_name.as_str().to_string());
 
-        let mut cx = crate::CodegenCx::new(tcx, module.isa(), cgu_name);
+        let mut cx = crate::CodegenCx::new(tcx, module.target_config(), cgu_name);
         super::predefine_mono_items(tcx, &mut module, &mono_items);
         let mut codegened_functions = vec![];
         for (mono_item, _) in mono_items {

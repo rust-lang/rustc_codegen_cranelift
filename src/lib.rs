@@ -38,7 +38,7 @@ use rustc_session::config::OutputFilenames;
 use rustc_session::Session;
 use rustc_span::Symbol;
 
-use cranelift_codegen::isa::TargetIsa;
+use cranelift_codegen::isa::TargetFrontendConfig;
 use cranelift_codegen::settings::{self, Configurable};
 
 pub use crate::config::*;
@@ -131,8 +131,8 @@ struct CodegenCx {
 }
 
 impl CodegenCx {
-    fn new(tcx: TyCtxt<'_>, isa: &dyn TargetIsa, cgu_name: Symbol) -> Self {
-        assert_eq!(pointer_ty(tcx), isa.pointer_type());
+    fn new(tcx: TyCtxt<'_>, target_config: TargetFrontendConfig, cgu_name: Symbol) -> Self {
+        assert_eq!(pointer_ty(tcx).bytes(), u32::from(target_config.pointer_width.bytes()));
 
         CodegenCx {
             profiler: tcx.prof.clone(),

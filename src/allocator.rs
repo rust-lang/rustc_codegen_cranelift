@@ -59,7 +59,7 @@ fn codegen_inner(
         };
 
         let sig = Signature {
-            call_conv: CallConv::triple_default(module.isa().triple()),
+            call_conv: module.target_config().default_call_conv,
             params: arg_tys.iter().cloned().map(AbiParam::new).collect(),
             returns: output.into_iter().map(AbiParam::new).collect(),
         };
@@ -96,7 +96,7 @@ fn codegen_inner(
     }
 
     let sig = Signature {
-        call_conv: CallConv::triple_default(module.isa().triple()),
+        call_conv: module.target_config().default_call_conv,
         params: vec![AbiParam::new(usize_ty), AbiParam::new(usize_ty)],
         returns: vec![],
     };

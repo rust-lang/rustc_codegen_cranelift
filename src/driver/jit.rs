@@ -75,7 +75,8 @@ fn create_jit_module(
     jit_builder.symbol("__clif_jit_fn", clif_jit_fn as *const u8);
     let mut jit_module = JITModule::new(jit_builder);
 
-    let cx = crate::CodegenCx::new(tcx, jit_module.isa(), Symbol::intern("dummy_cgu_name"));
+    let cx =
+        crate::CodegenCx::new(tcx, jit_module.target_config(), Symbol::intern("dummy_cgu_name"));
 
     crate::allocator::codegen(tcx, &mut jit_module);
     crate::main_shim::maybe_create_entry_wrapper(tcx, &mut jit_module, true, true);
@@ -230,7 +231,7 @@ fn jit_fn(instance_ptr: *const Instance<'static>, trampoline_ptr: *const u8) -> 
             let jit_module = &mut lazy_jit_state.jit_module;
 
             let name = tcx.symbol_name(instance).name;
-            let sig = crate::abi::get_function_sig(tcx, jit_module.isa().triple(), instance);
+            let sig = crate::abi::get_function_sig(tcx, jit_module.target_config(), instance);
             let func_id = jit_module.declare_function(name, Linkage::Export, &sig).unwrap();
 
             let current_ptr = jit_module.read_got_entry(func_id);
@@ -245,8 +246,11 @@ fn jit_fn(instance_ptr: *const Instance<'static>, trampoline_ptr: *const u8) -> 
 
             jit_module.prepare_for_function_redefine(func_id).unwrap();
 
-            let mut cx =
-                crate::CodegenCx::new(tcx, jit_module.isa(), Symbol::intern("dummy_cgu_name"));
+            let mut cx = crate::CodegenCx::new(
+                tcx,
+                jit_module.target_config(),
+                Symbol::intern("dummy_cgu_name"),
+            );
             tcx.sess.time("codegen fn", || {
                 crate::base::codegen_and_compile_fn(
                     tcx,
@@ -322,7 +326,7 @@ fn codegen_shim<'tcx>(
     let pointer_type = module.target_config().pointer_type();
 
     let name = tcx.symbol_name(inst).name;
-    let sig = crate::abi::get_function_sig(tcx, module.isa().triple(), inst);
+    let sig = crate::abi::get_function_sig(tcx, module.target_config(), inst);
     let func_id = module.declare_function(name, Linkage::Export, &sig).unwrap();
 
     let instance_ptr = Box::into_raw(Box::new(inst));
