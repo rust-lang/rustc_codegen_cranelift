@@ -15,7 +15,6 @@ extern crate rustc_fs_util;
 extern crate rustc_hir;
 extern crate rustc_incremental;
 extern crate rustc_index;
-extern crate rustc_interface;
 extern crate rustc_metadata;
 extern crate rustc_session;
 extern crate rustc_span;
@@ -57,7 +56,6 @@ mod compiler_builtins;
 mod concurrency_limiter;
 mod config;
 mod constant;
-mod debuginfo;
 mod discriminant;
 mod driver;
 mod global_asm;
@@ -76,7 +74,7 @@ mod value_and_place;
 mod vtable;
 
 mod prelude {
-    pub(crate) use rustc_span::{FileNameDisplayPreference, Span};
+    pub(crate) use rustc_span::Span;
 
     pub(crate) use rustc_hir::def_id::{DefId, LOCAL_CRATE};
     pub(crate) use rustc_middle::bug;
@@ -96,8 +94,8 @@ mod prelude {
     pub(crate) use cranelift_codegen::ir::function::Function;
     pub(crate) use cranelift_codegen::ir::types;
     pub(crate) use cranelift_codegen::ir::{
-        AbiParam, Block, FuncRef, Inst, InstBuilder, MemFlags, Signature, SourceLoc, StackSlot,
-        StackSlotData, StackSlotKind, TrapCode, Type, Value,
+        AbiParam, Block, FuncRef, Inst, InstBuilder, MemFlags, Signature, StackSlot, StackSlotData,
+        StackSlotKind, TrapCode, Type, Value,
     };
     pub(crate) use cranelift_codegen::isa::{self, CallConv};
     pub(crate) use cranelift_codegen::Context;
@@ -108,7 +106,6 @@ mod prelude {
     pub(crate) use crate::base::{codegen_operand, codegen_place};
     pub(crate) use crate::cast::*;
     pub(crate) use crate::common::*;
-    pub(crate) use crate::debuginfo::{DebugContext, UnwindContext};
     pub(crate) use crate::pointer::Pointer;
     pub(crate) use crate::value_and_place::{CPlace, CPlaceInner, CValue};
 }
@@ -130,36 +127,19 @@ struct CodegenCx {
     should_write_ir: bool,
     global_asm: String,
     inline_asm_index: Cell<usize>,
-    debug_context: Option<DebugContext>,
-    unwind_context: UnwindContext,
     cgu_name: Symbol,
 }
 
 impl CodegenCx {
-    fn new(
-        tcx: TyCtxt<'_>,
-        backend_config: BackendConfig,
-        isa: &dyn TargetIsa,
-        debug_info: bool,
-        cgu_name: Symbol,
-    ) -> Self {
+    fn new(tcx: TyCtxt<'_>, isa: &dyn TargetIsa, cgu_name: Symbol) -> Self {
         assert_eq!(pointer_ty(tcx), isa.pointer_type());
 
-        let unwind_context =
-            UnwindContext::new(isa, matches!(backend_config.codegen_mode, CodegenMode::Aot));
-        let debug_context = if debug_info && !tcx.sess.target.options.is_like_windows {
-            Some(DebugContext::new(tcx, isa))
-        } else {
-            None
-        };
         CodegenCx {
             profiler: tcx.prof.clone(),
             output_filenames: tcx.output_filenames(()).clone(),
             should_write_ir: crate::pretty_clif::should_write_ir(tcx),
             global_asm: String::new(),
             inline_asm_index: Cell::new(0),
-            debug_context,
-            unwind_context,
             cgu_name,
         }
     }

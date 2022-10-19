@@ -7,11 +7,7 @@ use rustc_ast::expand::allocator::{AllocatorKind, AllocatorTy, ALLOCATOR_METHODS
 use rustc_session::config::OomStrategy;
 
 /// Returns whether an allocator shim was created
-pub(crate) fn codegen(
-    tcx: TyCtxt<'_>,
-    module: &mut impl Module,
-    unwind_context: &mut UnwindContext,
-) -> bool {
+pub(crate) fn codegen(tcx: TyCtxt<'_>, module: &mut impl Module) -> bool {
     let any_dynamic_crate = tcx.dependency_formats(()).iter().any(|(_, list)| {
         use rustc_middle::middle::dependency_format::Linkage;
         list.iter().any(|&linkage| linkage == Linkage::Dynamic)
@@ -21,7 +17,6 @@ pub(crate) fn codegen(
     } else if let Some(kind) = tcx.allocator_kind(()) {
         codegen_inner(
             module,
-            unwind_context,
             kind,
             tcx.lang_items().oom().is_some(),
             tcx.sess.opts.unstable_opts.oom,
@@ -34,7 +29,6 @@ pub(crate) fn codegen(
 
 fn codegen_inner(
     module: &mut impl Module,
-    unwind_context: &mut UnwindContext,
     kind: AllocatorKind,
     has_alloc_error_handler: bool,
     oom_strategy: OomStrategy,
@@ -99,7 +93,6 @@ fn codegen_inner(
             bcx.finalize();
         }
         module.define_function(func_id, &mut ctx).unwrap();
-        unwind_context.add_function(func_id, &ctx, module.isa());
     }
 
     let sig = Signature {
@@ -136,7 +129,6 @@ fn codegen_inner(
         bcx.finalize();
     }
     module.define_function(func_id, &mut ctx).unwrap();
-    unwind_context.add_function(func_id, &ctx, module.isa());
 
     let data_id = module.declare_data(OomStrategy::SYMBOL, Linkage::Export, false, false).unwrap();
     let mut data_ctx = DataContext::new();

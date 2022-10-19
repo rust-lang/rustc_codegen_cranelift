@@ -14,7 +14,7 @@ use rustc_metadata::EncodedMetadata;
 use rustc_middle::dep_graph::{WorkProduct, WorkProductId};
 use rustc_middle::mir::mono::{CodegenUnit, MonoItem};
 use rustc_session::cgu_reuse_tracker::CguReuse;
-use rustc_session::config::{DebugInfo, OutputFilenames, OutputType};
+use rustc_session::config::{OutputFilenames, OutputType};
 use rustc_session::Session;
 
 use cranelift_object::{ObjectBuilder, ObjectModule};
@@ -138,17 +138,9 @@ fn emit_cgu(
     prof: &SelfProfilerRef,
     name: String,
     module: ObjectModule,
-    debug: Option<DebugContext>,
-    unwind_context: UnwindContext,
     global_asm_object_file: Option<PathBuf>,
 ) -> Result<ModuleCodegenResult, String> {
-    let mut product = module.finish();
-
-    if let Some(mut debug) = debug {
-        debug.emit(&mut product);
-    }
-
-    unwind_context.emit(&mut product);
+    let product = module.finish();
 
     let module_regular =
         emit_module(output_filenames, prof, product.object, ModuleKind::Regular, name.clone())?;
@@ -264,13 +256,7 @@ fn module_codegen(
 
         let mut module = make_module(tcx.sess, &backend_config, cgu_name.as_str().to_string());
 
-        let mut cx = crate::CodegenCx::new(
-            tcx,
-            backend_config.clone(),
-            module.isa(),
-            tcx.sess.opts.debuginfo != DebugInfo::None,
-            cgu_name,
-        );
+        let mut cx = crate::CodegenCx::new(tcx, module.isa(), cgu_name);
         super::predefine_mono_items(tcx, &mut module, &mono_items);
         let mut codegened_functions = vec![];
         for (mono_item, _) in mono_items {
@@ -295,13 +281,7 @@ fn module_codegen(
                 }
             }
         }
-        crate::main_shim::maybe_create_entry_wrapper(
-            tcx,
-            &mut module,
-            &mut cx.unwind_context,
-            false,
-            cgu.is_primary(),
-        );
+        crate::main_shim::maybe_create_entry_wrapper(tcx, &mut module, false, cgu.is_primary());
 
         let cgu_name = cgu.name().as_str().to_owned();
 
@@ -327,8 +307,6 @@ fn module_codegen(
                 &cx.profiler,
                 cgu_name,
                 module,
-                cx.debug_context,
-                cx.unwind_context,
                 global_asm_object_file,
             )
         });
@@ -402,13 +380,10 @@ pub(crate) fn run_aot(
     tcx.sess.abort_if_errors();
 
     let mut allocator_module = make_module(tcx.sess, &backend_config, "allocator_shim".to_string());
-    let mut allocator_unwind_context = UnwindContext::new(allocator_module.isa(), true);
-    let created_alloc_shim =
-        crate::allocator::codegen(tcx, &mut allocator_module, &mut allocator_unwind_context);
+    let created_alloc_shim = crate::allocator::codegen(tcx, &mut allocator_module);
 
     let allocator_module = if created_alloc_shim {
-        let mut product = allocator_module.finish();
-        allocator_unwind_context.emit(&mut product);
+        let product = allocator_module.finish();
 
         match emit_module(
             tcx.output_filenames(()),

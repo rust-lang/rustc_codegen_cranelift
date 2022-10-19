@@ -9,7 +9,6 @@ use rustc_middle::ty::print::with_no_trimmed_paths;
 use cranelift_codegen::ir::UserFuncName;
 
 use crate::constant::ConstantCx;
-use crate::debuginfo::FunctionDebugContext;
 use crate::prelude::*;
 use crate::pretty_clif::CommentWriter;
 
@@ -18,7 +17,6 @@ pub(crate) struct CodegenedFunction {
     func_id: FuncId,
     func: Function,
     clif_comments: CommentWriter,
-    func_debug_cx: Option<FunctionDebugContext>,
 }
 
 #[cfg_attr(not(feature = "jit"), allow(dead_code))]
@@ -82,12 +80,6 @@ pub(crate) fn codegen_fn<'tcx>(
     let pointer_type = target_config.pointer_type();
     let clif_comments = crate::pretty_clif::CommentWriter::new(tcx, instance);
 
-    let func_debug_cx = if let Some(debug_context) = &mut cx.debug_context {
-        Some(debug_context.define_function(tcx, &symbol_name, mir.span))
-    } else {
-        None
-    };
-
     let mut fx = FunctionCx {
         cx,
         module,
@@ -95,7 +87,6 @@ pub(crate) fn codegen_fn<'tcx>(
         target_config,
         pointer_type,
         constants_cx: ConstantCx::new(),
-        func_debug_cx,
 
         instance,
         symbol_name,
@@ -108,7 +99,6 @@ pub(crate) fn codegen_fn<'tcx>(
         caller_location: None, // set by `codegen_fn_prelude`
 
         clif_comments,
-        last_source_file: None,
         next_ssa_var: 0,
     };
 
@@ -117,7 +107,6 @@ pub(crate) fn codegen_fn<'tcx>(
     // Recover all necessary data from fx, before accessing func will prevent future access to it.
     let symbol_name = fx.symbol_name;
     let clif_comments = fx.clif_comments;
-    let func_debug_cx = fx.func_debug_cx;
 
     fx.constants_cx.finalize(fx.tcx, &mut *fx.module);
 
@@ -135,7 +124,7 @@ pub(crate) fn codegen_fn<'tcx>(
     // Verify function
     verify_func(tcx, &clif_comments, &func);
 
-    CodegenedFunction { symbol_name, func_id, func, clif_comments, func_debug_cx }
+    CodegenedFunction { symbol_name, func_id, func, clif_comments }
 }
 
 pub(crate) fn compile_fn(
@@ -213,21 +202,6 @@ pub(crate) fn compile_fn(
             )
         }
     }
-
-    // Define debuginfo for function
-    let isa = module.isa();
-    let debug_context = &mut cx.debug_context;
-    let unwind_context = &mut cx.unwind_context;
-    cx.profiler.verbose_generic_activity("generate debug info").run(|| {
-        if let Some(debug_context) = debug_context {
-            codegened_func.func_debug_cx.unwrap().finalize(
-                debug_context,
-                codegened_func.func_id,
-                context,
-            );
-        }
-        unwind_context.add_function(codegened_func.func_id, &context, isa);
-    });
 }
 
 pub(crate) fn verify_func(

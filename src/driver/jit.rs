@@ -20,7 +20,6 @@ use crate::{prelude::*, BackendConfig};
 use crate::{CodegenCx, CodegenMode};
 
 struct JitState {
-    backend_config: BackendConfig,
     jit_module: JITModule,
 }
 
@@ -76,22 +75,10 @@ fn create_jit_module(
     jit_builder.symbol("__clif_jit_fn", clif_jit_fn as *const u8);
     let mut jit_module = JITModule::new(jit_builder);
 
-    let mut cx = crate::CodegenCx::new(
-        tcx,
-        backend_config.clone(),
-        jit_module.isa(),
-        false,
-        Symbol::intern("dummy_cgu_name"),
-    );
+    let cx = crate::CodegenCx::new(tcx, jit_module.isa(), Symbol::intern("dummy_cgu_name"));
 
-    crate::allocator::codegen(tcx, &mut jit_module, &mut cx.unwind_context);
-    crate::main_shim::maybe_create_entry_wrapper(
-        tcx,
-        &mut jit_module,
-        &mut cx.unwind_context,
-        true,
-        true,
-    );
+    crate::allocator::codegen(tcx, &mut jit_module);
+    crate::main_shim::maybe_create_entry_wrapper(tcx, &mut jit_module, true, true);
 
     (jit_module, cx)
 }
@@ -139,7 +126,7 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
                         });
                     }
                     CodegenMode::JitLazy => {
-                        codegen_shim(tcx, &mut cx, &mut cached_context, &mut jit_module, inst)
+                        codegen_shim(tcx, &mut cached_context, &mut jit_module, inst)
                     }
                 },
                 MonoItem::Static(def_id) => {
@@ -160,7 +147,6 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
     tcx.sess.abort_if_errors();
 
     jit_module.finalize_definitions();
-    unsafe { cx.unwind_context.register_jit(&jit_module) };
 
     println!(
         "Rustc codegen cranelift will JIT run the executable, because -Cllvm-args=mode=jit was passed"
@@ -185,7 +171,7 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
     LAZY_JIT_STATE.with(|lazy_jit_state| {
         let mut lazy_jit_state = lazy_jit_state.borrow_mut();
         assert!(lazy_jit_state.is_none());
-        *lazy_jit_state = Some(JitState { backend_config, jit_module });
+        *lazy_jit_state = Some(JitState { jit_module });
     });
 
     let f: extern "C" fn(c_int, *const *const c_char) -> c_int =
@@ -242,7 +228,6 @@ fn jit_fn(instance_ptr: *const Instance<'static>, trampoline_ptr: *const u8) -> 
             let mut lazy_jit_state = lazy_jit_state.borrow_mut();
             let lazy_jit_state = lazy_jit_state.as_mut().unwrap();
             let jit_module = &mut lazy_jit_state.jit_module;
-            let backend_config = lazy_jit_state.backend_config.clone();
 
             let name = tcx.symbol_name(instance).name;
             let sig = crate::abi::get_function_sig(tcx, jit_module.isa().triple(), instance);
@@ -260,13 +245,8 @@ fn jit_fn(instance_ptr: *const Instance<'static>, trampoline_ptr: *const u8) -> 
 
             jit_module.prepare_for_function_redefine(func_id).unwrap();
 
-            let mut cx = crate::CodegenCx::new(
-                tcx,
-                backend_config,
-                jit_module.isa(),
-                false,
-                Symbol::intern("dummy_cgu_name"),
-            );
+            let mut cx =
+                crate::CodegenCx::new(tcx, jit_module.isa(), Symbol::intern("dummy_cgu_name"));
             tcx.sess.time("codegen fn", || {
                 crate::base::codegen_and_compile_fn(
                     tcx,
@@ -279,7 +259,6 @@ fn jit_fn(instance_ptr: *const Instance<'static>, trampoline_ptr: *const u8) -> 
 
             assert!(cx.global_asm.is_empty());
             jit_module.finalize_definitions();
-            unsafe { cx.unwind_context.register_jit(&jit_module) };
             jit_module.get_finalized_function(func_id)
         })
     })
@@ -336,7 +315,6 @@ fn dep_symbol_lookup_fn(
 
 fn codegen_shim<'tcx>(
     tcx: TyCtxt<'tcx>,
-    cx: &mut CodegenCx,
     cached_context: &mut Context,
     module: &mut JITModule,
     inst: Instance<'tcx>,
@@ -387,5 +365,4 @@ fn codegen_shim<'tcx>(
     trampoline_builder.ins().return_(&ret_vals);
 
     module.define_function(func_id, context).unwrap();
-    cx.unwind_context.add_function(func_id, context, module.isa());
 }
