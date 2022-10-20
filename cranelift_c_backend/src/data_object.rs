@@ -8,7 +8,7 @@ use cranelift_module::{
 use crate::{linkage_to_c, name_decl_to_c, name_use_to_c, CModule};
 
 impl CModule {
-    fn data_object_type(&mut self, data_id: DataId) -> String {
+    fn data_object_type_name(&mut self, data_id: DataId) -> String {
         "struct __type_".to_owned()
             + name_use_to_c(&self.declarations.get_data_decl(data_id).name).as_ref()
     }
@@ -16,17 +16,21 @@ impl CModule {
     pub(crate) fn define_data_object_type(
         &mut self,
         data_id: DataId,
-        type_: &DataObjectType,
+        data_object_parts: &DataObjectParts,
     ) -> String {
-        let name = self.data_object_type(data_id);
+        let name = self.data_object_type_name(data_id);
         writeln!(self.source, "{name} {{").unwrap();
-        for (i, &element) in type_.0.iter().enumerate() {
-            match element {
-                DataObjectTypeElement::Bytes(count) => {
-                    writeln!(self.source, "    char field{i}[{count}];").unwrap()
+        for (i, element) in data_object_parts.0.iter().enumerate() {
+            match *element {
+                DataObjectPart::Zeros(len) => {
+                    writeln!(self.source, "    char field{i}[{len}];").unwrap();
                 }
-                DataObjectTypeElement::Pointer => {
-                    writeln!(self.source, "    void *field{i};").unwrap()
+                DataObjectPart::Bytes(ref data) => {
+                    let len = data.len();
+                    writeln!(self.source, "    char field{i}[{len}];").unwrap();
+                }
+                DataObjectPart::Pointer(_) => {
+                    writeln!(self.source, "    void *field{i};").unwrap();
                 }
             }
         }
@@ -42,7 +46,7 @@ impl CModule {
     }
 
     pub(crate) fn declare_data_object(&mut self, data_id: DataId) {
-        let type_name = self.data_object_type(data_id);
+        let type_name = self.data_object_type_name(data_id);
         let data_decl = self.declarations.get_data_decl(data_id);
         writeln!(self.source, "{};\n", Self::data_decl_to_c(data_decl, &type_name)).unwrap();
     }
@@ -52,11 +56,6 @@ impl CModule {
         data_id: DataId,
         data_ctx: &DataContext,
     ) -> ModuleResult<()> {
-        let size = match data_ctx.description().init {
-            Init::Uninitialized => unreachable!(),
-            Init::Zeros { size } => size,
-            Init::Bytes { ref contents } => contents.len(),
-        };
         let reloc_size = self.target_config().pointer_bytes().into();
         let mut relocs = data_ctx
             .description()
@@ -81,12 +80,11 @@ impl CModule {
             })
             .collect::<Vec<_>>();
         relocs.sort();
-        let type_ = DataObjectType::new(size, reloc_size, &relocs);
-        let data_object_data =
-            DataObjectData::new(&data_ctx.description().init, reloc_size, relocs);
+        let data_object_parts =
+            DataObjectParts::new(&data_ctx.description().init, reloc_size, relocs);
         // FIXME handle relocations
 
-        let type_name = self.define_data_object_type(data_id, &type_);
+        let type_name = self.define_data_object_type(data_id, &data_object_parts);
         let data_decl = self.declarations.get_data_decl(data_id);
 
         let mut data = Self::data_decl_to_c(data_decl, &type_name);
@@ -110,13 +108,13 @@ impl CModule {
         write!(data, "{alignment}{section} = {{").unwrap();
 
         // FIXME handle relocations
-        for (i, element) in data_object_data.0.into_iter().enumerate() {
+        for (i, element) in data_object_parts.0.into_iter().enumerate() {
             if i != 0 {
                 write!(data, ", ").unwrap();
             }
             match element {
-                DataObjectDataElement::Zeros => write!(data, "{{0}}").unwrap(),
-                DataObjectDataElement::Bytes(contents) => {
+                DataObjectPart::Zeros(_size) => write!(data, "{{0}}").unwrap(),
+                DataObjectPart::Bytes(contents) => {
                     write!(data, "{{").unwrap();
                     for (i, &byte) in contents.iter().enumerate() {
                         if i != 0 {
@@ -126,9 +124,7 @@ impl CModule {
                     }
                     write!(data, "}}").unwrap();
                 }
-                DataObjectDataElement::Pointer(reloc_target) => {
-                    write!(data, "{reloc_target}").unwrap()
-                }
+                DataObjectPart::Pointer(reloc_target) => write!(data, "{reloc_target}").unwrap(),
             }
         }
 
@@ -140,44 +136,15 @@ impl CModule {
     }
 }
 
-pub struct DataObjectType(Vec<DataObjectTypeElement>);
+pub struct DataObjectParts<'a>(Vec<DataObjectPart<'a>>);
 
-#[derive(Copy, Clone)]
-pub enum DataObjectTypeElement {
-    Bytes(usize),
-    Pointer,
-}
-
-impl DataObjectType {
-    /// `relocs` must be sorted.
-    fn new(size: usize, reloc_size: usize, relocs: &[(usize, String)]) -> Self {
-        let mut type_ = vec![];
-        let mut current_size = 0;
-        for &(reloc_offset, ref _reloc_target) in relocs {
-            assert!(reloc_offset + reloc_size <= size, "{reloc_offset} + {reloc_size} <= {size}");
-            assert!(reloc_offset >= current_size);
-            if reloc_offset > current_size {
-                type_.push(DataObjectTypeElement::Bytes(reloc_offset - current_size));
-            }
-            type_.push(DataObjectTypeElement::Pointer);
-            current_size = reloc_offset + reloc_size;
-        }
-        if current_size < size {
-            type_.push(DataObjectTypeElement::Bytes(size - current_size))
-        }
-        DataObjectType(type_)
-    }
-}
-
-pub struct DataObjectData<'a>(Vec<DataObjectDataElement<'a>>);
-
-pub enum DataObjectDataElement<'a> {
-    Zeros,
+pub enum DataObjectPart<'a> {
+    Zeros(usize),
     Bytes(&'a [u8]),
     Pointer(String),
 }
 
-impl<'a> DataObjectData<'a> {
+impl<'a> DataObjectParts<'a> {
     /// `relocs` must be sorted.
     fn new(init: &'a Init, reloc_size: usize, mut relocs: Vec<(usize, String)>) -> Self {
         let size = match init {
@@ -195,29 +162,27 @@ impl<'a> DataObjectData<'a> {
                 match init {
                     Init::Uninitialized => unreachable!(),
                     Init::Zeros { size: _ } => {
-                        data.push(DataObjectDataElement::Zeros);
+                        data.push(DataObjectPart::Zeros(reloc_offset - current_size));
                     }
                     Init::Bytes { contents } => {
-                        data.push(DataObjectDataElement::Bytes(
-                            &contents[current_size..reloc_offset],
-                        ));
+                        data.push(DataObjectPart::Bytes(&contents[current_size..reloc_offset]));
                     }
                 }
             }
-            data.push(DataObjectDataElement::Pointer(reloc_target));
+            data.push(DataObjectPart::Pointer(reloc_target));
             current_size = reloc_offset + reloc_size;
         }
         if current_size < size {
             match init {
                 Init::Uninitialized => unreachable!(),
                 Init::Zeros { size: _ } => {
-                    data.push(DataObjectDataElement::Zeros);
+                    data.push(DataObjectPart::Zeros(size - current_size));
                 }
                 Init::Bytes { contents } => {
-                    data.push(DataObjectDataElement::Bytes(&contents[current_size..size]));
+                    data.push(DataObjectPart::Bytes(&contents[current_size..size]));
                 }
             }
         }
-        DataObjectData(data)
+        DataObjectParts(data)
     }
 }
