@@ -68,7 +68,6 @@ impl CModule {
                     // )
                     return (offset as usize, "(void*)0".to_owned());
                 } else {
-                    self.declare_data_object(DataId::from_name(&name));
                     name_use_to_c(&self.declarations.get_data_decl(DataId::from_name(&name)).name)
                 };
                 let reloc_target = if addend == 0 {
