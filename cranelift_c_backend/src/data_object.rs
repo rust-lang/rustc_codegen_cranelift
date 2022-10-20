@@ -82,7 +82,6 @@ impl CModule {
         relocs.sort();
         let data_object_parts =
             DataObjectParts::new(&data_ctx.description().init, reloc_size, relocs);
-        // FIXME handle relocations
 
         let type_name = self.define_data_object_type(data_id, &data_object_parts);
         let data_decl = self.declarations.get_data_decl(data_id);
@@ -107,7 +106,6 @@ impl CModule {
             };
         write!(data, "{alignment}{section} = {{").unwrap();
 
-        // FIXME handle relocations
         for (i, element) in data_object_parts.0.into_iter().enumerate() {
             if i != 0 {
                 write!(data, ", ").unwrap();
