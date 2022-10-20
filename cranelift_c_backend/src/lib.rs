@@ -5,11 +5,12 @@ use std::path::Path;
 use cranelift_codegen::isa::{CallConv, TargetFrontendConfig};
 use cranelift_codegen::{ir, Context};
 use cranelift_module::{
-    DataContext, DataId, FuncId, Init, Linkage, Module, ModuleCompiledFunction, ModuleDeclarations,
+    DataContext, DataId, FuncId, Linkage, Module, ModuleCompiledFunction, ModuleDeclarations,
     ModuleResult,
 };
 
 mod data_object;
+mod function;
 
 pub struct CModule {
     libcall_names: Box<dyn Fn(ir::LibCall) -> String + Send + Sync>,
@@ -22,7 +23,7 @@ impl CModule {
         CModule {
             libcall_names,
             declarations: ModuleDeclarations::default(),
-            source: String::new(),
+            source: "#include <stdint.h>\n\n".to_owned(),
         }
     }
 
@@ -68,8 +69,8 @@ impl Module for CModule {
         linkage: cranelift_module::Linkage,
         signature: &cranelift_codegen::ir::Signature,
     ) -> ModuleResult<FuncId> {
-        let (func_id, linkage) = self.declarations.declare_function(name, linkage, signature)?;
-        // FIXME add forward declaration
+        let (func_id, _linkage) = self.declarations.declare_function(name, linkage, signature)?;
+        self.declare_function_inner(func_id);
         Ok(func_id)
     }
 
@@ -78,7 +79,7 @@ impl Module for CModule {
         signature: &cranelift_codegen::ir::Signature,
     ) -> ModuleResult<FuncId> {
         let func_id = self.declarations.declare_anonymous_function(signature)?;
-        // FIXME add forward declaration
+        self.declare_function_inner(func_id);
         Ok(func_id)
     }
 
@@ -102,21 +103,21 @@ impl Module for CModule {
 
     fn define_function(
         &mut self,
-        func: FuncId,
+        func_id: FuncId,
         ctx: &mut Context,
     ) -> ModuleResult<ModuleCompiledFunction> {
-        //todo!()
+        self.define_function_inner(func_id, ctx)?;
 
         Ok(ModuleCompiledFunction { size: 0 })
     }
 
     fn define_function_bytes(
         &mut self,
-        func_id: FuncId,
-        func: &cranelift_codegen::ir::Function,
-        alignment: u64,
-        bytes: &[u8],
-        relocs: &[cranelift_codegen::MachReloc],
+        _func_id: FuncId,
+        _func: &cranelift_codegen::ir::Function,
+        _alignment: u64,
+        _bytes: &[u8],
+        _relocs: &[cranelift_codegen::MachReloc],
     ) -> ModuleResult<ModuleCompiledFunction> {
         todo!()
     }
@@ -135,6 +136,7 @@ impl Drop for CModule {
 }
 
 fn linkage_to_c(linkage: Linkage) -> &'static str {
+    // https://gcc.gnu.org/onlinedocs/gcc-4.7.0/gcc/Function-Attributes.html
     match linkage {
         cranelift_module::Linkage::Import => "extern ",
         cranelift_module::Linkage::Local => "static ",
@@ -151,6 +153,7 @@ fn string_to_c(string: &str) -> String {
 fn name_decl_to_c<'a>(name: &'a str) -> (Cow<'a, str>, Cow<'a, str>) {
     if let Some(mangled_name) = mangle_name(name) {
         let name_string = string_to_c(name);
+        // https://gcc.gnu.org/onlinedocs/gcc-8.1.0/gcc/Asm-Labels.html
         (Cow::Owned(mangled_name), Cow::Owned(format!(" asm({name_string})")))
     } else {
         (Cow::Borrowed(name), Cow::Borrowed(""))

@@ -302,8 +302,8 @@ fn main() {
 
     from_decimal_string();
 
-    #[cfg(not(any(jit, windows)))]
-    test_tls();
+    //#[cfg(not(any(jit, windows)))]
+    //test_tls();
 
     #[cfg(all(not(jit), target_arch = "x86_64", any(target_os = "linux", target_os = "darwin")))]
     unsafe {

@@ -2,7 +2,7 @@ use std::fmt::Write;
 
 use cranelift_codegen::binemit::Reloc;
 use cranelift_module::{
-    DataContext, DataId, Init, Module, ModuleDeclarations, ModuleReloc, ModuleResult,
+    DataContext, DataId, FuncId, Init, Module, ModuleDeclarations, ModuleReloc, ModuleResult,
 };
 
 use crate::{linkage_to_c, name_decl_to_c, name_use_to_c, CModule};
@@ -39,10 +39,11 @@ impl CModule {
     }
 
     fn data_decl_to_c(data_decl: &cranelift_module::DataDeclaration, type_name: &str) -> String {
+        // https://gcc.gnu.org/onlinedocs/gcc/Common-Variable-Attributes.html
         let linkage = linkage_to_c(data_decl.linkage);
         let thread_local = if data_decl.tls { "__thread " } else { "" };
-        let (name_prefix, name_postfix) = name_decl_to_c(&data_decl.name);
-        format!("{linkage}{thread_local}{type_name} {name_prefix}{name_postfix}")
+        let (name_prefix, name_suffix) = name_decl_to_c(&data_decl.name);
+        format!("{linkage}{thread_local}{type_name} {name_prefix}{name_suffix}")
     }
 
     pub(crate) fn declare_data_object(&mut self, data_id: DataId) {
@@ -62,11 +63,9 @@ impl CModule {
             .all_relocs(Reloc::S390xTlsGdCall /* dummy */)
             .map(|ModuleReloc { offset, name, addend, kind: _ }| {
                 let target_name = if ModuleDeclarations::is_function(&name) {
-                    // FIXME forward declare function
-                    // name_use_to_c(
-                    //     &self.declarations.get_function_decl(FuncId::from_name(&name)).name,
-                    // )
-                    return (offset as usize, "(void*)0".to_owned());
+                    name_use_to_c(
+                        &self.declarations.get_function_decl(FuncId::from_name(&name)).name,
+                    )
                 } else {
                     name_use_to_c(&self.declarations.get_data_decl(DataId::from_name(&name)).name)
                 };
@@ -86,6 +85,7 @@ impl CModule {
         let data_decl = self.declarations.get_data_decl(data_id);
 
         let mut data = Self::data_decl_to_c(data_decl, &type_name);
+        // https://gcc.gnu.org/onlinedocs/gcc/Common-Variable-Attributes.html
         let align =
             data_ctx.description().align.unwrap_or(1 /* FIXME correct default alignment */);
         let alignment = if align == 1 {
