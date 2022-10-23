@@ -23,7 +23,7 @@ impl CModule {
         CModule {
             libcall_names,
             declarations: ModuleDeclarations::default(),
-            source: "#include <stdint.h>\n\n".to_owned(),
+            source: "#include <stdint.h>\n#include <stdatomic.h>\n#include <stdbool.h>\n\n".to_owned(),
         }
     }
 

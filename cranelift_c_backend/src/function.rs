@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use cranelift_codegen::binemit::Reloc;
-use cranelift_codegen::ir::{types, AbiParam, ArgumentExtension, ArgumentPurpose};
+use cranelift_codegen::ir::{types, AbiParam, ArgumentExtension, ArgumentPurpose, InstructionData, Opcode};
 use cranelift_codegen::Context;
 use cranelift_module::{
     DataContext, DataId, FuncId, Module, ModuleDeclarations, ModuleReloc, ModuleResult,
@@ -97,8 +97,35 @@ impl CModule {
         // https://gcc.gnu.org/onlinedocs/gcc-8.1.0/gcc/Asm-Labels.html
         let (mut func, _name_suffix) = Self::function_signature_to_c(func_decl);
 
-        // FIXME implement
-        writeln!(func, " {{}}").unwrap();
+        writeln!(func, " {{").unwrap();
+        writeln!(func, "    goto {};\n", ctx.func.layout.entry_block().unwrap()).unwrap();
+
+        for block in ctx.func.layout.blocks() {
+            writeln!(func, "{block}:").unwrap();
+
+            for inst in ctx.func.layout.block_insts(block) {
+                writeln!(func, "    // {}", ctx.func.dfg.display_inst(inst)).unwrap();
+                match ctx.func.dfg[inst] {
+                    InstructionData::NullAry { opcode: Opcode::Nop } => {}
+                    InstructionData::NullAry { opcode: Opcode::Fence } => {
+                        writeln!(func, "    atomic_thread_fence(memory_order_seq_cst);").unwrap();
+                    }
+
+                    InstructionData::Jump { opcode: Opcode::Jump, args, destination } => {
+                        //assert!(args.is_empty()); // FIXME
+                        writeln!(func, "    goto {destination};").unwrap();
+                    }
+
+                    _ => {
+                        panic!("[{block}] {}", ctx.func.dfg.display_inst(inst));
+                    }
+                }
+            }
+
+            writeln!(func, "").unwrap();
+        }
+
+        writeln!(func, "}}").unwrap();
 
         self.source.push_str(&func);
 
