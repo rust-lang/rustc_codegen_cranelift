@@ -118,14 +118,14 @@ pub(crate) fn codegen_int_binop<'tcx>(
         );
     }
 
-    if let Some(res) = crate::codegen_i128::maybe_codegen(fx, bin_op, in_lhs, in_rhs) {
-        return res;
-    }
-
     let signed = type_sign(in_lhs.layout().ty);
 
     let lhs = in_lhs.load_scalar(fx);
     let rhs = in_rhs.load_scalar(fx);
+
+    if let Some(res) = crate::codegen_i128::maybe_codegen(fx, bin_op, lhs, rhs, signed) {
+        return CValue::by_val(res, in_lhs.layout());
+    }
 
     let b = fx.bcx.ins();
     let val = match bin_op {
@@ -181,11 +181,15 @@ pub(crate) fn codegen_checked_int_binop<'tcx>(
     let lhs = in_lhs.load_scalar(fx);
     let rhs = in_rhs.load_scalar(fx);
 
-    if let Some(res) = crate::codegen_i128::maybe_codegen_checked(fx, bin_op, in_lhs, in_rhs) {
-        return res;
-    }
-
     let signed = type_sign(in_lhs.layout().ty);
+
+    let out_layout = fx.layout_of(fx.tcx.mk_tup([in_lhs.layout().ty, fx.tcx.types.bool].iter()));
+
+    if let Some((res, has_overflow)) =
+        crate::codegen_i128::maybe_codegen_checked(fx, bin_op, lhs, rhs, signed)
+    {
+        return CValue::by_val_pair(res, has_overflow, out_layout);
+    }
 
     let (res, has_overflow) = match bin_op {
         BinOp::Add => {
@@ -289,7 +293,6 @@ pub(crate) fn codegen_checked_int_binop<'tcx>(
         _ => bug!("binop {:?} on checked int/uint lhs: {:?} rhs: {:?}", bin_op, in_lhs, in_rhs),
     };
 
-    let out_layout = fx.layout_of(fx.tcx.mk_tup([in_lhs.layout().ty, fx.tcx.types.bool].iter()));
     CValue::by_val_pair(res, has_overflow, out_layout)
 }
 
