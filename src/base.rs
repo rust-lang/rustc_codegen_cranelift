@@ -555,7 +555,14 @@ fn codegen_stmt<'tcx>(
                         let is_overflow = fx.bcx.ins().iconst(types::I8, 0);
                         CValue::by_val_pair(val, is_overflow, lval.layout())
                     } else {
-                        crate::num::codegen_checked_int_binop(fx, bin_op, lhs, rhs)
+                        let (val, is_overflow) = crate::num::codegen_checked_int_binop(
+                            fx,
+                            bin_op,
+                            lhs.load_scalar(fx),
+                            rhs.load_scalar(fx),
+                            type_sign(lhs.layout().ty),
+                        );
+                        CValue::by_val_pair(val, is_overflow, lval.layout())
                     };
 
                     lval.write_cvalue(fx, res);

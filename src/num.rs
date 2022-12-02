@@ -167,28 +167,12 @@ pub(crate) fn codegen_int_binop<'tcx>(
 pub(crate) fn codegen_checked_int_binop<'tcx>(
     fx: &mut FunctionCx<'_, '_, 'tcx>,
     bin_op: BinOp,
-    in_lhs: CValue<'tcx>,
-    in_rhs: CValue<'tcx>,
-) -> CValue<'tcx> {
-    if bin_op != BinOp::Shl && bin_op != BinOp::Shr {
-        assert_eq!(
-            in_lhs.layout().ty,
-            in_rhs.layout().ty,
-            "checked int binop requires lhs and rhs of same type"
-        );
-    }
-
-    let lhs = in_lhs.load_scalar(fx);
-    let rhs = in_rhs.load_scalar(fx);
-
-    let signed = type_sign(in_lhs.layout().ty);
-
-    let out_layout = fx.layout_of(fx.tcx.mk_tup([in_lhs.layout().ty, fx.tcx.types.bool].iter()));
-
-    if let Some((res, has_overflow)) =
-        crate::codegen_i128::maybe_codegen_checked(fx, bin_op, lhs, rhs, signed)
-    {
-        return CValue::by_val_pair(res, has_overflow, out_layout);
+    lhs: Value,
+    rhs: Value,
+    signed: bool,
+) -> (Value, Value) {
+    if let Some(res) = crate::codegen_i128::maybe_codegen_checked(fx, bin_op, lhs, rhs, signed) {
+        return res;
     }
 
     let (res, has_overflow) = match bin_op {
@@ -290,46 +274,39 @@ pub(crate) fn codegen_checked_int_binop<'tcx>(
             let has_overflow = fx.bcx.ins().icmp_imm(IntCC::UnsignedGreaterThan, rhs, max_shift);
             (val, has_overflow)
         }
-        _ => bug!("binop {:?} on checked int/uint lhs: {:?} rhs: {:?}", bin_op, in_lhs, in_rhs),
+        _ => bug!("binop {:?} on checked int/uint lhs: {:?} rhs: {:?}", bin_op, lhs, rhs),
     };
 
-    CValue::by_val_pair(res, has_overflow, out_layout)
+    (res, has_overflow)
 }
 
 pub(crate) fn codegen_saturating_int_binop<'tcx>(
     fx: &mut FunctionCx<'_, '_, 'tcx>,
     bin_op: BinOp,
-    lhs: CValue<'tcx>,
-    rhs: CValue<'tcx>,
-) -> CValue<'tcx> {
-    assert_eq!(lhs.layout().ty, rhs.layout().ty);
-
-    let signed = type_sign(lhs.layout().ty);
-    let clif_ty = fx.clif_type(lhs.layout().ty).unwrap();
+    lhs: Value,
+    rhs: Value,
+    signed: bool,
+) -> Value {
+    let clif_ty = fx.bcx.func.dfg.value_type(lhs);
     let (min, max) = type_min_max_value(&mut fx.bcx, clif_ty, signed);
 
-    let checked_res = crate::num::codegen_checked_int_binop(fx, bin_op, lhs, rhs);
-    let (val, has_overflow) = checked_res.load_scalar_pair(fx);
+    let (val, has_overflow) = crate::num::codegen_checked_int_binop(fx, bin_op, lhs, rhs, signed);
 
-    let val = match (bin_op, signed) {
+    match (bin_op, signed) {
         (BinOp::Add, false) => fx.bcx.ins().select(has_overflow, max, val),
         (BinOp::Sub, false) => fx.bcx.ins().select(has_overflow, min, val),
         (BinOp::Add, true) => {
-            let rhs = rhs.load_scalar(fx);
             let rhs_ge_zero = fx.bcx.ins().icmp_imm(IntCC::SignedGreaterThanOrEqual, rhs, 0);
             let sat_val = fx.bcx.ins().select(rhs_ge_zero, max, min);
             fx.bcx.ins().select(has_overflow, sat_val, val)
         }
         (BinOp::Sub, true) => {
-            let rhs = rhs.load_scalar(fx);
             let rhs_ge_zero = fx.bcx.ins().icmp_imm(IntCC::SignedGreaterThanOrEqual, rhs, 0);
             let sat_val = fx.bcx.ins().select(rhs_ge_zero, min, max);
             fx.bcx.ins().select(has_overflow, sat_val, val)
         }
         _ => unreachable!(),
-    };
-
-    CValue::by_val(val, lhs.layout())
+    }
 }
 
 pub(crate) fn codegen_float_binop<'tcx>(
