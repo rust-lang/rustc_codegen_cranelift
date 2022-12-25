@@ -11,6 +11,8 @@ path = "main.rs"
 unstable-features = [] # for rust-analyzer
 
 # Do not add any dependencies
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4.4"
 
 [profile.dev]
 debug = 1

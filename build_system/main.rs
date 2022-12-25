@@ -12,6 +12,8 @@ mod bench;
 mod build_backend;
 mod build_sysroot;
 mod config;
+#[cfg(target_os = "linux")]
+mod landlock;
 mod path;
 mod prepare;
 mod rustc_info;
@@ -127,7 +129,7 @@ fn main() {
     out_dir = current_dir.join(out_dir);
 
     if command == Command::Prepare {
-        prepare::prepare(&path::Dirs {
+        let dirs = path::Dirs {
             source_dir: current_dir.clone(),
             download_dir: download_dir
                 .map(|dir| current_dir.join(dir))
@@ -135,7 +137,14 @@ fn main() {
             build_dir: PathBuf::from("dummy_do_not_use"),
             dist_dir: PathBuf::from("dummy_do_not_use"),
             frozen,
-        });
+        };
+
+        std::fs::create_dir_all(&dirs.download_dir).unwrap();
+
+        #[cfg(target_os = "linux")]
+        landlock::lock_fetch();
+
+        prepare::prepare(&dirs);
         process::exit(0);
     }
 
@@ -179,6 +188,10 @@ fn main() {
     };
 
     std::fs::create_dir_all(&dirs.build_dir).unwrap();
+    std::fs::create_dir_all(&dirs.dist_dir).unwrap();
+
+    #[cfg(target_os = "linux")]
+    landlock::lock_build(&bootstrap_host_compiler.cargo, frozen);
 
     {
         // Make sure we always explicitly specify the target dir
