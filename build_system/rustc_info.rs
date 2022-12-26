@@ -23,34 +23,32 @@ pub(crate) fn get_host_triple() -> String {
         .to_owned()
 }
 
-pub(crate) fn get_cargo_path() -> PathBuf {
-    let cargo_path = Command::new("rustup")
+fn get_rust_tool_path(tool: &str) -> PathBuf {
+    let tool_path = Command::new("rustup")
         .stderr(Stdio::inherit())
-        .args(&["which", "cargo"])
+        .args(&["which", tool])
         .output()
-        .unwrap()
-        .stdout;
-    Path::new(String::from_utf8(cargo_path).unwrap().trim()).to_owned()
+        .map(|x| x.stdout)
+        .or_else(|_| {
+            Command::new("sh")
+                .args(&["-c".to_string(), format!("which {tool}")])
+                .output()
+                .map(|x| x.stdout)
+        })
+        .unwrap();
+    Path::new(String::from_utf8(tool_path).unwrap().trim()).to_owned()
+}
+
+pub(crate) fn get_cargo_path() -> PathBuf {
+    get_rust_tool_path("cargo")
 }
 
 pub(crate) fn get_rustc_path() -> PathBuf {
-    let rustc_path = Command::new("rustup")
-        .stderr(Stdio::inherit())
-        .args(&["which", "rustc"])
-        .output()
-        .unwrap()
-        .stdout;
-    Path::new(String::from_utf8(rustc_path).unwrap().trim()).to_owned()
+    get_rust_tool_path("rustc")
 }
 
 pub(crate) fn get_rustdoc_path() -> PathBuf {
-    let rustc_path = Command::new("rustup")
-        .stderr(Stdio::inherit())
-        .args(&["which", "rustdoc"])
-        .output()
-        .unwrap()
-        .stdout;
-    Path::new(String::from_utf8(rustc_path).unwrap().trim()).to_owned()
+    get_rust_tool_path("rustdoc")
 }
 
 pub(crate) fn get_default_sysroot() -> PathBuf {
