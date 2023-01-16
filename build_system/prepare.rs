@@ -1,32 +1,61 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use super::build_sysroot::{BUILD_SYSROOT, ORIG_BUILD_SYSROOT, SYSROOT_RUSTC_VERSION, SYSROOT_SRC};
 use super::path::{Dirs, RelPath};
 use super::rustc_info::{get_default_sysroot, get_rustc_version};
 use super::utils::{copy_dir_recursively, git_command, retry_spawn_and_wait, spawn_and_wait};
 
-pub(crate) fn prepare(dirs: &Dirs) {
+pub(crate) fn prepare(dirs: &Dirs, vendor: bool) {
     RelPath::DOWNLOAD.ensure_fresh(dirs);
 
-    spawn_and_wait(super::build_backend::CG_CLIF.fetch("cargo", dirs));
+    if Path::new(".cargo/config.toml").exists() {
+        std::fs::remove_file(".cargo/config.toml").unwrap();
+    }
+
+    let mut cargo_workspaces = vec![super::build_backend::CG_CLIF.manifest_path(dirs)];
 
     prepare_sysroot(dirs);
-    spawn_and_wait(super::build_sysroot::STANDARD_LIBRARY.fetch("cargo", dirs));
-    spawn_and_wait(super::tests::LIBCORE_TESTS.fetch("cargo", dirs));
+    cargo_workspaces.push(super::build_sysroot::STANDARD_LIBRARY.manifest_path(dirs));
+    cargo_workspaces.push(super::tests::LIBCORE_TESTS.manifest_path(dirs));
 
     super::abi_cafe::ABI_CAFE_REPO.fetch(dirs);
-    spawn_and_wait(super::abi_cafe::ABI_CAFE.fetch("cargo", dirs));
+    cargo_workspaces.push(super::abi_cafe::ABI_CAFE.manifest_path(dirs));
     super::tests::RAND_REPO.fetch(dirs);
-    spawn_and_wait(super::tests::RAND.fetch("cargo", dirs));
+    cargo_workspaces.push(super::tests::RAND.manifest_path(dirs));
     super::tests::REGEX_REPO.fetch(dirs);
-    spawn_and_wait(super::tests::REGEX.fetch("cargo", dirs));
+    cargo_workspaces.push(super::tests::REGEX.manifest_path(dirs));
     super::tests::PORTABLE_SIMD_REPO.fetch(dirs);
-    spawn_and_wait(super::tests::PORTABLE_SIMD.fetch("cargo", dirs));
+    cargo_workspaces.push(super::tests::PORTABLE_SIMD.manifest_path(dirs));
     super::bench::SIMPLE_RAYTRACER_REPO.fetch(dirs);
-    spawn_and_wait(super::bench::SIMPLE_RAYTRACER.fetch("cargo", dirs));
+    cargo_workspaces.push(super::bench::SIMPLE_RAYTRACER.manifest_path(dirs));
+
+    if vendor {
+        let mut vendor_cmd = Command::new("cargo");
+
+        vendor_cmd.arg("vendor").arg("--manifest-path").arg(&cargo_workspaces[0]);
+
+        for workspace in cargo_workspaces.iter().skip(1) {
+            vendor_cmd.arg("--sync").arg(workspace);
+        }
+
+        vendor_cmd.arg("download/vendor");
+
+        let vendor_output = vendor_cmd.stderr(Stdio::inherit()).output().unwrap();
+        assert!(vendor_output.status.success());
+        let replacement_config = String::from_utf8(vendor_output.stdout).unwrap();
+
+        std::fs::create_dir_all(".cargo").unwrap();
+        std::fs::write(".cargo/config.toml", replacement_config).unwrap();
+    } else {
+        for workspace in &cargo_workspaces {
+            let mut fetch_cmd = Command::new("cargo");
+            fetch_cmd.arg("fetch").arg("--manifest-path").arg(workspace);
+            spawn_and_wait(fetch_cmd)
+        }
+    }
 }
 
 fn prepare_sysroot(dirs: &Dirs) {

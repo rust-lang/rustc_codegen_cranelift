@@ -120,15 +120,6 @@ impl CargoProject {
         cmd
     }
 
-    #[must_use]
-    pub(crate) fn fetch(&self, cargo: impl AsRef<Path>, dirs: &Dirs) -> Command {
-        let mut cmd = Command::new(cargo.as_ref());
-
-        cmd.arg("fetch").arg("--manifest-path").arg(self.manifest_path(dirs));
-
-        cmd
-    }
-
     pub(crate) fn clean(&self, dirs: &Dirs) {
         let _ = fs::remove_dir_all(self.target_dir(dirs));
     }

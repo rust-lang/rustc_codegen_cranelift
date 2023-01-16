@@ -29,6 +29,7 @@ macro_rules! arg_error {
 
 #[derive(PartialEq, Debug)]
 enum Command {
+    Vendor,
     Prepare,
     Build,
     Test,
@@ -59,6 +60,7 @@ pub fn main() {
 
     let mut args = env::args().skip(1);
     let command = match args.next().as_deref() {
+        Some("vendor") => Command::Vendor,
         Some("prepare") => Command::Prepare,
         Some("build") => Command::Build,
         Some("test") => Command::Test,
@@ -79,6 +81,9 @@ pub fn main() {
     while let Some(arg) = args.next().as_deref() {
         match arg {
             "--out-dir" => {
+                if command == Command::Vendor {
+                    arg_error!("vendor command doesn't accept --out-dir argument");
+                }
                 out_dir = PathBuf::from(args.next().unwrap_or_else(|| {
                     arg_error!("--out-dir requires argument");
                 }))
@@ -131,8 +136,11 @@ pub fn main() {
         std::fs::File::create(target).unwrap();
     }
 
-    if command == Command::Prepare {
-        prepare::prepare(&dirs);
+    if command == Command::Vendor {
+        prepare::prepare(&dirs, true);
+        process::exit(0);
+    } else if command == Command::Prepare {
+        prepare::prepare(&dirs, false);
         process::exit(0);
     }
 
@@ -146,7 +154,7 @@ pub fn main() {
         use_unstable_features,
     );
     match command {
-        Command::Prepare => {
+        Command::Vendor | Command::Prepare => {
             // Handled above
         }
         Command::Test => {
