@@ -6,14 +6,14 @@ use std::process::{Command, Stdio};
 use super::build_sysroot::{BUILD_SYSROOT, ORIG_BUILD_SYSROOT, SYSROOT_RUSTC_VERSION, SYSROOT_SRC};
 use super::path::{Dirs, RelPath};
 use super::rustc_info::{get_default_sysroot, get_rustc_version};
-use super::utils::{copy_dir_recursively, git_command, retry_spawn_and_wait, spawn_and_wait};
+use super::utils::{
+    copy_dir_recursively, git_command, remove_file_if_exists, retry_spawn_and_wait, spawn_and_wait,
+};
 
 pub(crate) fn prepare(dirs: &Dirs, vendor: bool) {
     RelPath::DOWNLOAD.ensure_fresh(dirs);
 
-    if Path::new(".cargo/config.toml").exists() {
-        std::fs::remove_file(".cargo/config.toml").unwrap();
-    }
+    remove_file_if_exists(Path::new(".cargo/config.toml"));
 
     let mut cargo_workspaces = vec![super::build_backend::CG_CLIF.manifest_path(dirs)];
 
