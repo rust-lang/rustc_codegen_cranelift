@@ -270,6 +270,7 @@ pub(crate) fn run_tests(
 
         BUILD_EXAMPLE_OUT_DIR.ensure_fresh(dirs);
         runner.run_testsuite(NO_SYSROOT_SUITE);
+        super::time("Ran testsuite no_sysroot");
     } else {
         eprintln!("[SKIP] no_sysroot tests");
     }
@@ -300,6 +301,7 @@ pub(crate) fn run_tests(
 
         if run_base_sysroot {
             runner.run_testsuite(BASE_SYSROOT_SUITE);
+            super::time("Ran testsuite base_sysroot");
         } else {
             eprintln!("[SKIP] base_sysroot tests");
         }
@@ -309,6 +311,7 @@ pub(crate) fn run_tests(
             // projects. Changing the code to fix them is not worth it, so just silence all lints.
             runner.target_compiler.rustflags.push("--cap-lints=allow".to_owned());
             runner.run_testsuite(EXTENDED_SYSROOT_SUITE);
+            super::time("Ran testsuite extended_sysroot");
         } else {
             eprintln!("[SKIP] extended_sysroot tests");
         }
@@ -415,6 +418,8 @@ impl<'a> TestRunner<'a> {
                     spawn_and_wait(jit_cmd);
                 }
             }
+
+            super::time(&format!("  Ran test {config}"));
         }
     }
 

@@ -1,8 +1,9 @@
 #![warn(rust_2018_idioms)]
 #![warn(unused_lifetimes)]
 #![warn(unreachable_pub)]
-
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use std::{env, process};
 
 use self::utils::Compiler;
@@ -18,6 +19,18 @@ mod rustc_info;
 mod shared_utils;
 mod tests;
 mod utils;
+
+static STARTUP_TIME: OnceLock<Instant> = OnceLock::new();
+static PREVIOUS_STEP: Mutex<Option<Instant>> = Mutex::new(None);
+
+fn time(step: &str) {
+    let now = Instant::now();
+    let mut previous_step = PREVIOUS_STEP.lock().unwrap();
+    let delta =
+        previous_step.map(|previous_step| now - previous_step).unwrap_or(Duration::from_secs(0));
+    *previous_step = Some(now);
+    println!("{step:<30} @ {:?} (+ {:?})", now - *STARTUP_TIME.get().unwrap(), delta);
+}
 
 fn usage() {
     eprintln!("{}", include_str!("usage.txt"));
@@ -54,6 +67,8 @@ enum CodegenBackend {
 }
 
 fn main() {
+    STARTUP_TIME.set(Instant::now()).unwrap();
+
     if env::var_os("RUST_BACKTRACE").is_none() {
         env::set_var("RUST_BACKTRACE", "1");
     }
@@ -198,6 +213,8 @@ fn main() {
 
     env::set_var("RUSTC", "rustc_should_be_set_explicitly");
     env::set_var("RUSTDOC", "rustdoc_should_be_set_explicitly");
+
+    time("Inited");
 
     let cg_clif_dylib = if let Some(name) = use_backend {
         CodegenBackend::Builtin(name)

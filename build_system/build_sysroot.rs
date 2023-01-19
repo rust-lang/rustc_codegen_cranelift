@@ -29,6 +29,8 @@ pub(crate) fn build_sysroot(
     BIN_DIR.ensure_exists(dirs);
     LIB_DIR.ensure_exists(dirs);
 
+    super::time("  Ensured clean sysroot");
+
     let is_native = bootstrap_host_compiler.triple == target_triple;
 
     let cg_clif_dylib_path = match cg_clif_dylib_src {
@@ -48,6 +50,8 @@ pub(crate) fn build_sysroot(
         }
         CodegenBackend::Builtin(name) => CodegenBackend::Builtin(name.clone()),
     };
+
+    super::time("  Copied backend");
 
     // Build and copy rustc and cargo wrappers
     let wrapper_base_name = get_file_name(&bootstrap_host_compiler.rustc, "____", "bin");
@@ -79,7 +83,11 @@ pub(crate) fn build_sysroot(
         }
         spawn_and_wait(build_cargo_wrapper_cmd);
         try_hard_link(wrapper_path, BIN_DIR.to_path(dirs).join(wrapper_name));
+
+        super::time(&format!("    Built wrapper {wrapper}"));
     }
+
+    super::time("  Built wrappers");
 
     let host = build_sysroot_for_triple(
         dirs,
@@ -133,6 +141,9 @@ pub(crate) fn build_sysroot(
     if !is_native {
         target_compiler.set_cross_linker_and_runner();
     }
+
+    super::time("Built sysroot");
+
     target_compiler
 }
 
