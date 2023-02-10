@@ -386,6 +386,7 @@ impl<'a> TestRunner<'a> {
                     );
                 }
                 TestCaseCmd::JitBin { source, args } => {
+                    // FIXME skip if --no-unstable-options
                     let mut jit_cmd = self.rustc_command([
                         "-Zunstable-options",
                         "-Cllvm-args=mode=jit",

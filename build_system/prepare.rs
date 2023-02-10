@@ -18,6 +18,8 @@ pub(crate) fn prepare(dirs: &Dirs) {
 }
 
 pub(crate) fn prepare_stdlib(dirs: &Dirs, rustc: &Path) {
+    // FIXME don't recreate from scratch each time to preserve mtime as used by cargo to determine
+    // if a crate needs to be rebuilt
     let sysroot_src_orig = get_default_sysroot(rustc).join("lib/rustlib/src/rust");
     assert!(sysroot_src_orig.exists());
 
