@@ -23,6 +23,11 @@ fn panic_handler(_: &core::panic::PanicInfo<'_>) -> ! {
     core::intrinsics::abort();
 }
 
+#[lang = "eh_personality"]
+fn eh_personality() -> ! {
+    core::intrinsics::abort();
+}
+
 #[alloc_error_handler]
 fn alloc_error_handler(_: alloc::alloc::Layout) -> ! {
     core::intrinsics::abort();
