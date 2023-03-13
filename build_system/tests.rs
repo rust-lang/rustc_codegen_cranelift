@@ -399,7 +399,6 @@ impl TestRunner {
         cmd.arg("-Clto=thin");
         cmd.arg("--target");
         cmd.arg(&self.target_compiler.triple);
-        cmd.arg("-Cpanic=abort");
         cmd.arg("-Cdebug-assertions=no");
         cmd.args(args);
         cmd
