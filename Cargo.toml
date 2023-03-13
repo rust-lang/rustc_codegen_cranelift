@@ -15,12 +15,12 @@ crate-type = ["dylib"]
 
 [dependencies]
 # These have to be in sync with each other
-cranelift-codegen = { git = "https://github.com/bytecodealliance/wasmtime.git", version = "0.96", features = ["unwind", "all-arch"] }
-cranelift-frontend = { git = "https://github.com/bytecodealliance/wasmtime.git", version = "0.96" }
-cranelift-module = { git = "https://github.com/bytecodealliance/wasmtime.git", version = "0.96" }
-cranelift-native = { git = "https://github.com/bytecodealliance/wasmtime.git", version = "0.96" }
-cranelift-jit = { git = "https://github.com/bytecodealliance/wasmtime.git", version = "0.96", optional = true }
-cranelift-object = { git = "https://github.com/bytecodealliance/wasmtime.git", version = "0.96" }
+cranelift-codegen = { path = "../wasmtime/cranelift/codegen", features = ["unwind", "all-arch"] }
+cranelift-frontend = { path = "../wasmtime/cranelift/frontend" }
+cranelift-module = { path = "../wasmtime/cranelift/module" }
+cranelift-native = { path = "../wasmtime/cranelift/native" }
+cranelift-jit = { path = "../wasmtime/cranelift/jit", optional = true }
+cranelift-object = { path = "../wasmtime/cranelift/object" }
 target-lexicon = "0.12.0"
 gimli = { version = "0.27.2", default-features = false, features = ["write"]}
 object = { version = "0.30.3", default-features = false, features = ["std", "read_core", "write", "archive", "coff", "elf", "macho", "pe"] }
