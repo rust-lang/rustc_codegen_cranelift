@@ -1,4 +1,4 @@
-#![feature(start, core_intrinsics, alloc_error_handler)]
+#![feature(start, core_intrinsics, alloc_error_handler, lang_items)]
 #![no_std]
 
 extern crate alloc;
@@ -19,6 +19,11 @@ extern "C" {
 
 #[panic_handler]
 fn panic_handler(_: &core::panic::PanicInfo) -> ! {
+    core::intrinsics::abort();
+}
+
+#[lang = "eh_personality"]
+fn eh_personality() -> ! {
     core::intrinsics::abort();
 }
 

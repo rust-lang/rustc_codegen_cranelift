@@ -11,7 +11,7 @@ fn main() {
     }
 
     let mut rustflags = String::new();
-    rustflags.push_str(" -Cpanic=abort -Zpanic-abort-tests -Zcodegen-backend=");
+    rustflags.push_str(" -Zcodegen-backend=");
     rustflags.push_str(
         sysroot
             .join(if cfg!(windows) { "bin" } else { "lib" })

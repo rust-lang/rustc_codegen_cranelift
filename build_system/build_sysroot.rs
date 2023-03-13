@@ -236,7 +236,7 @@ fn build_clif_sysroot_for_triple(
     }
 
     // Build sysroot
-    let mut rustflags = " -Zforce-unstable-if-unmarked -Cpanic=abort".to_string();
+    let mut rustflags = " -Zforce-unstable-if-unmarked".to_string();
     rustflags.push_str(&format!(" -Zcodegen-backend={}", cg_clif_dylib_path.to_str().unwrap()));
     // Necessary for MinGW to find rsbegin.o and rsend.o
     rustflags
