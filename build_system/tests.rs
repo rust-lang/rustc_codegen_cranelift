@@ -404,7 +404,6 @@ impl<'a> TestRunner<'a> {
         cmd.arg("-Cdebuginfo=2");
         cmd.arg("--target");
         cmd.arg(&self.target_compiler.triple);
-        cmd.arg("-Cpanic=abort");
         cmd.arg("--check-cfg=cfg(jit)");
         cmd.args(args);
         cmd

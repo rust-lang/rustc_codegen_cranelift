@@ -206,7 +206,7 @@ fn build_clif_sysroot_for_triple(
     }
 
     // Build sysroot
-    let mut rustflags = vec!["-Zforce-unstable-if-unmarked".to_owned(), "-Cpanic=abort".to_owned()];
+    let mut rustflags = vec!["-Zforce-unstable-if-unmarked".to_owned()];
     match cg_clif_dylib_path {
         CodegenBackend::Local(path) => {
             rustflags.push(format!("-Zcodegen-backend={}", path.to_str().unwrap()));
