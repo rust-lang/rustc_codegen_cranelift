@@ -12,7 +12,7 @@ fn main() {
         sysroot = sysroot.parent().unwrap();
     }
 
-    let mut rustflags = vec!["-Cpanic=abort".to_owned(), "-Zpanic-abort-tests".to_owned()];
+    let mut rustflags = vec![];
     if let Some(name) = option_env!("BUILTIN_BACKEND") {
         rustflags.push(format!("-Zcodegen-backend={name}"));
     } else {
