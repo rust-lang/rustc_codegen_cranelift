@@ -46,24 +46,18 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "cranelift-bforest"
-version = "0.111.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b80c3a50b9c4c7e5b5f73c0ed746687774fc9e36ef652b110da8daebf0c6e0e6"
+version = "0.112.0"
 dependencies = [
  "cranelift-entity",
 ]
 
 [[package]]
 name = "cranelift-bitset"
-version = "0.111.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38778758c2ca918b05acb2199134e0c561fb577c50574259b26190b6c2d95ded"
+version = "0.112.0"
 
 [[package]]
 name = "cranelift-codegen"
-version = "0.111.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58258667ad10e468bfc13a8d620f50dfcd4bb35d668123e97defa2549b9ad397"
+version = "0.112.0"
 dependencies = [
  "bumpalo",
  "cranelift-bforest",
@@ -84,42 +78,32 @@ dependencies = [
 
 [[package]]
 name = "cranelift-codegen-meta"
-version = "0.111.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "043f0b702e529dcb07ff92bd7d40e7d5317b5493595172c5eb0983343751ee06"
+version = "0.112.0"
 dependencies = [
  "cranelift-codegen-shared",
 ]
 
 [[package]]
 name = "cranelift-codegen-shared"
-version = "0.111.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7763578888ab53eca5ce7da141953f828e82c2bfadcffc106d10d1866094ffbb"
+version = "0.112.0"
 
 [[package]]
 name = "cranelift-control"
-version = "0.111.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32db15f08c05df570f11e8ab33cb1ec449a64b37c8a3498377b77650bef33d8b"
+version = "0.112.0"
 dependencies = [
  "arbitrary",
 ]
 
 [[package]]
 name = "cranelift-entity"
-version = "0.111.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5289cdb399381a27e7bbfa1b42185916007c3d49aeef70b1d01cb4caa8010130"
+version = "0.112.0"
 dependencies = [
  "cranelift-bitset",
 ]
 
 [[package]]
 name = "cranelift-frontend"
-version = "0.111.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31ba8ab24eb9470477e98ddfa3c799a649ac5a0d9a2042868c4c952133c234e8"
+version = "0.112.0"
 dependencies = [
  "cranelift-codegen",
  "log",
@@ -129,15 +113,11 @@ dependencies = [
 
 [[package]]
 name = "cranelift-isle"
-version = "0.111.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b72a3c5c166a70426dcb209bdd0bb71a787c1ea76023dc0974fbabca770e8f9"
+version = "0.112.0"
 
 [[package]]
 name = "cranelift-jit"
-version = "0.111.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df32578a47582e49b4fc1f9a5786839d9be1fedaa9f00bea7612c54425663c6b"
+version = "0.112.0"
 dependencies = [
  "anyhow",
  "cranelift-codegen",
@@ -155,9 +135,7 @@ dependencies = [
 
 [[package]]
 name = "cranelift-module"
-version = "0.111.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96094a758cdb543c9143f70817cd31069fecd49f50981a0fac06820ac011dc2f"
+version = "0.112.0"
 dependencies = [
  "anyhow",
  "cranelift-codegen",
@@ -166,9 +144,7 @@ dependencies = [
 
 [[package]]
 name = "cranelift-native"
-version = "0.111.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46a42424c956bbc31fc5c2706073df896156c5420ae8fa2a5d48dbc7b295d71b"
+version = "0.112.0"
 dependencies = [
  "cranelift-codegen",
  "libc",
@@ -177,9 +153,7 @@ dependencies = [
 
 [[package]]
 name = "cranelift-object"
-version = "0.111.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cf5e2484ab47fe38a3150747cdd2016535f13542a925acca152b63383a6591b"
+version = "0.112.0"
 dependencies = [
  "anyhow",
  "cranelift-codegen",
@@ -421,9 +395,7 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "wasmtime-jit-icache-coherence"
-version = "24.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d15de8429db996f0d17a4163a35eccc3f874cbfb50f29c379951ea1bbb39452e"
+version = "25.0.0"
 dependencies = [
  "anyhow",
  "cfg-if",
