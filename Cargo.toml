@@ -24,20 +24,20 @@ smallvec = "1.8.1"
 
 [patch.crates-io]
 # Uncomment to use an unreleased version of cranelift
-cranelift-codegen = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "release-32.0.0", version = "0.119.0" }
-cranelift-frontend = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "release-32.0.0", version = "0.119.0" }
-cranelift-module = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "release-32.0.0", version = "0.119.0" }
-cranelift-native = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "release-32.0.0", version = "0.119.0" }
-cranelift-jit = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "release-32.0.0", version = "0.119.0" }
-cranelift-object = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "release-32.0.0", version = "0.119.0" }
+#cranelift-codegen = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "release-32.0.0", version = "0.119.0" }
+#cranelift-frontend = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "release-32.0.0", version = "0.119.0" }
+#cranelift-module = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "release-32.0.0", version = "0.119.0" }
+#cranelift-native = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "release-32.0.0", version = "0.119.0" }
+#cranelift-jit = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "release-32.0.0", version = "0.119.0" }
+#cranelift-object = { git = "https://github.com/bytecodealliance/wasmtime.git", branch = "release-32.0.0", version = "0.119.0" }
 
 # Uncomment to use local checkout of cranelift
-#cranelift-codegen = { path = "../wasmtime/cranelift/codegen" }
-#cranelift-frontend = { path = "../wasmtime/cranelift/frontend" }
-#cranelift-module = { path = "../wasmtime/cranelift/module" }
-#cranelift-native = { path = "../wasmtime/cranelift/native" }
-#cranelift-jit = { path = "../wasmtime/cranelift/jit" }
-#cranelift-object = { path = "../wasmtime/cranelift/object" }
+cranelift-codegen = { path = "../wasmtime/cranelift/codegen" }
+cranelift-frontend = { path = "../wasmtime/cranelift/frontend" }
+cranelift-module = { path = "../wasmtime/cranelift/module" }
+cranelift-native = { path = "../wasmtime/cranelift/native" }
+cranelift-jit = { path = "../wasmtime/cranelift/jit" }
+cranelift-object = { path = "../wasmtime/cranelift/object" }
 
 #gimli = { path = "../" }
 
