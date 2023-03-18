@@ -9,15 +9,10 @@ use rustc_session::config::OomStrategy;
 use rustc_span::symbol::sym;
 
 /// Returns whether an allocator shim was created
-pub(crate) fn codegen(
-    tcx: TyCtxt<'_>,
-    module: &mut impl Module,
-    unwind_context: &mut UnwindContext,
-) -> bool {
+pub(crate) fn codegen(tcx: TyCtxt<'_>, module: &mut impl Module) -> bool {
     let Some(kind) = allocator_kind_for_codegen(tcx) else { return false };
     codegen_inner(
         module,
-        unwind_context,
         kind,
         tcx.alloc_error_handler_kind(()).unwrap(),
         tcx.sess.opts.unstable_opts.oom,
@@ -27,7 +22,6 @@ pub(crate) fn codegen(
 
 fn codegen_inner(
     module: &mut impl Module,
-    unwind_context: &mut UnwindContext,
     kind: AllocatorKind,
     alloc_error_handler_kind: AllocatorKind,
     oom_strategy: OomStrategy,
@@ -64,7 +58,6 @@ fn codegen_inner(
         };
         crate::common::create_wrapper_function(
             module,
-            unwind_context,
             sig,
             &format!("__rust_{}", method.name),
             &kind.fn_name(method.name),
@@ -78,7 +71,6 @@ fn codegen_inner(
     };
     crate::common::create_wrapper_function(
         module,
-        unwind_context,
         sig,
         "__rust_alloc_error_handler",
         &alloc_error_handler_kind.fn_name(sym::oom),

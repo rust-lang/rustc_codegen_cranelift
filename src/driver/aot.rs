@@ -17,7 +17,10 @@ use rustc_session::cgu_reuse_tracker::CguReuse;
 use rustc_session::config::{DebugInfo, OutputFilenames, OutputType};
 use rustc_session::Session;
 
-use cranelift_object::{ObjectBuilder, ObjectModule};
+use cranelift_codegen::control::ControlPlane;
+use cranelift_codegen::ir::GlobalValue;
+use cranelift_module::ModuleResult;
+use cranelift_object::{ObjectBuilder, ObjectModule, ObjectProduct};
 
 use crate::concurrency_limiter::{ConcurrencyLimiter, ConcurrencyLimiterToken};
 use crate::global_asm::GlobalAsmConfig;
@@ -123,7 +126,94 @@ impl OngoingCodegen {
     }
 }
 
-fn make_module(sess: &Session, backend_config: &BackendConfig, name: String) -> ObjectModule {
+struct AOTModule {
+    aot_module: ObjectModule,
+    unwind_context: UnwindContext,
+}
+
+impl AOTModule {
+    fn finish(self) -> ObjectProduct {
+        let mut product = self.aot_module.finish();
+        self.unwind_context.emit(&mut product);
+        product
+    }
+}
+
+impl Module for AOTModule {
+    fn isa(&self) -> &dyn isa::TargetIsa {
+        self.aot_module.isa()
+    }
+
+    fn declarations(&self) -> &cranelift_module::ModuleDeclarations {
+        self.aot_module.declarations()
+    }
+
+    fn get_name(&self, name: &str) -> Option<cranelift_module::FuncOrDataId> {
+        self.aot_module.get_name(name)
+    }
+
+    fn target_config(&self) -> isa::TargetFrontendConfig {
+        self.aot_module.target_config()
+    }
+
+    fn declare_function(
+        &mut self,
+        name: &str,
+        linkage: Linkage,
+        signature: &cranelift_codegen::ir::Signature,
+    ) -> ModuleResult<FuncId> {
+        self.aot_module.declare_function(name, linkage, signature)
+    }
+
+    fn declare_anonymous_function(
+        &mut self,
+        signature: &cranelift_codegen::ir::Signature,
+    ) -> ModuleResult<FuncId> {
+        self.aot_module.declare_anonymous_function(signature)
+    }
+
+    fn declare_data(
+        &mut self,
+        name: &str,
+        linkage: Linkage,
+        writable: bool,
+        tls: bool,
+    ) -> ModuleResult<DataId> {
+        self.aot_module.declare_data(name, linkage, writable, tls)
+    }
+
+    fn declare_anonymous_data(&mut self, writable: bool, tls: bool) -> ModuleResult<DataId> {
+        self.aot_module.declare_anonymous_data(writable, tls)
+    }
+
+    fn define_function_with_control_plane(
+        &mut self,
+        func: FuncId,
+        ctx: &mut Context,
+        ctrl_plane: &mut ControlPlane,
+    ) -> ModuleResult<()> {
+        self.aot_module.define_function_with_control_plane(func, ctx, ctrl_plane)?;
+        self.unwind_context.add_function(func, ctx, self.aot_module.isa());
+        Ok(())
+    }
+
+    fn define_function_bytes(
+        &mut self,
+        _func_id: FuncId,
+        _func: &Function,
+        _alignment: u64,
+        _bytes: &[u8],
+        _relocs: &[cranelift_codegen::MachReloc],
+    ) -> ModuleResult<()> {
+        unimplemented!()
+    }
+
+    fn define_data(&mut self, data_id: DataId, data: &DataDescription) -> ModuleResult<()> {
+        self.aot_module.define_data(data_id, data)
+    }
+}
+
+fn make_module(sess: &Session, backend_config: &BackendConfig, name: String) -> AOTModule {
     let isa = crate::build_isa(sess, backend_config);
 
     let mut builder =
@@ -132,16 +222,17 @@ fn make_module(sess: &Session, backend_config: &BackendConfig, name: String) -> 
     // is important, while cg_clif cares more about compilation times. Enabling -Zfunction-sections
     // can easily double the amount of time necessary to perform linking.
     builder.per_function_section(sess.opts.unstable_opts.function_sections.unwrap_or(false));
-    ObjectModule::new(builder)
+    let aot_module = ObjectModule::new(builder);
+    let unwind_context = UnwindContext::new(aot_module.isa(), true);
+    AOTModule { aot_module, unwind_context }
 }
 
 fn emit_cgu(
     output_filenames: &OutputFilenames,
     prof: &SelfProfilerRef,
     name: String,
-    module: ObjectModule,
+    module: AOTModule,
     debug: Option<DebugContext>,
-    unwind_context: UnwindContext,
     global_asm_object_file: Option<PathBuf>,
 ) -> Result<ModuleCodegenResult, String> {
     let mut product = module.finish();
@@ -149,8 +240,6 @@ fn emit_cgu(
     if let Some(mut debug) = debug {
         debug.emit(&mut product);
     }
-
-    unwind_context.emit(&mut product);
 
     let module_regular =
         emit_module(output_filenames, prof, product.object, ModuleKind::Regular, name.clone())?;
@@ -277,7 +366,6 @@ fn module_codegen(
 
             let mut cx = crate::CodegenCx::new(
                 tcx,
-                backend_config.clone(),
                 module.isa(),
                 tcx.sess.opts.debuginfo != DebugInfo::None,
                 cgu_name,
@@ -308,13 +396,7 @@ fn module_codegen(
                     }
                 }
             }
-            crate::main_shim::maybe_create_entry_wrapper(
-                tcx,
-                &mut module,
-                &mut cx.unwind_context,
-                false,
-                cgu.is_primary(),
-            );
+            crate::main_shim::maybe_create_entry_wrapper(tcx, &mut module, false, cgu.is_primary());
 
             let cgu_name = cgu.name().as_str().to_owned();
 
@@ -353,7 +435,6 @@ fn module_codegen(
                     cgu_name,
                     module,
                     cx.debug_context,
-                    cx.unwind_context,
                     global_asm_object_file,
                 )
             });
@@ -425,13 +506,10 @@ pub(crate) fn run_aot(
     });
 
     let mut allocator_module = make_module(tcx.sess, &backend_config, "allocator_shim".to_string());
-    let mut allocator_unwind_context = UnwindContext::new(allocator_module.isa(), true);
-    let created_alloc_shim =
-        crate::allocator::codegen(tcx, &mut allocator_module, &mut allocator_unwind_context);
+    let created_alloc_shim = crate::allocator::codegen(tcx, &mut allocator_module);
 
     let allocator_module = if created_alloc_shim {
-        let mut product = allocator_module.finish();
-        allocator_unwind_context.emit(&mut product);
+        let product = allocator_module.finish();
 
         match emit_module(
             tcx.output_filenames(()),

@@ -216,9 +216,7 @@ pub(crate) fn compile_fn(
     }
 
     // Define debuginfo for function
-    let isa = module.isa();
     let debug_context = &mut cx.debug_context;
-    let unwind_context = &mut cx.unwind_context;
     cx.profiler.generic_activity("generate debug info").run(|| {
         if let Some(debug_context) = debug_context {
             codegened_func.func_debug_cx.unwrap().finalize(
@@ -227,7 +225,6 @@ pub(crate) fn compile_fn(
                 context,
             );
         }
-        unwind_context.add_function(codegened_func.func_id, &context, isa);
     });
 }
 
