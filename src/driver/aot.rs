@@ -18,7 +18,7 @@ use rustc_session::config::{DebugInfo, OutputFilenames, OutputType};
 use rustc_session::Session;
 
 use cranelift_codegen::ir::GlobalValue;
-use cranelift_module::{ModuleCompiledFunction, ModuleResult};
+use cranelift_module::ModuleResult;
 use cranelift_object::{ObjectBuilder, ObjectModule, ObjectProduct};
 
 use crate::concurrency_limiter::{ConcurrencyLimiter, ConcurrencyLimiterToken};
@@ -201,14 +201,10 @@ impl Module for AOTModule {
         self.aot_module.declare_data_in_data(data, ctx)
     }
 
-    fn define_function(
-        &mut self,
-        func: FuncId,
-        ctx: &mut Context,
-    ) -> ModuleResult<ModuleCompiledFunction> {
-        let res = self.aot_module.define_function(func, ctx)?;
+    fn define_function(&mut self, func: FuncId, ctx: &mut Context) -> ModuleResult<()> {
+        self.aot_module.define_function(func, ctx)?;
         self.unwind_context.add_function(func, ctx, self.aot_module.isa());
-        Ok(res)
+        Ok(())
     }
 
     fn define_function_bytes(
@@ -218,7 +214,7 @@ impl Module for AOTModule {
         _alignment: u64,
         _bytes: &[u8],
         _relocs: &[cranelift_codegen::MachReloc],
-    ) -> ModuleResult<ModuleCompiledFunction> {
+    ) -> ModuleResult<()> {
         unimplemented!()
     }
 

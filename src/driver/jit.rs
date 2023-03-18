@@ -7,7 +7,7 @@ use std::os::raw::{c_char, c_int};
 use std::sync::{mpsc, Mutex};
 
 use cranelift_codegen::ir::{FuncRef, Function, GlobalValue};
-use cranelift_module::{ModuleCompiledFunction, ModuleResult};
+use cranelift_module::ModuleResult;
 use rustc_codegen_ssa::CrateInfo;
 use rustc_middle::mir::mono::MonoItem;
 use rustc_session::Session;
@@ -141,14 +141,10 @@ impl Module for JITModule {
         self.jit_module.declare_data_in_data(data, ctx)
     }
 
-    fn define_function(
-        &mut self,
-        func: FuncId,
-        ctx: &mut Context,
-    ) -> ModuleResult<ModuleCompiledFunction> {
-        let res = self.jit_module.define_function(func, ctx)?;
+    fn define_function(&mut self, func: FuncId, ctx: &mut Context) -> ModuleResult<()> {
+        self.jit_module.define_function(func, ctx)?;
         self.unwind_context.add_function(func, ctx, self.jit_module.isa());
-        Ok(res)
+        Ok(())
     }
 
     fn define_function_bytes(
@@ -158,7 +154,7 @@ impl Module for JITModule {
         _alignment: u64,
         _bytes: &[u8],
         _relocs: &[cranelift_codegen::MachReloc],
-    ) -> ModuleResult<ModuleCompiledFunction> {
+    ) -> ModuleResult<()> {
         unimplemented!()
     }
 
