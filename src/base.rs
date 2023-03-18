@@ -194,6 +194,7 @@ pub(crate) fn compile_fn(
             &clif_comments,
         );
 
+        /*
         if let Some(disasm) = &context.compiled_code().unwrap().vcode {
             crate::pretty_clif::write_ir_file(
                 &cx.output_filenames,
@@ -201,6 +202,7 @@ pub(crate) fn compile_fn(
                 |file| file.write_all(disasm.as_bytes()),
             )
         }
+        */
     }
 
     /*

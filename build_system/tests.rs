@@ -400,6 +400,7 @@ impl TestRunner {
         cmd.arg("--target");
         cmd.arg(&self.target_compiler.triple);
         cmd.arg("-Cdebug-assertions=no");
+        cmd.arg("--emit=link,llvm-ir,mir");
         cmd.args(args);
         cmd
     }
