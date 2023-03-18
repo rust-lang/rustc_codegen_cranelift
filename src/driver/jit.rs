@@ -6,12 +6,15 @@ use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
 use std::sync::{mpsc, Mutex};
 
+use cranelift_codegen::control::ControlPlane;
+use cranelift_codegen::ir::{FuncRef, Function, GlobalValue};
+use cranelift_module::ModuleResult;
 use rustc_codegen_ssa::CrateInfo;
 use rustc_middle::mir::mono::MonoItem;
 use rustc_session::Session;
 use rustc_span::Symbol;
 
-use cranelift_jit::{JITBuilder, JITModule};
+use cranelift_jit::JITBuilder;
 
 // FIXME use std::sync::OnceLock once it stabilizes
 use once_cell::sync::OnceCell;
@@ -20,7 +23,6 @@ use crate::{prelude::*, BackendConfig};
 use crate::{CodegenCx, CodegenMode};
 
 struct JitState {
-    backend_config: BackendConfig,
     jit_module: JITModule,
 }
 
@@ -61,6 +63,96 @@ impl UnsafeMessage {
     }
 }
 
+struct JITModule {
+    jit_module: cranelift_jit::JITModule,
+    unwind_context: UnwindContext,
+}
+
+impl JITModule {
+    fn finalize_definitions(&mut self) {
+        self.jit_module.finalize_definitions().unwrap();
+        let prev_unwind_context = std::mem::replace(
+            &mut self.unwind_context,
+            UnwindContext::new(self.jit_module.isa(), false),
+        );
+        unsafe { prev_unwind_context.register_jit(&self.jit_module) };
+    }
+}
+
+impl Module for JITModule {
+    fn isa(&self) -> &dyn isa::TargetIsa {
+        self.jit_module.isa()
+    }
+
+    fn declarations(&self) -> &cranelift_module::ModuleDeclarations {
+        self.jit_module.declarations()
+    }
+
+    fn get_name(&self, name: &str) -> Option<cranelift_module::FuncOrDataId> {
+        self.jit_module.get_name(name)
+    }
+
+    fn target_config(&self) -> isa::TargetFrontendConfig {
+        self.jit_module.target_config()
+    }
+
+    fn declare_function(
+        &mut self,
+        name: &str,
+        linkage: Linkage,
+        signature: &cranelift_codegen::ir::Signature,
+    ) -> ModuleResult<FuncId> {
+        self.jit_module.declare_function(name, linkage, signature)
+    }
+
+    fn declare_anonymous_function(
+        &mut self,
+        signature: &cranelift_codegen::ir::Signature,
+    ) -> ModuleResult<FuncId> {
+        self.jit_module.declare_anonymous_function(signature)
+    }
+
+    fn declare_data(
+        &mut self,
+        name: &str,
+        linkage: Linkage,
+        writable: bool,
+        tls: bool,
+    ) -> ModuleResult<DataId> {
+        self.jit_module.declare_data(name, linkage, writable, tls)
+    }
+
+    fn declare_anonymous_data(&mut self, writable: bool, tls: bool) -> ModuleResult<DataId> {
+        self.jit_module.declare_anonymous_data(writable, tls)
+    }
+
+    fn define_function_with_control_plane(
+        &mut self,
+        func: FuncId,
+        ctx: &mut Context,
+        ctrl_plane: &mut ControlPlane,
+    ) -> ModuleResult<()> {
+        self.jit_module.define_function_with_control_plane(func, ctx, ctrl_plane)?;
+        self.unwind_context.add_function(func, ctx, self.jit_module.isa());
+        Ok(())
+    }
+
+    fn define_function_bytes(
+        &mut self,
+        _func_id: FuncId,
+        _func: &Function,
+        _alignment: u64,
+        _bytes: &[u8],
+        _relocs: &[cranelift_codegen::MachReloc],
+    ) -> ModuleResult<()> {
+        unimplemented!()
+    }
+
+    fn define_data(&mut self, data_id: DataId, data: &DataDescription) -> ModuleResult<()> {
+        self.jit_module.define_data(data_id, data)
+    }
+}
+
 fn create_jit_module(
     tcx: TyCtxt<'_>,
     backend_config: &BackendConfig,
@@ -74,24 +166,14 @@ fn create_jit_module(
     crate::compiler_builtins::register_functions_for_jit(&mut jit_builder);
     jit_builder.symbol_lookup_fn(dep_symbol_lookup_fn(tcx.sess, crate_info));
     jit_builder.symbol("__clif_jit_fn", clif_jit_fn as *const u8);
-    let mut jit_module = JITModule::new(jit_builder);
+    let jit_module = cranelift_jit::JITModule::new(jit_builder);
+    let unwind_context = UnwindContext::new(jit_module.isa(), false);
+    let mut jit_module = JITModule { jit_module, unwind_context };
 
-    let mut cx = crate::CodegenCx::new(
-        tcx,
-        backend_config.clone(),
-        jit_module.isa(),
-        false,
-        Symbol::intern("dummy_cgu_name"),
-    );
+    let cx = crate::CodegenCx::new(tcx, jit_module.isa(), false, Symbol::intern("dummy_cgu_name"));
 
-    crate::allocator::codegen(tcx, &mut jit_module, &mut cx.unwind_context);
-    crate::main_shim::maybe_create_entry_wrapper(
-        tcx,
-        &mut jit_module,
-        &mut cx.unwind_context,
-        true,
-        true,
-    );
+    crate::allocator::codegen(tcx, &mut jit_module);
+    crate::main_shim::maybe_create_entry_wrapper(tcx, &mut jit_module, true, true);
 
     (jit_module, cx)
 }
@@ -137,7 +219,7 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
                         );
                     }
                     CodegenMode::JitLazy => {
-                        codegen_shim(tcx, &mut cx, &mut cached_context, &mut jit_module, inst)
+                        codegen_shim(tcx, &mut cached_context, &mut jit_module, inst)
                     }
                 },
                 MonoItem::Static(def_id) => {
@@ -157,8 +239,7 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
 
     tcx.sess.abort_if_errors();
 
-    jit_module.finalize_definitions().unwrap();
-    unsafe { cx.unwind_context.register_jit(&jit_module) };
+    jit_module.finalize_definitions();
 
     println!(
         "Rustc codegen cranelift will JIT run the executable, because -Cllvm-args=mode=jit was passed"
@@ -178,12 +259,12 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
         call_conv: jit_module.target_config().default_call_conv,
     };
     let start_func_id = jit_module.declare_function("main", Linkage::Import, &start_sig).unwrap();
-    let finalized_start: *const u8 = jit_module.get_finalized_function(start_func_id);
+    let finalized_start: *const u8 = jit_module.jit_module.get_finalized_function(start_func_id);
 
     LAZY_JIT_STATE.with(|lazy_jit_state| {
         let mut lazy_jit_state = lazy_jit_state.borrow_mut();
         assert!(lazy_jit_state.is_none());
-        *lazy_jit_state = Some(JitState { backend_config, jit_module });
+        *lazy_jit_state = Some(JitState { jit_module });
     });
 
     let f: extern "C" fn(c_int, *const *const c_char) -> c_int =
@@ -262,7 +343,6 @@ fn jit_fn(instance_ptr: *const Instance<'static>, trampoline_ptr: *const u8) -> 
             let mut lazy_jit_state = lazy_jit_state.borrow_mut();
             let lazy_jit_state = lazy_jit_state.as_mut().unwrap();
             let jit_module = &mut lazy_jit_state.jit_module;
-            let backend_config = lazy_jit_state.backend_config.clone();
 
             let name = tcx.symbol_name(instance).name;
             let sig = crate::abi::get_function_sig(
@@ -272,7 +352,7 @@ fn jit_fn(instance_ptr: *const Instance<'static>, trampoline_ptr: *const u8) -> 
             );
             let func_id = jit_module.declare_function(name, Linkage::Export, &sig).unwrap();
 
-            let current_ptr = jit_module.read_got_entry(func_id);
+            let current_ptr = jit_module.jit_module.read_got_entry(func_id);
 
             // If the function's GOT entry has already been updated to point at something other
             // than the shim trampoline, don't re-jit but just return the new pointer instead.
@@ -282,11 +362,10 @@ fn jit_fn(instance_ptr: *const Instance<'static>, trampoline_ptr: *const u8) -> 
                 return current_ptr;
             }
 
-            jit_module.prepare_for_function_redefine(func_id).unwrap();
+            jit_module.jit_module.prepare_for_function_redefine(func_id).unwrap();
 
             let mut cx = crate::CodegenCx::new(
                 tcx,
-                backend_config,
                 jit_module.isa(),
                 false,
                 Symbol::intern("dummy_cgu_name"),
@@ -294,9 +373,8 @@ fn jit_fn(instance_ptr: *const Instance<'static>, trampoline_ptr: *const u8) -> 
             codegen_and_compile_fn(tcx, &mut cx, &mut Context::new(), jit_module, instance);
 
             assert!(cx.global_asm.is_empty());
-            jit_module.finalize_definitions().unwrap();
-            unsafe { cx.unwind_context.register_jit(&jit_module) };
-            jit_module.get_finalized_function(func_id)
+            jit_module.finalize_definitions();
+            jit_module.jit_module.get_finalized_function(func_id)
         })
     })
 }
@@ -356,7 +434,6 @@ fn dep_symbol_lookup_fn(
 
 fn codegen_shim<'tcx>(
     tcx: TyCtxt<'tcx>,
-    cx: &mut CodegenCx,
     cached_context: &mut Context,
     module: &mut JITModule,
     inst: Instance<'tcx>,
@@ -407,5 +484,4 @@ fn codegen_shim<'tcx>(
     trampoline_builder.ins().return_(&ret_vals);
 
     module.define_function(func_id, context).unwrap();
-    cx.unwind_context.add_function(func_id, context, module.isa());
 }

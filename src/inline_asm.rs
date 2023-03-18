@@ -276,13 +276,7 @@ pub(crate) fn codegen_inline_asm<'tcx>(
                     );
                     let sig =
                         get_function_sig(fx.tcx, fx.target_config.default_call_conv, instance);
-                    create_wrapper_function(
-                        fx.module,
-                        &mut fx.cx.unwind_context,
-                        sig,
-                        &wrapper_name,
-                        symbol.name,
-                    );
+                    create_wrapper_function(fx.module, sig, &wrapper_name, symbol.name);
 
                     CInlineAsmOperand::Symbol { symbol: wrapper_name }
                 } else {
