@@ -102,7 +102,7 @@ mod prelude {
     pub(crate) use cranelift_codegen::isa::{self, CallConv};
     pub(crate) use cranelift_codegen::Context;
     pub(crate) use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
-    pub(crate) use cranelift_module::{self, DataContext, FuncId, Linkage, Module};
+    pub(crate) use cranelift_module::{self, DataContext, DataId, FuncId, Linkage, Module};
 
     pub(crate) use crate::abi::*;
     pub(crate) use crate::base::{codegen_operand, codegen_place};
@@ -131,22 +131,13 @@ struct CodegenCx {
     global_asm: String,
     inline_asm_index: Cell<usize>,
     debug_context: Option<DebugContext>,
-    unwind_context: UnwindContext,
     cgu_name: Symbol,
 }
 
 impl CodegenCx {
-    fn new(
-        tcx: TyCtxt<'_>,
-        backend_config: BackendConfig,
-        isa: &dyn TargetIsa,
-        debug_info: bool,
-        cgu_name: Symbol,
-    ) -> Self {
+    fn new(tcx: TyCtxt<'_>, isa: &dyn TargetIsa, debug_info: bool, cgu_name: Symbol) -> Self {
         assert_eq!(pointer_ty(tcx), isa.pointer_type());
 
-        let unwind_context =
-            UnwindContext::new(isa, matches!(backend_config.codegen_mode, CodegenMode::Aot));
         let debug_context = if debug_info && !tcx.sess.target.options.is_like_windows {
             Some(DebugContext::new(tcx, isa))
         } else {
@@ -159,7 +150,6 @@ impl CodegenCx {
             global_asm: String::new(),
             inline_asm_index: Cell::new(0),
             debug_context,
-            unwind_context,
             cgu_name,
         }
     }
