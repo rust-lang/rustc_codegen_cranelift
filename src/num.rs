@@ -208,86 +208,29 @@ pub(crate) fn codegen_checked_int_binop<'tcx>(
 
     let (res, has_overflow) = match bin_op {
         BinOp::Add => {
-            /*let (val, c_out) = fx.bcx.ins().iadd_cout(lhs, rhs);
-            (val, c_out)*/
-            // FIXME(CraneStation/cranelift#849) legalize iadd_cout for i8 and i16
-            let val = fx.bcx.ins().iadd(lhs, rhs);
-            let has_overflow = if !signed {
-                fx.bcx.ins().icmp(IntCC::UnsignedLessThan, val, lhs)
+            if !signed {
+                fx.bcx.ins().uadd_overflow(lhs, rhs)
             } else {
-                let rhs_is_negative = fx.bcx.ins().icmp_imm(IntCC::SignedLessThan, rhs, 0);
-                let slt = fx.bcx.ins().icmp(IntCC::SignedLessThan, val, lhs);
-                fx.bcx.ins().bxor(rhs_is_negative, slt)
-            };
-            (val, has_overflow)
+                fx.bcx.ins().sadd_overflow(lhs, rhs)
+            }
         }
         BinOp::Sub => {
-            /*let (val, b_out) = fx.bcx.ins().isub_bout(lhs, rhs);
-            (val, b_out)*/
-            // FIXME(CraneStation/cranelift#849) legalize isub_bout for i8 and i16
-            let val = fx.bcx.ins().isub(lhs, rhs);
-            let has_overflow = if !signed {
-                fx.bcx.ins().icmp(IntCC::UnsignedGreaterThan, val, lhs)
+            if !signed {
+                fx.bcx.ins().usub_overflow(lhs, rhs)
             } else {
-                let rhs_is_negative = fx.bcx.ins().icmp_imm(IntCC::SignedLessThan, rhs, 0);
-                let sgt = fx.bcx.ins().icmp(IntCC::SignedGreaterThan, val, lhs);
-                fx.bcx.ins().bxor(rhs_is_negative, sgt)
-            };
-            (val, has_overflow)
+                fx.bcx.ins().ssub_overflow(lhs, rhs)
+            }
         }
         BinOp::Mul => {
-            let ty = fx.bcx.func.dfg.value_type(lhs);
-            match ty {
-                types::I8 | types::I16 | types::I32 if !signed => {
-                    let lhs = fx.bcx.ins().uextend(ty.double_width().unwrap(), lhs);
-                    let rhs = fx.bcx.ins().uextend(ty.double_width().unwrap(), rhs);
-                    let val = fx.bcx.ins().imul(lhs, rhs);
-                    let has_overflow = fx.bcx.ins().icmp_imm(
-                        IntCC::UnsignedGreaterThan,
-                        val,
-                        (1 << ty.bits()) - 1,
-                    );
-                    let val = fx.bcx.ins().ireduce(ty, val);
-                    (val, has_overflow)
-                }
-                types::I8 | types::I16 | types::I32 if signed => {
-                    let lhs = fx.bcx.ins().sextend(ty.double_width().unwrap(), lhs);
-                    let rhs = fx.bcx.ins().sextend(ty.double_width().unwrap(), rhs);
-                    let val = fx.bcx.ins().imul(lhs, rhs);
-                    let has_underflow =
-                        fx.bcx.ins().icmp_imm(IntCC::SignedLessThan, val, -(1 << (ty.bits() - 1)));
-                    let has_overflow = fx.bcx.ins().icmp_imm(
-                        IntCC::SignedGreaterThan,
-                        val,
-                        (1 << (ty.bits() - 1)) - 1,
-                    );
-                    let val = fx.bcx.ins().ireduce(ty, val);
-                    (val, fx.bcx.ins().bor(has_underflow, has_overflow))
-                }
-                types::I64 => {
-                    let val = fx.bcx.ins().imul(lhs, rhs);
-                    let has_overflow = if !signed {
-                        let val_hi = fx.bcx.ins().umulhi(lhs, rhs);
-                        fx.bcx.ins().icmp_imm(IntCC::NotEqual, val_hi, 0)
-                    } else {
-                        // Based on LLVM's instruction sequence for compiling
-                        // a.checked_mul(b).is_some() to riscv64gc:
-                        // mulh    a2, a0, a1
-                        // mul     a0, a0, a1
-                        // srai    a0, a0, 63
-                        // xor     a0, a0, a2
-                        // snez    a0, a0
-                        let val_hi = fx.bcx.ins().smulhi(lhs, rhs);
-                        let val_sign = fx.bcx.ins().sshr_imm(val, i64::from(ty.bits() - 1));
-                        let xor = fx.bcx.ins().bxor(val_hi, val_sign);
-                        fx.bcx.ins().icmp_imm(IntCC::NotEqual, xor, 0)
-                    };
-                    (val, has_overflow)
-                }
-                types::I128 => {
-                    unreachable!("i128 should have been handled by codegen_i128::maybe_codegen")
-                }
-                _ => unreachable!("invalid non-integer type {}", ty),
+            assert_ne!(
+                fx.bcx.func.dfg.value_type(lhs),
+                types::I128,
+                "i128 should have been handled by codegen_i128::maybe_codegen"
+            );
+            if !signed {
+                fx.bcx.ins().umul_overflow(lhs, rhs)
+            } else {
+                fx.bcx.ins().smul_overflow(lhs, rhs)
             }
         }
         _ => bug!("binop {:?} on checked int/uint lhs: {:?} rhs: {:?}", bin_op, in_lhs, in_rhs),
