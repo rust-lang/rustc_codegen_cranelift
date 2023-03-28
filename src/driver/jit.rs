@@ -133,12 +133,12 @@ impl Module for JITModule {
         self.jit_module.declare_data_in_func(data, func)
     }
 
-    fn declare_func_in_data(&self, func: FuncId, ctx: &mut DataContext) -> FuncRef {
-        self.jit_module.declare_func_in_data(func, ctx)
+    fn declare_func_in_data(&self, func_id: FuncId, data: &mut DataDescription) -> FuncRef {
+        self.jit_module.declare_func_in_data(func_id, data)
     }
 
-    fn declare_data_in_data(&self, data: DataId, ctx: &mut DataContext) -> GlobalValue {
-        self.jit_module.declare_data_in_data(data, ctx)
+    fn declare_data_in_data(&self, data_id: DataId, data: &mut DataDescription) -> GlobalValue {
+        self.jit_module.declare_data_in_data(data_id, data)
     }
 
     fn define_function(&mut self, func: FuncId, ctx: &mut Context) -> ModuleResult<()> {
@@ -158,8 +158,8 @@ impl Module for JITModule {
         unimplemented!()
     }
 
-    fn define_data(&mut self, data: DataId, data_ctx: &DataContext) -> ModuleResult<()> {
-        self.jit_module.define_data(data, data_ctx)
+    fn define_data(&mut self, data_id: DataId, data: &DataDescription) -> ModuleResult<()> {
+        self.jit_module.define_data(data_id, data)
     }
 }
 

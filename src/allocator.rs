@@ -77,7 +77,7 @@ fn codegen_inner(
     );
 
     let data_id = module.declare_data(OomStrategy::SYMBOL, Linkage::Export, false, false).unwrap();
-    let mut data_ctx = DataContext::new();
+    let mut data_ctx = DataDescription::new();
     data_ctx.set_align(1);
     let val = oom_strategy.should_panic();
     data_ctx.define(Box::new([val]));

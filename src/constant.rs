@@ -324,7 +324,7 @@ fn data_id_for_static(
 
         let ref_name = format!("_rust_extern_with_linkage_{}", symbol_name);
         let ref_data_id = module.declare_data(&ref_name, Linkage::Local, false, false).unwrap();
-        let mut data_ctx = DataContext::new();
+        let mut data_ctx = DataDescription::new();
         data_ctx.set_align(align);
         let data = module.declare_data_in_data(data_id, &mut data_ctx);
         data_ctx.define(std::iter::repeat(0).take(pointer_ty(tcx).bytes() as usize).collect());
@@ -394,7 +394,7 @@ fn define_all_allocs(tcx: TyCtxt<'_>, module: &mut dyn Module, cx: &mut Constant
             continue;
         }
 
-        let mut data_ctx = DataContext::new();
+        let mut data_ctx = DataDescription::new();
         let alloc = alloc.inner();
         data_ctx.set_align(alloc.align.bytes());
 
