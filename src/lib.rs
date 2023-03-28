@@ -168,8 +168,8 @@ impl CodegenBackend for CraneliftCodegenBackend {
     fn init(&self, sess: &Session) {
         use rustc_session::config::Lto;
         match sess.lto() {
-            Lto::No | Lto::ThinLocal => {}
-            Lto::Thin | Lto::Fat => sess.warn("LTO is not supported. You may get a linker error."),
+            Lto::No | Lto::ThinLocal => sess.fatal("No LTO"),
+            Lto::Thin | Lto::Fat => {}
         }
 
         let mut config = self.config.borrow_mut();
@@ -199,14 +199,20 @@ impl CodegenBackend for CraneliftCodegenBackend {
         tcx.sess.abort_if_errors();
         let config = self.config.borrow().clone().unwrap();
         match config.codegen_mode {
-            CodegenMode::Aot => match tcx.sess.lto() {
-                Lto::No | Lto::ThinLocal => {
+            CodegenMode::Aot => {
+                if tcx.crate_name(LOCAL_CRATE).as_str() == "compiler_builtins" {
                     driver::aot::run_aot(tcx, config, metadata, need_metadata_module)
+                } else {
+                    match tcx.sess.lto() {
+                        Lto::No | Lto::ThinLocal => {
+                            driver::aot::run_aot(tcx, config, metadata, need_metadata_module)
+                        }
+                        Lto::Thin | Lto::Fat => {
+                            driver::lto::run_aot(tcx, config, metadata, need_metadata_module)
+                        }
+                    }
                 }
-                Lto::Thin | Lto::Fat => {
-                    driver::lto::run_aot(tcx, config, metadata, need_metadata_module)
-                }
-            },
+            }
             CodegenMode::Jit | CodegenMode::JitLazy => {
                 #[cfg(feature = "jit")]
                 driver::jit::run_jit(tcx, config);

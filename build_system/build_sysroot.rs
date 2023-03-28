@@ -244,6 +244,7 @@ fn build_clif_sysroot_for_triple(
     if channel == "release" {
         rustflags.push_str(" -Zmir-opt-level=3");
     }
+    rustflags.push_str(" -Clto=thin -Zdylib-lto -Cembed-bitcode=yes");
     compiler.rustflags += &rustflags;
     let mut build_cmd = STANDARD_LIBRARY.build(&compiler, dirs);
     if channel == "release" {
