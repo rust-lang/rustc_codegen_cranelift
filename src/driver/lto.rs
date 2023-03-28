@@ -5,8 +5,10 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use cranelift_codegen::ir;
-use cranelift_module::{ModuleDeclarations, ModuleError, ModuleResult};
+use cranelift_codegen::entity::SecondaryMap;
+use cranelift_codegen::ir::{self, UserExternalName};
+use cranelift_module::{ModuleDeclarations, ModuleError, ModuleExtName, ModuleResult};
+use cranelift_object::{ObjectBuilder, ObjectModule};
 use object::{Object, ObjectSection};
 
 use crate::prelude::*;
@@ -34,7 +36,101 @@ impl SerializeModule {
     }
 
     fn apply_to(self, module: &mut dyn Module) {
-        todo!();
+        //println!("{:#?}", self.inner);
+
+        let mut function_map: SecondaryMap<FuncId, Option<FuncId>> = SecondaryMap::new();
+        let mut data_object_map: SecondaryMap<DataId, Option<DataId>> = SecondaryMap::new();
+
+        let mut remap_func_id =
+            |module: &mut dyn Module, declarations: &ModuleDeclarations, func_id: FuncId| {
+                if function_map[func_id].is_none() {
+                    let decl = declarations.get_function_decl(func_id);
+                    function_map[func_id] = Some(
+                        module.declare_function(&decl.name, decl.linkage, &decl.signature).unwrap(),
+                    );
+                }
+                function_map[func_id].unwrap()
+            };
+
+        let mut remap_data_id = |module: &mut dyn Module,
+                                 declarations: &ModuleDeclarations,
+                                 data_id: DataId| {
+            if data_object_map[data_id].is_none() {
+                let decl = declarations.get_data_decl(data_id);
+                data_object_map[data_id] = Some(
+                    module.declare_data(&decl.name, decl.linkage, decl.writable, decl.tls).unwrap(),
+                );
+            }
+            data_object_map[data_id].unwrap()
+        };
+
+        for (func_id, func) in self.inner.functions {
+            let func_id = remap_func_id(module, &self.inner.declarations, func_id);
+            let mut ctx = Context::for_function(func);
+            for (_, ext_name) in &mut ctx.func.params.user_named_funcs {
+                if ext_name.namespace == 0 {
+                    *ext_name = UserExternalName::new(
+                        0,
+                        remap_func_id(
+                            module,
+                            &self.inner.declarations,
+                            FuncId::from_u32(ext_name.index),
+                        )
+                        .as_u32(),
+                    );
+                } else if ext_name.namespace == 1 {
+                    *ext_name = UserExternalName::new(
+                        1,
+                        remap_data_id(
+                            module,
+                            &self.inner.declarations,
+                            DataId::from_u32(ext_name.index),
+                        )
+                        .as_u32(),
+                    );
+                } else {
+                    unreachable!();
+                }
+            }
+            // FIXME remap user_ext_name_to_ref
+            module.define_function(func_id, &mut ctx).unwrap();
+        }
+
+        for (data_id, mut data) in self.inner.data_objects {
+            let data_id = remap_data_id(module, &self.inner.declarations, data_id);
+            for ext_name in data
+                .function_decls
+                .iter_mut()
+                .map(|(_, ext_name)| ext_name)
+                .chain(data.data_decls.iter_mut().map(|(_, ext_name)| ext_name))
+            {
+                match *ext_name {
+                    ModuleExtName::User { namespace, ref mut index } => {
+                        if namespace == 0 {
+                            *index = remap_func_id(
+                                module,
+                                &self.inner.declarations,
+                                FuncId::from_u32(*index),
+                            )
+                            .as_u32();
+                        } else if namespace == 1 {
+                            *index = remap_data_id(
+                                module,
+                                &self.inner.declarations,
+                                DataId::from_u32(*index),
+                            )
+                            .as_u32();
+                        } else {
+                            unreachable!();
+                        }
+                    }
+                    ModuleExtName::KnownSymbol(_) | ModuleExtName::LibCall(_) => {}
+                }
+            }
+            module.define_data(data_id, &data).unwrap();
+        }
+
+        //todo!();
     }
 }
 
@@ -127,11 +223,10 @@ use std::fs::File;
 
 use rustc_codegen_ssa::back::metadata::create_compressed_metadata_file;
 use rustc_codegen_ssa::{CodegenResults, CompiledModule, CrateInfo, ModuleKind};
-use rustc_data_structures::profiling::SelfProfilerRef;
 use rustc_metadata::EncodedMetadata;
 use rustc_middle::dep_graph::{WorkProduct, WorkProductId};
 use rustc_middle::mir::mono::MonoItem;
-use rustc_session::config::{DebugInfo, OutputFilenames, OutputType};
+use rustc_session::config::{DebugInfo, OutputType};
 use rustc_session::Session;
 
 use crate::BackendConfig;
@@ -184,37 +279,97 @@ fn make_module(sess: &Session, backend_config: &BackendConfig) -> SerializeModul
 }
 
 fn emit_module(
-    output_filenames: &OutputFilenames,
-    prof: &SelfProfilerRef,
-    module: SerializeModule,
+    tcx: TyCtxt<'_>,
+    backend_config: &BackendConfig,
+    serialize_module: SerializeModule,
     kind: ModuleKind,
     name: String,
 ) -> Result<CompiledModule, String> {
-    let mut object = object::write::Object::new(
-        object::BinaryFormat::Elf,
-        object::Architecture::Aarch64,
-        object::Endianness::Little,
-    );
-    object.add_subsection(
-        object::write::StandardSection::ReadOnlyData,
-        b"cgclif_lto",
-        &module.serialize(),
-        1,
-    );
+    if !(tcx.sess.crate_types().len() == 1
+        && tcx.sess.crate_types()[0] == rustc_session::config::CrateType::Rlib)
+    {
+        let isa = crate::build_isa(tcx.sess, backend_config);
 
-    let tmp_file = output_filenames.temp_path(OutputType::Object, Some(&name));
-    let mut file = match File::create(&tmp_file) {
-        Ok(file) => file,
-        Err(err) => return Err(format!("error creating object file: {}", err)),
-    };
+        let mut builder =
+            ObjectBuilder::new(isa, name.clone() + ".o", cranelift_module::default_libcall_names())
+                .unwrap();
+        // Unlike cg_llvm, cg_clif defaults to disabling -Zfunction-sections. For cg_llvm binary size
+        // is important, while cg_clif cares more about compilation times. Enabling -Zfunction-sections
+        // can easily double the amount of time necessary to perform linking.
+        builder
+            .per_function_section(tcx.sess.opts.unstable_opts.function_sections.unwrap_or(false));
+        let aot_module = ObjectModule::new(builder);
+        let unwind_context = UnwindContext::new(aot_module.isa(), true);
+        let mut module = super::aot::AOTModule { aot_module, unwind_context };
 
-    if let Err(err) = object.write_stream(&mut file) {
-        return Err(format!("error writing object file: {}", err));
+        serialize_module.apply_to(&mut module);
+
+        let mut product = module.finish();
+
+        if product.object.format() == cranelift_object::object::BinaryFormat::Elf {
+            let comment_section = product.object.add_section(
+                Vec::new(),
+                b".comment".to_vec(),
+                cranelift_object::object::SectionKind::OtherString,
+            );
+            let mut producer = vec![0];
+            producer.extend(crate::debuginfo::producer().as_bytes());
+            producer.push(0);
+            product.object.set_section_data(comment_section, producer, 1);
+        }
+
+        let tmp_file = tcx.output_filenames(()).temp_path(OutputType::Object, Some(&name));
+        let mut file = match File::create(&tmp_file) {
+            Ok(file) => file,
+            Err(err) => return Err(format!("error creating object file: {}", err)),
+        };
+
+        if let Err(err) = product.object.write_stream(&mut file) {
+            return Err(format!("error writing object file: {}", err));
+        }
+
+        tcx.prof.artifact_size("object_file", &*name, file.metadata().unwrap().len());
+
+        Ok(CompiledModule {
+            name,
+            kind,
+            object: Some(tmp_file),
+            dwarf_object: None,
+            bytecode: None,
+        })
+    } else {
+        let mut object = object::write::Object::new(
+            object::BinaryFormat::Elf,
+            object::Architecture::Aarch64,
+            object::Endianness::Little,
+        );
+        object.add_subsection(
+            object::write::StandardSection::ReadOnlyData,
+            b"cgclif_lto",
+            &serialize_module.serialize(),
+            1,
+        );
+
+        let bytecode_file = tcx.output_filenames(()).temp_path(OutputType::Object, Some(&name));
+        let mut file = match File::create(&bytecode_file) {
+            Ok(file) => file,
+            Err(err) => return Err(format!("error creating object file: {}", err)),
+        };
+
+        if let Err(err) = object.write_stream(&mut file) {
+            return Err(format!("error writing object file: {}", err));
+        }
+
+        tcx.prof.artifact_size("object_file", &*name, file.metadata().unwrap().len());
+
+        Ok(CompiledModule {
+            name,
+            kind,
+            object: Some(bytecode_file),
+            dwarf_object: None,
+            bytecode: None,
+        })
     }
-
-    prof.artifact_size("object_file", &*name, file.metadata().unwrap().len());
-
-    Ok(CompiledModule { name, kind, object: Some(tmp_file), dwarf_object: None, bytecode: None })
 }
 
 fn module_codegen(
@@ -285,18 +440,10 @@ fn module_codegen(
             tcx.sess.fatal("Inline asm is not yet supported in LTO mode");
         }
 
-        let codegen_result = cx
-            .profiler
-            .verbose_generic_activity_with_arg("write object file", &*cgu_name)
-            .run(|| {
-                emit_module(
-                    &tcx.output_filenames(()),
-                    &cx.profiler,
-                    module,
-                    ModuleKind::Regular,
-                    cgu_name.clone(),
-                )
-            });
+        let codegen_result =
+            cx.profiler.verbose_generic_activity_with_arg("write object file", &*cgu_name).run(
+                || emit_module(tcx, &backend_config, module, ModuleKind::Regular, cgu_name.clone()),
+            );
         codegen_result
     })() {
         Ok(res) => res,
@@ -333,7 +480,9 @@ pub(crate) fn run_aot(
             .collect::<Vec<_>>()
     });
 
-    if tcx.sess.opts.output_types.should_link() {
+    if !(tcx.sess.crate_types().len() == 1
+        && tcx.sess.crate_types()[0] == rustc_session::config::CrateType::Rlib)
+    {
         let mut each_linked_rlib_for_lto = Vec::new();
         drop(rustc_codegen_ssa::back::link::each_linked_rlib(
             &crate_info,
@@ -363,7 +512,7 @@ pub(crate) fn run_aot(
                     })
                 })
                 .filter(|&(name, _)| rustc_codegen_ssa::looks_like_rust_object_file(name));
-            for (_name, child) in obj_files {
+            for (name, child) in obj_files {
                 let lto_object =
                     object::read::File::parse(child.data(&*archive_data).expect("corrupt rlib"))
                         .unwrap();
@@ -371,7 +520,10 @@ pub(crate) fn run_aot(
                     lto_object.section_by_name(".rodata.cgclif_lto").unwrap().data().unwrap(),
                     crate::build_isa(tcx.sess, &backend_config),
                 );
-                println!("{:#?}", module.inner);
+                modules.push(
+                    emit_module(tcx, &backend_config, module, ModuleKind::Regular, name.to_owned())
+                        .unwrap(),
+                );
             }
         }
     }
@@ -381,8 +533,8 @@ pub(crate) fn run_aot(
 
     let allocator_module = if created_alloc_shim {
         match emit_module(
-            tcx.output_filenames(()),
-            &tcx.sess.prof,
+            tcx,
+            &backend_config,
             allocator_module,
             ModuleKind::Allocator,
             "allocator_shim".to_owned(),

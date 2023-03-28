@@ -16,12 +16,12 @@ rustc-std-workspace-alloc = { path = "./sysroot_src/library/rustc-std-workspace-
 rustc-std-workspace-std = { path = "./sysroot_src/library/rustc-std-workspace-std" }
 
 [profile.dev]
-lto = "off"
+lto = "thin"
 
 [profile.release]
 debug = true
 incremental = true
-lto = "off"
+lto = "thin"
 
 # Mandatory for correctly compiling compiler-builtins
 [profile.dev.package.compiler_builtins]
