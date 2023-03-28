@@ -23,12 +23,14 @@ cranelift-jit = { path = "../wasmtime/cranelift/jit", optional = true }
 cranelift-object = { path = "../wasmtime/cranelift/object" }
 target-lexicon = "0.12.0"
 gimli = { version = "0.27.2", default-features = false, features = ["write"]}
-object = { version = "0.30.3", default-features = false, features = ["std", "read_core", "write", "archive", "coff", "elf", "macho", "pe"] }
+object = { version = "0.30.3", default-features = false, features = ["std", "read_core", "write", "archive", "coff", "elf", "macho", "pe", "unaligned"] }
 
 indexmap = "1.9.3"
 libloading = { version = "0.7.3", optional = true }
 once_cell = "1.10.0"
 smallvec = "1.8.1"
+serde = { version = "1.0.157", features = ["derive"], optional = true }
+bincode = { version = "1.3.3", optional = true }
 
 [patch.crates-io]
 # Uncomment to use local checkout of cranelift
@@ -43,9 +45,10 @@ smallvec = "1.8.1"
 
 [features]
 # Enable features not ready to be enabled when compiling as part of rustc
-unstable-features = ["jit", "inline_asm"]
+unstable-features = ["jit", "inline_asm", "lto"]
 jit = ["cranelift-jit", "libloading"]
 inline_asm = []
+lto = ["serde", "bincode", "cranelift-codegen/enable-serde", "cranelift-module/enable-serde"]
 __check_build_system_using_ra = []
 
 [package.metadata.rust-analyzer]

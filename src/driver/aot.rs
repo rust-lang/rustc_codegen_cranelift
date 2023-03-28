@@ -126,13 +126,13 @@ impl OngoingCodegen {
     }
 }
 
-struct AOTModule {
-    aot_module: ObjectModule,
-    unwind_context: UnwindContext,
+pub(super) struct AOTModule {
+    pub(super) aot_module: ObjectModule,
+    pub(super) unwind_context: UnwindContext,
 }
 
 impl AOTModule {
-    fn finish(self) -> ObjectProduct {
+    pub(super) fn finish(self) -> ObjectProduct {
         let mut product = self.aot_module.finish();
         self.unwind_context.emit(&mut product);
         product
