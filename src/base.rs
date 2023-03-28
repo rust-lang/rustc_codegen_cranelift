@@ -215,6 +215,7 @@ pub(crate) fn compile_fn(
         }
     }
 
+    /*
     // Define debuginfo for function
     let debug_context = &mut cx.debug_context;
     cx.profiler.generic_activity("generate debug info").run(|| {
@@ -226,6 +227,7 @@ pub(crate) fn compile_fn(
             );
         }
     });
+    */
 }
 
 pub(crate) fn verify_func(
