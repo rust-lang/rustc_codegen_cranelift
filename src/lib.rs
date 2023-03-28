@@ -194,10 +194,19 @@ impl CodegenBackend for CraneliftCodegenBackend {
         metadata: EncodedMetadata,
         need_metadata_module: bool,
     ) -> Box<dyn Any> {
+        use rustc_session::config::Lto;
+
         tcx.sess.abort_if_errors();
         let config = self.config.borrow().clone().unwrap();
         match config.codegen_mode {
-            CodegenMode::Aot => driver::aot::run_aot(tcx, config, metadata, need_metadata_module),
+            CodegenMode::Aot => match tcx.sess.lto() {
+                Lto::No | Lto::ThinLocal => {
+                    driver::aot::run_aot(tcx, config, metadata, need_metadata_module)
+                }
+                Lto::Thin | Lto::Fat => {
+                    driver::lto::run_aot(tcx, config, metadata, need_metadata_module)
+                }
+            },
             CodegenMode::Jit | CodegenMode::JitLazy => {
                 #[cfg(feature = "jit")]
                 driver::jit::run_jit(tcx, config);
@@ -214,10 +223,16 @@ impl CodegenBackend for CraneliftCodegenBackend {
         sess: &Session,
         _outputs: &OutputFilenames,
     ) -> Result<(CodegenResults, FxHashMap<WorkProductId, WorkProduct>), ErrorGuaranteed> {
-        Ok(ongoing_codegen
-            .downcast::<driver::aot::OngoingCodegen>()
-            .unwrap()
-            .join(sess, self.config.borrow().as_ref().unwrap()))
+        Ok({
+            match ongoing_codegen.downcast::<driver::aot::OngoingCodegen>() {
+                Ok(ongoing_codegen) => {
+                    ongoing_codegen.join(sess, self.config.borrow().as_ref().unwrap())
+                }
+                Err(ongoing_codegen) => {
+                    ongoing_codegen.downcast::<driver::lto::OngoingCodegen>().unwrap().join(sess)
+                }
+            }
+        })
     }
 
     fn link(
