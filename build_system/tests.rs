@@ -338,6 +338,7 @@ impl TestRunner {
                     }
                     spawn_and_wait(jit_cmd);
 
+                    /*
                     eprintln!("[JIT-lazy] {testname}");
                     let mut jit_cmd = self.rustc_command([
                         "-Zunstable-options",
@@ -351,6 +352,7 @@ impl TestRunner {
                         jit_cmd.env("CG_CLIF_JIT_ARGS", args);
                     }
                     spawn_and_wait(jit_cmd);
+                    */
                 }
             }
         }

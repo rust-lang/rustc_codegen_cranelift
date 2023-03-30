@@ -13,7 +13,7 @@ use object::{Object, ObjectSection};
 
 use crate::prelude::*;
 
-struct SerializeModule {
+pub(super) struct SerializeModule {
     isa: Arc<dyn isa::TargetIsa>,
     inner: SerializeModuleInner,
 }
@@ -31,11 +31,11 @@ impl SerializeModule {
         bincode::serialize(&self.inner).unwrap()
     }
 
-    fn deserialize(blob: &[u8], isa: Arc<dyn isa::TargetIsa>) -> SerializeModule {
+    pub(super) fn deserialize(blob: &[u8], isa: Arc<dyn isa::TargetIsa>) -> SerializeModule {
         SerializeModule { isa, inner: bincode::deserialize(blob).unwrap() }
     }
 
-    fn apply_to(self, module: &mut dyn Module) {
+    pub(super) fn apply_to(self, module: &mut dyn Module) {
         //println!("{:#?}", self.inner);
 
         let mut function_map: SecondaryMap<FuncId, Option<FuncId>> = SecondaryMap::new();
@@ -451,34 +451,12 @@ fn module_codegen(
     }
 }
 
-pub(crate) fn run_aot(
+pub(super) fn load_lto_modules(
     tcx: TyCtxt<'_>,
-    backend_config: BackendConfig,
-    metadata: EncodedMetadata,
-    need_metadata_module: bool,
-) -> Box<OngoingCodegen> {
-    // FIXME handle `-Ctarget-cpu=native`
-    let target_cpu = match tcx.sess.opts.cg.target_cpu {
-        Some(ref name) => name,
-        None => tcx.sess.target.cpu.as_ref(),
-    }
-    .to_owned();
-
-    let crate_info = CrateInfo::new(tcx, target_cpu);
-
-    let cgus = if tcx.sess.opts.output_types.should_codegen() {
-        tcx.collect_and_partition_mono_items(()).1
-    } else {
-        // If only `--emit metadata` is used, we shouldn't perform any codegen.
-        // Also `tcx.collect_and_partition_mono_items` may panic in that case.
-        &[]
-    };
-
-    let mut modules = tcx.sess.time("codegen mono items", || {
-        cgus.iter()
-            .map(|cgu| module_codegen(tcx, (backend_config.clone(), cgu.name())))
-            .collect::<Vec<_>>()
-    });
+    crate_info: &CrateInfo,
+    backend_config: &BackendConfig,
+) -> Vec<(String, SerializeModule)> {
+    let mut modules = vec![];
 
     if !(tcx.sess.crate_types().len() == 1
         && tcx.sess.crate_types()[0] == rustc_session::config::CrateType::Rlib)
@@ -520,12 +498,45 @@ pub(crate) fn run_aot(
                     lto_object.section_by_name(".rodata.cgclif_lto").unwrap().data().unwrap(),
                     crate::build_isa(tcx.sess, &backend_config),
                 );
-                modules.push(
-                    emit_module(tcx, &backend_config, module, ModuleKind::Regular, name.to_owned())
-                        .unwrap(),
-                );
+                modules.push((name.to_owned(), module));
             }
         }
+    }
+
+    modules
+}
+
+pub(crate) fn run_aot(
+    tcx: TyCtxt<'_>,
+    backend_config: BackendConfig,
+    metadata: EncodedMetadata,
+    need_metadata_module: bool,
+) -> Box<OngoingCodegen> {
+    // FIXME handle `-Ctarget-cpu=native`
+    let target_cpu = match tcx.sess.opts.cg.target_cpu {
+        Some(ref name) => name,
+        None => tcx.sess.target.cpu.as_ref(),
+    }
+    .to_owned();
+
+    let crate_info = CrateInfo::new(tcx, target_cpu);
+
+    let cgus = if tcx.sess.opts.output_types.should_codegen() {
+        tcx.collect_and_partition_mono_items(()).1
+    } else {
+        // If only `--emit metadata` is used, we shouldn't perform any codegen.
+        // Also `tcx.collect_and_partition_mono_items` may panic in that case.
+        &[]
+    };
+
+    let mut modules = tcx.sess.time("codegen mono items", || {
+        cgus.iter()
+            .map(|cgu| module_codegen(tcx, (backend_config.clone(), cgu.name())))
+            .collect::<Vec<_>>()
+    });
+
+    for (name, module) in load_lto_modules(tcx, &crate_info, &backend_config) {
+        modules.push(emit_module(tcx, &backend_config, module, ModuleKind::Regular, name).unwrap());
     }
 
     let mut allocator_module = make_module(tcx.sess, &backend_config);

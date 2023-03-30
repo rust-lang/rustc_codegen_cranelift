@@ -688,6 +688,7 @@ struct PanicLocation {
     column: u32,
 }
 
+/*
 #[no_mangle]
 #[cfg(not(windows))]
 pub fn get_tls() -> u8 {
@@ -696,3 +697,4 @@ pub fn get_tls() -> u8 {
 
     A
 }
+*/
