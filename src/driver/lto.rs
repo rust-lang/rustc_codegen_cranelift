@@ -45,24 +45,27 @@ impl SerializeModule {
             |module: &mut dyn Module, declarations: &ModuleDeclarations, func_id: FuncId| {
                 if function_map[func_id].is_none() {
                     let decl = declarations.get_function_decl(func_id);
-                    function_map[func_id] = Some(
-                        module.declare_function(&decl.name, decl.linkage, &decl.signature).unwrap(),
-                    );
+                    function_map[func_id] = Some(if let Some(name) = &decl.name {
+                        module.declare_function(name, decl.linkage, &decl.signature).unwrap()
+                    } else {
+                        module.declare_anonymous_function(&decl.signature).unwrap()
+                    });
                 }
                 function_map[func_id].unwrap()
             };
 
-        let mut remap_data_id = |module: &mut dyn Module,
-                                 declarations: &ModuleDeclarations,
-                                 data_id: DataId| {
-            if data_object_map[data_id].is_none() {
-                let decl = declarations.get_data_decl(data_id);
-                data_object_map[data_id] = Some(
-                    module.declare_data(&decl.name, decl.linkage, decl.writable, decl.tls).unwrap(),
-                );
-            }
-            data_object_map[data_id].unwrap()
-        };
+        let mut remap_data_id =
+            |module: &mut dyn Module, declarations: &ModuleDeclarations, data_id: DataId| {
+                if data_object_map[data_id].is_none() {
+                    let decl = declarations.get_data_decl(data_id);
+                    data_object_map[data_id] = Some(if let Some(name) = &decl.name {
+                        module.declare_data(name, decl.linkage, decl.writable, decl.tls).unwrap()
+                    } else {
+                        module.declare_anonymous_data(decl.writable, decl.tls).unwrap()
+                    });
+                }
+                data_object_map[data_id].unwrap()
+            };
 
         for (func_id, func) in self.inner.functions {
             let func_id = remap_func_id(module, &self.inner.declarations, func_id);
@@ -177,11 +180,15 @@ impl Module for SerializeModule {
     fn define_function(&mut self, func_id: FuncId, ctx: &mut Context) -> ModuleResult<()> {
         let decl = self.inner.declarations.get_function_decl(func_id);
         if !decl.linkage.is_definable() {
-            return Err(ModuleError::InvalidImportDefinition(decl.name.clone()));
+            return Err(ModuleError::InvalidImportDefinition(
+                decl.name.as_deref().unwrap_or("<anonymous>").to_owned(),
+            ));
         }
 
         if self.inner.functions.get(&func_id).is_some() {
-            return Err(ModuleError::DuplicateDefinition(decl.name.clone()));
+            return Err(ModuleError::DuplicateDefinition(
+                decl.name.as_deref().unwrap_or("<anonymous>").to_owned(),
+            ));
         }
 
         ctx.verify_if(&*self.isa)?;
@@ -206,11 +213,15 @@ impl Module for SerializeModule {
     fn define_data(&mut self, data_id: DataId, data: &DataDescription) -> ModuleResult<()> {
         let decl = self.inner.declarations.get_data_decl(data_id);
         if !decl.linkage.is_definable() {
-            return Err(ModuleError::InvalidImportDefinition(decl.name.clone()));
+            return Err(ModuleError::InvalidImportDefinition(
+                decl.name.as_deref().unwrap_or("<anonymous>").to_owned(),
+            ));
         }
 
         if self.inner.data_objects.get(&data_id).is_some() {
-            return Err(ModuleError::DuplicateDefinition(decl.name.clone()));
+            return Err(ModuleError::DuplicateDefinition(
+                decl.name.as_deref().unwrap_or("<anonymous>").to_owned(),
+            ));
         }
 
         self.inner.data_objects.insert(data_id, data.clone());
