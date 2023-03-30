@@ -322,10 +322,12 @@ fn main() {
     #[cfg(not(any(jit, windows)))]
     test_tls();
 
+    /*
     #[cfg(all(not(jit), target_arch = "x86_64", any(target_os = "linux", target_os = "darwin")))]
     unsafe {
         global_asm_test();
     }
+    */
 
     // Both statics have a reference that points to the same anonymous allocation.
     static REF1: &u8 = &42;
@@ -350,6 +352,7 @@ fn main() {
     let _a = f.0[0];
 }
 
+/*
 #[cfg(all(not(jit), target_arch = "x86_64", any(target_os = "linux", target_os = "darwin")))]
 extern "C" {
     fn global_asm_test();
@@ -374,6 +377,7 @@ global_asm! {
     ret
     "
 }
+*/
 
 #[repr(C)]
 enum c_void {

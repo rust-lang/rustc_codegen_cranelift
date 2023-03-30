@@ -164,11 +164,17 @@ fn create_jit_module(
     let mut jit_builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
     jit_builder.hotswap(hotswap);
     crate::compiler_builtins::register_functions_for_jit(&mut jit_builder);
-    jit_builder.symbol_lookup_fn(dep_symbol_lookup_fn(tcx.sess, crate_info));
+    //jit_builder.symbol_lookup_fn(dep_symbol_lookup_fn(tcx.sess, crate_info));
     jit_builder.symbol("__clif_jit_fn", clif_jit_fn as *const u8);
     let jit_module = cranelift_jit::JITModule::new(jit_builder);
     let unwind_context = UnwindContext::new(jit_module.isa(), false);
     let mut jit_module = JITModule { jit_module, unwind_context };
+
+    for (_name, module) in
+        super::lto::load_lto_modules(tcx, &CrateInfo::new(tcx, "dummy".to_owned()), &backend_config)
+    {
+        module.apply_to(&mut jit_module);
+    }
 
     let cx = crate::CodegenCx::new(tcx, jit_module.isa(), false, Symbol::intern("dummy_cgu_name"));
 
