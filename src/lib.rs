@@ -220,6 +220,15 @@ impl CodegenBackend for CraneliftCodegenBackend {
                 #[cfg(not(feature = "jit"))]
                 tcx.sess.fatal("jit support was disabled when compiling rustc_codegen_cranelift");
             }
+            CodegenMode::Interpret => {
+                #[cfg(all(feature = "jit", feature = "lto"))]
+                driver::interpret::run_interpret(tcx, config);
+
+                #[cfg(not(all(feature = "jit", feature = "lto")))]
+                tcx.sess.fatal(
+                    "jit and lto support was disabled when compiling rustc_codegen_cranelift",
+                );
+            }
         }
     }
 

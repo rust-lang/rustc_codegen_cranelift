@@ -7,7 +7,7 @@ use std::os::raw::{c_char, c_int};
 use std::sync::{mpsc, Mutex};
 
 use cranelift_codegen::control::ControlPlane;
-use cranelift_codegen::ir::{FuncRef, Function, GlobalValue};
+use cranelift_codegen::ir::Function;
 use cranelift_module::ModuleResult;
 use rustc_codegen_ssa::CrateInfo;
 use rustc_middle::mir::mono::MonoItem;
@@ -170,9 +170,7 @@ fn create_jit_module(
     let unwind_context = UnwindContext::new(jit_module.isa(), false);
     let mut jit_module = JITModule { jit_module, unwind_context };
 
-    for (_name, module) in
-        super::lto::load_lto_modules(tcx, &CrateInfo::new(tcx, "dummy".to_owned()), &backend_config)
-    {
+    for (_name, module) in super::lto::load_lto_modules(tcx, &crate_info, &backend_config) {
         module.apply_to(&mut jit_module);
     }
 
@@ -214,7 +212,7 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
         for (mono_item, _) in mono_items {
             match mono_item {
                 MonoItem::Fn(inst) => match backend_config.codegen_mode {
-                    CodegenMode::Aot => unreachable!(),
+                    CodegenMode::Aot | CodegenMode::Interpret => unreachable!(),
                     CodegenMode::Jit => {
                         codegen_and_compile_fn(
                             tcx,
@@ -304,7 +302,7 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
     }
 }
 
-pub(crate) fn codegen_and_compile_fn<'tcx>(
+fn codegen_and_compile_fn<'tcx>(
     tcx: TyCtxt<'tcx>,
     cx: &mut crate::CodegenCx,
     cached_context: &mut Context,
