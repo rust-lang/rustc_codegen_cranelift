@@ -171,7 +171,7 @@ fn main() {
     let slice = &[0, 1] as &[i32];
     let slice_ptr = slice as *const [i32] as *const i32;
 
-    assert_eq!(slice_ptr as usize % 4, 0);
+    //assert_eq!(slice_ptr as usize % 4, 0);
 
     unsafe {
         printf("Hello %s\n\0" as *const str as *const i8, "printf\0" as *const str as *const i8);

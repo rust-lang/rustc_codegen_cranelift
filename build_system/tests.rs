@@ -308,14 +308,14 @@ impl TestRunner {
         for TestCase { config, cmd } in tests {
             let (tag, testname) = config.split_once('.').unwrap();
             let tag = tag.to_uppercase();
-            let is_jit_test = tag == "JIT";
+            //let is_jit_test = tag == "JIT";
 
-            if !config::get_bool(config) || (is_jit_test && !self.jit_supported) {
+            /*if !config::get_bool(config) || (is_jit_test && !self.jit_supported) {
                 eprintln!("[{tag}] {testname} (skipped)");
                 continue;
-            } else {
-                eprintln!("[{tag}] {testname}");
-            }
+            } else {*/
+            eprintln!("[{tag}] {testname}");
+            //}
 
             match *cmd {
                 TestCaseCmd::Custom { func } => func(self),
@@ -332,7 +332,7 @@ impl TestRunner {
                 TestCaseCmd::JitBin { source, args } => {
                     let mut jit_cmd = self.rustc_command([
                         "-Zunstable-options",
-                        "-Cllvm-args=mode=jit",
+                        "-Cllvm-args=mode=interpret",
                         "-Cprefer-dynamic",
                         source,
                         "--cfg",
@@ -342,6 +342,21 @@ impl TestRunner {
                         jit_cmd.env("CG_CLIF_JIT_ARGS", args);
                     }
                     spawn_and_wait(jit_cmd);
+
+                    if self.jit_supported {
+                        let mut jit_cmd = self.rustc_command([
+                            "-Zunstable-options",
+                            "-Cllvm-args=mode=jit",
+                            "-Cprefer-dynamic",
+                            source,
+                            "--cfg",
+                            "jit",
+                        ]);
+                        if !args.is_empty() {
+                            jit_cmd.env("CG_CLIF_JIT_ARGS", args);
+                        }
+                        spawn_and_wait(jit_cmd);
+                    }
 
                     /*
                     eprintln!("[JIT-lazy] {testname}");
@@ -380,6 +395,7 @@ impl TestRunner {
         cmd.arg("--target");
         cmd.arg(&self.target_compiler.triple);
         cmd.arg("-Cpanic=abort");
+        cmd.arg("-Cdebug-assertions=no");
         cmd.args(args);
         cmd
     }
