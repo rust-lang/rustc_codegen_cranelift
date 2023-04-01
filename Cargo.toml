@@ -49,3 +49,7 @@ inline_asm_sym = []
 
 [package.metadata.rust-analyzer]
 rustc_private = true
+
+[profile.release]
+debug = 2
+debug-assertions = true
