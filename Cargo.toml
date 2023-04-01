@@ -55,3 +55,7 @@ __check_build_system_using_ra = []
 
 [package.metadata.rust-analyzer]
 rustc_private = true
+
+[profile.release]
+debug = 2
+debug-assertions = true
