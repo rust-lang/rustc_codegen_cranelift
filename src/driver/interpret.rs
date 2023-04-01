@@ -2,10 +2,11 @@
 //! files.
 
 use std::collections::BTreeMap;
+use std::ffi::{c_void, CStr};
 
 use cranelift_codegen::binemit::Reloc;
 use cranelift_codegen::data_value::DataValue;
-use cranelift_codegen::ir::Function;
+use cranelift_codegen::ir::{Function, LibCall};
 use cranelift_interpreter::address::{Address, AddressRegion};
 use cranelift_interpreter::instruction::DfgInstructionContext;
 use cranelift_interpreter::interpreter::InterpreterError;
@@ -108,6 +109,17 @@ pub(crate) fn run_interpret(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> !
         "Rustc codegen cranelift will JIT run the executable, because -Cllvm-args=mode=interpret was passed"
     );
 
+    /*
+    for (data_id, data_object) in &interpret_module.inner.data_objects {
+        println!(
+            "{:?} ({}): {:#?}",
+            data_id,
+            interpret_module.declarations().get_data_decl(*data_id).linkage_name(*data_id),
+            data_object
+        );
+    }
+    */
+
     let mut data_object_addrs = BTreeMap::new();
     for (data_id, data_object) in &interpret_module.inner.data_objects {
         match &data_object.init {
@@ -138,7 +150,7 @@ pub(crate) fn run_interpret(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> !
                 + reloc.addend) as u64;
             match reloc.kind {
                 Reloc::Abs8 => unsafe {
-                    *(data_object_addrs[data_id] as *mut u64) = reloc_val;
+                    *((data_object_addrs[data_id] + reloc.offset as u64) as *mut u64) = reloc_val;
                 },
                 _ => unreachable!(),
             }
@@ -148,43 +160,17 @@ pub(crate) fn run_interpret(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> !
     let mut interpreter =
         Interpreter::new(InterpreterState { module: &interpret_module, stack: vec![] });
 
-    match interpreter.call_by_name("main", &[DataValue::U32(0), DataValue::U64(0)]) {
-        Ok(call_res) => {
-            println!("{:?}", call_res);
-        }
-        Err(err) => match err {
-            InterpreterError::StepError(step_err) => match step_err {
-                cranelift_interpreter::step::StepError::UnknownFunction(func_ref) => {
-                    let func_id = FuncId::from_u32(
-                        match interpreter.state.get_current_function().dfg.ext_funcs[func_ref].name
-                        {
-                            cranelift_codegen::ir::ExternalName::User(user) => {
-                                interpreter.state.get_current_function().params.user_named_funcs
-                                    [user]
-                                    .index
-                            }
-                            cranelift_codegen::ir::ExternalName::TestCase(_) => todo!(),
-                            cranelift_codegen::ir::ExternalName::LibCall(_) => todo!(),
-                            cranelift_codegen::ir::ExternalName::KnownSymbol(_) => todo!(),
-                        },
-                    );
-                    println!(
-                        "Imported function {:#?}",
-                        interpreter.state.module.declarations().get_function_decl(func_id)
-                    );
-                }
-                step_err => println!("STEP ERROR: {step_err:?}"),
-            },
-            err => println!("ERROR: {err:?}"),
-        },
-    }
+    println!(
+        "{:?}",
+        interpreter.call_by_name("main", &[DataValue::U32(0), DataValue::U64(0)]).unwrap()
+    );
 
     std::process::exit(1);
 }
 
 struct InterpreterState<'a> {
     module: &'a super::lto::SerializeModule,
-    stack: Vec<(Frame<'a>, *mut ())>,
+    stack: Vec<(Frame<'a>, *mut u8)>,
 }
 
 impl<'a> InterpreterState<'a> {
@@ -194,6 +180,78 @@ impl<'a> InterpreterState<'a> {
 
     fn current_frame(&self) -> &Frame<'a> {
         &self.stack.last().unwrap().0
+    }
+
+    fn get_func_from_id(&self, func_id: FuncId) -> Option<InterpreterFunctionRef<'a, DataValue>> {
+        /*println!(
+            "Get function {}",
+            self.module.declarations().get_function_decl(func_id).linkage_name(func_id)
+        );*/
+        match self.module.inner.functions.get(&func_id) {
+            Some(func) => Some(InterpreterFunctionRef::Function(func)),
+            None => {
+                match &*self.module.declarations().get_function_decl(func_id).linkage_name(func_id)
+                {
+                    "puts" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            match args[0] {
+                                DataValue::I64(ptr) => println!("{}", unsafe {
+                                    CStr::from_ptr(ptr as *const u8).to_string_lossy()
+                                }),
+                                _ => unreachable!(),
+                            }
+                            Ok(smallvec::smallvec![DataValue::I32(0)])
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    "printf" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            match args[0] {
+                                DataValue::I64(ptr) => print!("{}", unsafe {
+                                    CStr::from_ptr(ptr as *const u8).to_string_lossy()
+                                }),
+                                _ => unreachable!(),
+                            }
+                            Ok(smallvec::smallvec![DataValue::I32(0)])
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    "malloc" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            let ptr = match args[0] {
+                                DataValue::I64(size) => {
+                                    Box::into_raw(vec![0u8; size as usize].into_boxed_slice())
+                                        as *const u8 as i64
+                                }
+                                _ => unreachable!(),
+                            };
+                            Ok(smallvec::smallvec![DataValue::I64(ptr)])
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    "free" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            match args[0] {
+                                DataValue::I64(size) => unsafe {
+                                    extern "C" {
+                                        fn free(size: *mut c_void);
+                                    }
+                                    free(size as *mut c_void);
+                                },
+                                _ => unreachable!(),
+                            };
+                            Ok(smallvec::smallvec![])
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    name => unimplemented!("{name}"),
+                }
+            }
+        }
     }
 }
 
@@ -208,26 +266,8 @@ impl<'a> State<'a, DataValue> for InterpreterState<'a> {
                 cranelift_codegen::ir::ExternalName::LibCall(_) => todo!(),
                 cranelift_codegen::ir::ExternalName::KnownSymbol(_) => todo!(),
             });
-        println!(
-            "Get function {}",
-            self.module.declarations().get_function_decl(func_id).linkage_name(func_id)
-        );
-        match self.module.inner.functions.get(&func_id) {
-            Some(func) => Some(InterpreterFunctionRef::Function(func)),
-            None => {
-                match &*self.module.declarations().get_function_decl(func_id).linkage_name(func_id)
-                {
-                    "puts" => Some(InterpreterFunctionRef::Emulated(
-                        Box::new(|args| {
-                            todo!("{args:?}");
-                            Ok(smallvec::smallvec![])
-                        }),
-                        self.module.declarations().get_function_decl(func_id).signature.clone(),
-                    )),
-                    name => unimplemented!("{name}"),
-                }
-            }
-        }
+
+        self.get_func_from_id(func_id)
     }
 
     fn get_current_function(&self) -> &'a Function {
@@ -235,25 +275,54 @@ impl<'a> State<'a, DataValue> for InterpreterState<'a> {
     }
 
     fn get_libcall_handler(&self) -> cranelift_interpreter::interpreter::LibCallHandler<DataValue> {
-        |libcall, args| todo!("{libcall:?} {args:?}")
+        |libcall, args| match libcall {
+            LibCall::Memcpy | LibCall::Memmove => {
+                let (dst, src) = match (&args[0], &args[1], &args[2]) {
+                    (&DataValue::I64(dst), &DataValue::I64(src), &DataValue::I64(size)) => unsafe {
+                        (
+                            std::slice::from_raw_parts_mut(dst as *mut u8, size as usize),
+                            std::slice::from_raw_parts(src as *const u8, size as usize),
+                        )
+                    },
+                    _ => unreachable!(),
+                };
+                dst.copy_from_slice(&src.to_vec());
+
+                Ok(smallvec::smallvec![])
+            }
+            LibCall::Memset => {
+                let (buffer, ch) = match (&args[0], &args[1], &args[2]) {
+                    (&DataValue::I64(buffer), &DataValue::I32(ch), &DataValue::I64(size)) => unsafe {
+                        (std::slice::from_raw_parts_mut(buffer as *mut u8, size as usize), ch as u8)
+                    },
+                    _ => unreachable!(),
+                };
+                buffer.fill(ch);
+
+                Ok(smallvec::smallvec![])
+            }
+            _ => todo!("{libcall:?} {args:?}"),
+        }
     }
 
     fn push_frame(&mut self, function: &'a Function) {
+        //println!("Push frame: {function:?}");
         self.stack.push((
             Frame::new(function),
             Box::into_raw(
                 vec![
-                    0;
+                    0u8;
                     function.sized_stack_slots.values().map(|slot| slot.size).sum::<u32>() as usize
                 ]
                 .into_boxed_slice(),
-            ) as *mut (),
+            ) as *mut u8,
         ));
     }
 
     fn pop_frame(&mut self) {
         // FIXME free stack
-        self.stack.pop().unwrap();
+        let frame = self.stack.pop().unwrap();
+        //println!("Pop frame: {:?}", frame);
     }
 
     fn get_value(&self, name: Value) -> Option<DataValue> {
@@ -291,7 +360,6 @@ impl<'a> State<'a, DataValue> for InterpreterState<'a> {
         ty: Type,
         mem_flags: MemFlags,
     ) -> Result<DataValue, cranelift_interpreter::state::MemoryError> {
-        println!("{:#016x}", address.offset);
         unsafe {
             Ok(match ty.bytes() {
                 1 => DataValue::read_from_slice_ne(&*(address.offset as *mut [u8; 1]), ty),
@@ -338,14 +406,25 @@ impl<'a> State<'a, DataValue> for InterpreterState<'a> {
         name: &cranelift_codegen::ir::ExternalName,
     ) -> Result<cranelift_interpreter::address::Address, cranelift_interpreter::state::MemoryError>
     {
-        todo!()
+        assert_eq!(size.bits(), 64);
+
+        let func = match *name {
+            cranelift_codegen::ir::ExternalName::User(user) => {
+                self.get_current_function().params.user_named_funcs[user].index
+            }
+            cranelift_codegen::ir::ExternalName::TestCase(_) => todo!(),
+            cranelift_codegen::ir::ExternalName::LibCall(_) => todo!(),
+            cranelift_codegen::ir::ExternalName::KnownSymbol(_) => todo!(),
+        };
+
+        Ok(Address::from_parts(size, AddressRegion::Stack, 0, func as u64).unwrap())
     }
 
     fn get_function_from_address(
         &self,
         address: cranelift_interpreter::address::Address,
     ) -> Option<cranelift_interpreter::state::InterpreterFunctionRef<'a, DataValue>> {
-        todo!()
+        self.get_func_from_id(FuncId::from_u32(address.offset as u32))
     }
 
     fn resolve_global_value(
@@ -355,19 +434,21 @@ impl<'a> State<'a, DataValue> for InterpreterState<'a> {
         match &self.get_current_function().global_values[gv] {
             cranelift_codegen::ir::GlobalValueData::Symbol { name, offset, colocated: _, tls } => {
                 assert!(!tls);
-                let data_object = &self.module.inner.data_objects[&DataId::from_u32(match name {
+                let data_id = DataId::from_u32(match name {
                     cranelift_codegen::ir::ExternalName::User(user) => {
                         self.get_current_function().params.user_named_funcs[*user].index
                     }
                     cranelift_codegen::ir::ExternalName::TestCase(_) => todo!(),
                     cranelift_codegen::ir::ExternalName::LibCall(_) => todo!(),
                     cranelift_codegen::ir::ExternalName::KnownSymbol(_) => todo!(),
-                })];
+                });
+                //println!("{data_id:?}");
+                let data_object = &self.module.inner.data_objects[&data_id];
                 Ok(DataValue::I64(match &data_object.init {
                     cranelift_module::Init::Uninitialized
                     | cranelift_module::Init::Zeros { .. } => unreachable!(),
                     cranelift_module::Init::Bytes { contents } => {
-                        dbg!(contents.as_ptr() as i64 + offset.bits())
+                        contents.as_ptr() as i64 + offset.bits()
                     }
                 }))
             }
