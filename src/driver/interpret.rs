@@ -139,7 +139,25 @@ pub(crate) fn run_interpret(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> !
                     if namespace == 0 {
                         index as u64 // Use function index as "address" for functions
                     } else if namespace == 1 {
-                        data_object_addrs[&DataId::from_u32(index)]
+                        let data_id = DataId::from_u32(index);
+                        data_object_addrs.get(&data_id).copied().unwrap_or_else(|| {
+                            let linkage_name = interpret_module
+                                .declarations()
+                                .get_data_decl(data_id)
+                                .linkage_name(data_id);
+                            if &*linkage_name == "statx"
+                                || &*linkage_name == "copy_file_range"
+                                || &*linkage_name == "posix_spawn_file_actions_addchdir_np"
+                                || &*linkage_name == "getrandom"
+                                || &*linkage_name == "__cxa_thread_atexit_impl"
+                                || &*linkage_name == "__dso_handle"
+                            {
+                                // Weak symbol
+                                0
+                            } else {
+                                panic!("{:?}: {}", data_id, linkage_name);
+                            }
+                        })
                     } else {
                         unreachable!()
                     }
@@ -160,12 +178,17 @@ pub(crate) fn run_interpret(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> !
     let mut interpreter =
         Interpreter::new(InterpreterState { module: &interpret_module, stack: vec![] });
 
-    println!(
-        "{:?}",
-        interpreter.call_by_name("main", &[DataValue::U32(0), DataValue::U64(0)]).unwrap()
-    );
+    let call_res = interpreter
+        .call_by_name("main", &[DataValue::U32(0), DataValue::U64(0)])
+        .unwrap()
+        .unwrap_return();
 
-    std::process::exit(1);
+    println!("{:?}", call_res);
+
+    std::process::exit(match call_res[0] {
+        DataValue::I64(val) => val as i32,
+        _ => unreachable!(),
+    });
 }
 
 struct InterpreterState<'a> {
@@ -222,13 +245,31 @@ impl<'a> InterpreterState<'a> {
                         Box::new(|args| {
                             //println!("{args:?}");
                             let ptr = match args[0] {
-                                DataValue::I64(size) => {
-                                    Box::into_raw(vec![0u8; size as usize].into_boxed_slice())
-                                        as *const u8 as i64
-                                }
+                                DataValue::I64(size) => unsafe {
+                                    extern "C" {
+                                        fn malloc(size: usize) -> *mut c_void;
+                                    }
+                                    malloc(size as usize)
+                                },
                                 _ => unreachable!(),
                             };
-                            Ok(smallvec::smallvec![DataValue::I64(ptr)])
+                            Ok(smallvec::smallvec![DataValue::I64(ptr as i64)])
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    "realloc" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            let ptr = match (&args[0], &args[1]) {
+                                (&DataValue::I64(ptr), &DataValue::I64(size)) => unsafe {
+                                    extern "C" {
+                                        fn realloc(ptr: *mut c_void, size: usize) -> *mut c_void;
+                                    }
+                                    realloc(ptr as *mut c_void, size as usize)
+                                },
+                                _ => unreachable!(),
+                            };
+                            Ok(smallvec::smallvec![DataValue::I64(ptr as i64)])
                         }),
                         self.module.declarations().get_function_decl(func_id).signature.clone(),
                     )),
@@ -245,6 +286,119 @@ impl<'a> InterpreterState<'a> {
                                 _ => unreachable!(),
                             };
                             Ok(smallvec::smallvec![])
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    "memchr" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            let res = match (&args[0], &args[1], &args[2]) {
+                                (&DataValue::I64(s), &DataValue::I32(c), &DataValue::I64(n)) => unsafe {
+                                    extern "C" {
+                                        fn memchr(
+                                            s: *const c_void,
+                                            c: i32,
+                                            n: usize,
+                                        ) -> *const c_void;
+                                    }
+                                    memchr(s as *const c_void, c, n as usize)
+                                },
+                                _ => unreachable!(),
+                            };
+                            Ok(smallvec::smallvec![DataValue::I64(res as i64)])
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    "memrchr" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            let res = match (&args[0], &args[1], &args[2]) {
+                                (&DataValue::I64(s), &DataValue::I32(c), &DataValue::I64(n)) => unsafe {
+                                    extern "C" {
+                                        fn memrchr(
+                                            s: *const c_void,
+                                            c: i32,
+                                            n: usize,
+                                        ) -> *const c_void;
+                                    }
+                                    memrchr(s as *const c_void, c, n as usize)
+                                },
+                                _ => unreachable!(),
+                            };
+                            Ok(smallvec::smallvec![DataValue::I64(res as i64)])
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    "memcmp" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            let res = match (&args[0], &args[1], &args[2]) {
+                                (&DataValue::I64(s1), &DataValue::I64(s2), &DataValue::I64(n)) => unsafe {
+                                    extern "C" {
+                                        fn memcmp(
+                                            s1: *const c_void,
+                                            s2: *const c_void,
+                                            n: usize,
+                                        ) -> i32;
+                                    }
+                                    memcmp(s1 as *const c_void, s2 as *const c_void, n as usize)
+                                },
+                                _ => unreachable!(),
+                            };
+                            Ok(smallvec::smallvec![DataValue::I32(res)])
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    "write" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            let res = match (&args[0], &args[1], &args[2]) {
+                                (
+                                    &DataValue::I32(fildes),
+                                    &DataValue::I64(buf),
+                                    &DataValue::I64(nbyte),
+                                ) => unsafe {
+                                    extern "C" {
+                                        fn write(
+                                            fildes: i32,
+                                            buf: *const c_void,
+                                            nbyte: usize,
+                                        ) -> isize;
+                                    }
+                                    write(fildes, buf as *const c_void, nbyte as usize)
+                                },
+                                _ => unreachable!(),
+                            };
+                            Ok(smallvec::smallvec![DataValue::I64(res as i64)])
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    "strlen" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            let res = match args[0] {
+                                DataValue::I64(s) => unsafe {
+                                    extern "C" {
+                                        fn strlen(s: *const c_void) -> usize;
+                                    }
+                                    strlen(s as *const c_void)
+                                },
+                                _ => unreachable!(),
+                            };
+                            Ok(smallvec::smallvec![DataValue::I64(res as i64)])
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    "gnu_get_libc_version" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|_args| {
+                            //println!("{args:?}");
+                            let ptr = unsafe {
+                                extern "C" {
+                                    fn gnu_get_libc_version() -> *const c_void;
+                                }
+                                gnu_get_libc_version()
+                            };
+                            Ok(smallvec::smallvec![DataValue::I64(ptr as i64)])
                         }),
                         self.module.declarations().get_function_decl(func_id).signature.clone(),
                     )),
@@ -433,7 +587,8 @@ impl<'a> State<'a, DataValue> for InterpreterState<'a> {
     ) -> Result<DataValue, cranelift_interpreter::state::MemoryError> {
         match &self.get_current_function().global_values[gv] {
             cranelift_codegen::ir::GlobalValueData::Symbol { name, offset, colocated: _, tls } => {
-                assert!(!tls);
+                // FIXME we pretend that TLS is supported
+                //assert!(!tls);
                 let data_id = DataId::from_u32(match name {
                     cranelift_codegen::ir::ExternalName::User(user) => {
                         self.get_current_function().params.user_named_funcs[*user].index
@@ -442,17 +597,35 @@ impl<'a> State<'a, DataValue> for InterpreterState<'a> {
                     cranelift_codegen::ir::ExternalName::LibCall(_) => todo!(),
                     cranelift_codegen::ir::ExternalName::KnownSymbol(_) => todo!(),
                 });
-                //println!("{data_id:?}");
-                let data_object = &self.module.inner.data_objects[&data_id];
-                Ok(DataValue::I64(match &data_object.init {
-                    cranelift_module::Init::Uninitialized
-                    | cranelift_module::Init::Zeros { .. } => unreachable!(),
-                    cranelift_module::Init::Bytes { contents } => {
-                        contents.as_ptr() as i64 + offset.bits()
-                    }
-                }))
+                /*println!(
+                    "{data_id:?}: {}",
+                    self.module.declarations().get_data_decl(data_id).linkage_name(data_id)
+                );*/
+                Ok(DataValue::I64(
+                    match self.module.inner.data_objects.get(&data_id) {
+                        Some(data_object) => match &data_object.init {
+                            cranelift_module::Init::Uninitialized
+                            | cranelift_module::Init::Zeros { .. } => unreachable!(),
+                            cranelift_module::Init::Bytes { contents } => contents.as_ptr() as i64,
+                        },
+                        None => match &*self
+                            .module
+                            .declarations()
+                            .get_data_decl(data_id)
+                            .linkage_name(data_id)
+                        {
+                            "environ" => {
+                                extern "C" {
+                                    static environ: *const *const i8;
+                                }
+                                unsafe { std::ptr::addr_of!(environ) as i64 }
+                            }
+                            name => unimplemented!("data: {name}"),
+                        },
+                    } + offset.bits(),
+                ))
             }
-            _ => unreachable!(),
+            global_value => unreachable!("{global_value:?}"),
         }
     }
 
