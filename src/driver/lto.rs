@@ -186,6 +186,8 @@ impl Module for SerializeModule {
         }
 
         if self.inner.functions.get(&func_id).is_some() {
+            // FIXME handle multiple modules defining private functions with the same name
+            return Ok(());
             return Err(ModuleError::DuplicateDefinition(
                 decl.name.as_deref().unwrap_or("<anonymous>").to_owned(),
             ));

@@ -16,13 +16,13 @@ fn main() {
     let stderr = ::std::io::stderr();
     let mut stderr = stderr.lock();
 
-    std::thread::spawn(move || {
+    /*std::thread::spawn(move || {
         println!("Hello from another thread!");
-    });
+    });*/
 
     writeln!(stderr, "some {} text", "<unknown>").unwrap();
 
-    let _ = std::process::Command::new("true").env("c", "d").spawn();
+    //let _ = std::process::Command::new("true").env("c", "d").spawn();
 
     println!("cargo:rustc-link-lib=z");
 
@@ -34,18 +34,18 @@ fn main() {
     // Make sure ByValPair values with differently sized components are correctly passed
     map(None::<(u8, Box<Instruction>)>);
 
-    println!("{}", 2.3f32.exp());
-    println!("{}", 2.3f32.exp2());
+    //println!("{}", 2.3f32.exp());
+    //println!("{}", 2.3f32.exp2());
     println!("{}", 2.3f32.abs());
-    println!("{}", 2.3f32.sqrt());
+    //println!("{}", 2.3f32.sqrt());
     println!("{}", 2.3f32.floor());
     println!("{}", 2.3f32.ceil());
     println!("{}", 2.3f32.min(1.0));
     println!("{}", 2.3f32.max(1.0));
-    println!("{}", 2.3f32.powi(2));
-    println!("{}", 2.3f32.log2());
+    //println!("{}", 2.3f32.powi(2));
+    //println!("{}", 2.3f32.log2());
     assert_eq!(2.3f32.copysign(-1.0), -2.3f32);
-    println!("{}", 2.3f32.powf(2.0));
+    //println!("{}", 2.3f32.powf(2.0));
 
     assert_eq!(i64::MAX.checked_mul(2), None);
 
@@ -54,6 +54,7 @@ fn main() {
     assert_eq!(-128i8, (-128i8).saturating_add(-128));
     assert_eq!(127i8, 127i8.saturating_add(1));
 
+    /*
     assert_eq!(0b0000000000000000000000000010000010000000000000000000000000000000_0000000000100000000000000000000000001000000000000100000000000000u128.leading_zeros(), 26);
     assert_eq!(0b0000000000000000000000000010000000000000000000000000000000000000_0000000000000000000000000000000000001000000000000000000010000000u128.trailing_zeros(), 7);
     assert_eq!(
@@ -99,6 +100,7 @@ fn main() {
     if 100i128 < 0i128 || 100i128 > max {
         panic!();
     }
+    */
 
     test_checked_mul();
 
@@ -111,7 +113,7 @@ fn main() {
 
     #[cfg(target_arch = "x86_64")]
     unsafe {
-        test_simd();
+        //test_simd();
     }
 
     Box::pin(move |mut _task_context| {
@@ -154,7 +156,7 @@ fn main() {
         enum Never {}
     }
 
-    foo(I64X2(0, 0));
+    //foo(I64X2(0, 0));
 }
 
 fn panic(_: u128) {

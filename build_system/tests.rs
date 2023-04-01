@@ -305,6 +305,11 @@ impl TestRunner {
             let tag = tag.to_uppercase();
             //let is_jit_test = tag == "JIT";
 
+            if !config::get_bool(config) {
+                eprintln!("[{tag}] {testname} (skipped)");
+                continue;
+            }
+
             /*if !config::get_bool(config) || (is_jit_test && !self.jit_supported) {
                 eprintln!("[{tag}] {testname} (skipped)");
                 continue;
