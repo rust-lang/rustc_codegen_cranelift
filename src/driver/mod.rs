@@ -9,6 +9,8 @@ use rustc_middle::mir::mono::{Linkage as RLinkage, MonoItem, Visibility};
 use crate::prelude::*;
 
 pub(crate) mod aot;
+#[cfg(all(feature = "lto", feature = "jit"))]
+pub(crate) mod interpret;
 #[cfg(feature = "jit")]
 pub(crate) mod jit;
 #[cfg(feature = "lto")]

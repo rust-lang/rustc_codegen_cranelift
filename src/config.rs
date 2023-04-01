@@ -14,6 +14,8 @@ pub enum CodegenMode {
     Jit,
     /// JIT compile and execute the crate, but only compile functions the first time they are used.
     JitLazy,
+    /// Interpret the crate.
+    Interpret,
 }
 
 impl FromStr for CodegenMode {
@@ -24,6 +26,7 @@ impl FromStr for CodegenMode {
             "aot" => Ok(CodegenMode::Aot),
             "jit" => Ok(CodegenMode::Jit),
             "jit-lazy" => Ok(CodegenMode::JitLazy),
+            "interpret" => Ok(CodegenMode::Interpret),
             _ => Err(format!("Unknown codegen mode `{}`", s)),
         }
     }

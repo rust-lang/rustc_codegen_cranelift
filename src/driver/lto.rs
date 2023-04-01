@@ -14,15 +14,15 @@ use object::{Object, ObjectSection};
 use crate::prelude::*;
 
 pub(super) struct SerializeModule {
-    isa: Arc<dyn isa::TargetIsa>,
-    inner: SerializeModuleInner,
+    pub(super) isa: Arc<dyn isa::TargetIsa>,
+    pub(super) inner: SerializeModuleInner,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct SerializeModuleInner {
-    declarations: cranelift_module::ModuleDeclarations,
-    functions: BTreeMap<FuncId, Function>,
-    data_objects: BTreeMap<DataId, DataDescription>,
+pub(super) struct SerializeModuleInner {
+    pub(super) declarations: cranelift_module::ModuleDeclarations,
+    pub(super) functions: BTreeMap<FuncId, Function>,
+    pub(super) data_objects: BTreeMap<DataId, DataDescription>,
 }
 
 #[cfg(feature = "lto")]
@@ -276,7 +276,7 @@ impl OngoingCodegen {
     }
 }
 
-fn make_module(sess: &Session, backend_config: &BackendConfig) -> SerializeModule {
+pub(super) fn make_module(sess: &Session, backend_config: &BackendConfig) -> SerializeModule {
     let isa = crate::build_isa(sess, backend_config);
 
     SerializeModule {

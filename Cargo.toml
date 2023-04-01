@@ -21,6 +21,8 @@ cranelift-module = { path = "../wasmtime/cranelift/module" }
 cranelift-native = { path = "../wasmtime/cranelift/native" }
 cranelift-jit = { path = "../wasmtime/cranelift/jit", optional = true }
 cranelift-object = { path = "../wasmtime/cranelift/object" }
+cranelift-interpreter = { path = "../wasmtime/cranelift/interpreter" }
+
 target-lexicon = "0.12.0"
 gimli = { version = "0.27.2", default-features = false, features = ["write"]}
 object = { version = "0.30.3", default-features = false, features = ["std", "read_core", "write", "archive", "coff", "elf", "macho", "pe", "unaligned"] }
