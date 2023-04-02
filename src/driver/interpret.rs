@@ -175,6 +175,9 @@ pub(crate) fn run_interpret(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> !
         }
     }
 
+    // To reduce libc function usage in the guest
+    std::env::set_var("RUST_BACKTRACE", "0");
+
     let mut interpreter =
         Interpreter::new(InterpreterState { module: &interpret_module, stack: vec![] });
 
@@ -416,6 +419,93 @@ impl<'a> InterpreterState<'a> {
                             self.module.declarations().get_function_decl(func_id).signature.clone(),
                         ))
                     }
+                    "getenv" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            let res = match args[0] {
+                                DataValue::I64(name) => unsafe {
+                                    extern "C" {
+                                        fn getenv(name: *const i8) -> *mut i8;
+                                    }
+                                    getenv(name as *const i8)
+                                },
+                                _ => unreachable!(),
+                            };
+                            Ok(Ok(smallvec::smallvec![DataValue::I64(res as i64)]))
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    "pthread_key_create" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            let res = match (&args[0], &args[1]) {
+                                (&DataValue::I64(key), &DataValue::I64(destructor)) => unsafe {
+                                    extern "C" {
+                                        fn pthread_key_create(
+                                            key: *mut (),
+                                            destructor: *mut (),
+                                        ) -> i32;
+                                    }
+                                    pthread_key_create(
+                                        key as *mut (),
+                                        std::ptr::null_mut(), /* libc can't call interpreter function */
+                                    )
+                                },
+                                _ => unreachable!(),
+                            };
+                            Ok(Ok(smallvec::smallvec![DataValue::I32(res)]))
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    "pthread_key_delete" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            let res = match args[0] {
+                                DataValue::I32(key) => unsafe {
+                                    extern "C" {
+                                        fn pthread_key_delete(key: i32) -> i32;
+                                    }
+                                    pthread_key_delete(key)
+                                },
+                                _ => unreachable!(),
+                            };
+                            Ok(Ok(smallvec::smallvec![DataValue::I32(res)]))
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    "pthread_getspecific" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            let res = match args[0] {
+                                DataValue::I32(key) => unsafe {
+                                    extern "C" {
+                                        fn pthread_getspecific(key: i32) -> *mut c_void;
+                                    }
+                                    pthread_getspecific(key)
+                                },
+                                _ => unreachable!(),
+                            };
+                            Ok(Ok(smallvec::smallvec![DataValue::I64(res as i64)]))
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
+                    "pthread_setspecific" => Some(InterpreterFunctionRef::Emulated(
+                        Box::new(|args| {
+                            //println!("{args:?}");
+                            let res = match (&args[0], &args[1]) {
+                                (&DataValue::I32(key), &DataValue::I64(value)) => unsafe {
+                                    extern "C" {
+                                        fn pthread_setspecific(key: i32, value: *mut c_void)
+                                        -> i32;
+                                    }
+                                    pthread_setspecific(key, value as *mut c_void)
+                                },
+                                _ => unreachable!(),
+                            };
+                            Ok(Ok(smallvec::smallvec![DataValue::I32(res)]))
+                        }),
+                        self.module.declarations().get_function_decl(func_id).signature.clone(),
+                    )),
                     name => unimplemented!("{name}"),
                 }
             }
