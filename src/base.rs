@@ -150,7 +150,7 @@ pub(crate) fn compile_fn(
     context.clear();
     context.func = codegened_func.func;
 
-    #[cfg(any())] // This is never true
+    //#[cfg(any())] // This is never true
     let _clif_guard = {
         use std::fmt::Write;
 
@@ -180,7 +180,24 @@ pub(crate) fn compile_fn(
     // Define function
     cx.profiler.generic_activity("define function").run(|| {
         context.want_disasm = cx.should_write_ir;
-        module.define_function(codegened_func.func_id, context).unwrap();
+        if let Err(err) = module.define_function(codegened_func.func_id, context) {
+            match err {
+                cranelift_module::ModuleError::Compilation(err) => match err {
+                    cranelift_codegen::CodegenError::Verifier(err) => {
+                        panic!(
+                            "{}",
+                            cranelift_codegen::print_errors::pretty_verifier_error(
+                                &context.func,
+                                None,
+                                err
+                            )
+                        );
+                    }
+                    _ => panic!("{err:?}"),
+                },
+                _ => panic!("{err:?}"),
+            }
+        };
     });
 
     if cx.should_write_ir {

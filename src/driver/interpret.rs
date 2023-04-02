@@ -10,7 +10,7 @@ use cranelift_codegen::ir::{Function, LibCall};
 use cranelift_interpreter::address::{Address, AddressRegion};
 use cranelift_interpreter::instruction::DfgInstructionContext;
 use cranelift_interpreter::interpreter::InterpreterError;
-use cranelift_interpreter::step::{step, ControlFlow};
+use cranelift_interpreter::step::{step, ControlFlow, CraneliftTrap};
 use rustc_codegen_ssa::CrateInfo;
 use rustc_middle::mir::mono::MonoItem;
 use rustc_span::Symbol;
@@ -647,6 +647,20 @@ struct Interpreter<'a> {
     state: InterpreterState<'a>,
 }
 
+/// Ensures that all types in args are the same as expected by the signature
+fn validate_signature_params(sig: &[AbiParam], args: &[DataValue]) -> bool {
+    args.iter().map(|r| r.ty()).zip(sig.iter().map(|r| r.value_type)).all(|(a, b)| match (a, b) {
+        // For these two cases we don't have precise type information for `a`.
+        // We don't distinguish between different bool types, or different vector types
+        // The actual error is in `Value::ty` that returns default types for some values
+        // but we don't have enough information there either.
+        //
+        // Ideally the user has run the verifier and caught this properly...
+        (a, b) if a.is_vector() && b.is_vector() => true,
+        (a, b) => a == b,
+    })
+}
+
 impl<'a> Interpreter<'a> {
     fn new(state: InterpreterState<'a>) -> Self {
         Self { state }
@@ -688,7 +702,9 @@ impl<'a> Interpreter<'a> {
         let function = self.state.current_frame_mut().function();
         let layout = &function.layout;
         let mut maybe_inst = layout.first_inst(block);
+        //println!("block at {function}");
         while let Some(inst) = maybe_inst {
+            //println!("{}", function.dfg.display_inst(inst));
             let inst_context = DfgInstructionContext::new(inst, &function.dfg);
             match step(&mut self.state, inst_context)? {
                 ControlFlow::Assign(values) => {
@@ -705,17 +721,194 @@ impl<'a> Interpreter<'a> {
                     maybe_inst = layout.first_inst(block)
                 }
                 ControlFlow::Call(called_function, arguments) => {
-                    let returned_arguments =
-                        self.call(called_function, &arguments)?.unwrap_return();
-                    self.state
-                        .current_frame_mut()
-                        .set_all(function.dfg.inst_results(inst), returned_arguments);
+                    let signature = called_function.signature();
+                    match called_function {
+                        InterpreterFunctionRef::Function(called_function) => {
+                            let returned_arguments =
+                                self.call(called_function, &arguments)?.unwrap_return();
+                            self.state
+                                .current_frame_mut()
+                                .set_all(function.dfg.inst_results(inst), returned_arguments);
+                        }
+                        InterpreterFunctionRef::LibCall(libcall) => {
+                            let libcall_handler = self.state.get_libcall_handler();
+
+                            // We don't transfer control to a libcall, we just execute it and return the results
+                            let res = libcall_handler(libcall, arguments);
+                            let res = match res {
+                                Err(trap) => {
+                                    return Ok(ControlFlow::Trap(CraneliftTrap::User(trap)));
+                                }
+                                Ok(rets) => rets,
+                            };
+
+                            // Check that what the handler returned is what we expect.
+                            if validate_signature_params(&signature.returns[..], &res[..]) {
+                                self.state
+                                    .current_frame_mut()
+                                    .set_all(function.dfg.inst_results(inst), res.into_vec());
+                            } else {
+                                panic!("{signature:?} {res:?}");
+                            }
+                        }
+                        InterpreterFunctionRef::Emulated(emulator, _sig) => {
+                            // We don't transfer control to a libcall, we just execute it and return the results
+                            let res = emulator(arguments);
+                            let res = match res {
+                                Err(trap) => {
+                                    return Ok(ControlFlow::Trap(CraneliftTrap::User(trap)));
+                                }
+                                Ok(rets) => rets,
+                            };
+
+                            // Check that what the handler returned is what we expect.
+                            if validate_signature_params(&signature.returns[..], &res[..]) {
+                                self.state
+                                    .current_frame_mut()
+                                    .set_all(function.dfg.inst_results(inst), res.into_vec());
+                            } else {
+                                panic!("{signature:?} {res:?}");
+                            }
+                        }
+                    }
                     maybe_inst = layout.next_inst(inst)
                 }
-                ControlFlow::ReturnCall(callee, args) => {
+                ControlFlow::Invoke(called_function, arguments, table) => {
+                    //println!("invoke at {function}");
+
+                    let signature = called_function.signature();
+                    match called_function {
+                        InterpreterFunctionRef::Function(called_function) => {
+                            match self.call(called_function, &arguments)? {
+                                ControlFlow::Return(returned_arguments) => {
+                                    let block =
+                                        table.default_block().block(&function.dfg.value_lists);
+                                    let extra_args =
+                                        table.default_block().args_slice(&function.dfg.value_lists);
+                                    //println!("returned from invoke at {function}");
+                                    self.state.current_frame_mut().set_all(
+                                        &*extra_args
+                                            .iter()
+                                            .chain(function.dfg.block_params(block))
+                                            .copied()
+                                            .collect::<Vec<_>>(),
+                                        returned_arguments.into_vec(),
+                                    );
+                                    maybe_inst = Some(layout.first_inst(block).unwrap());
+                                }
+                                control_flow => panic!(
+                                    "expected the control flow to be in the return or unwind state, but it is in {control_flow:?}"
+                                ),
+                            }
+                        }
+                        InterpreterFunctionRef::LibCall(libcall) => {
+                            let libcall_handler = self.state.get_libcall_handler();
+
+                            // We don't transfer control to a libcall, we just execute it and return the results
+                            let res = libcall_handler(libcall, arguments);
+                            let res = match res {
+                                Err(trap) => {
+                                    return Ok(ControlFlow::Trap(CraneliftTrap::User(trap)));
+                                }
+                                Ok(rets) => rets,
+                            };
+
+                            // Check that what the handler returned is what we expect.
+                            if validate_signature_params(&signature.returns[..], &res[..]) {
+                                let block = table.default_block().block(&function.dfg.value_lists);
+                                let extra_args =
+                                    table.default_block().args_slice(&function.dfg.value_lists);
+                                //println!("returned from invoke at {function}");
+                                self.state.current_frame_mut().set_all(
+                                    &*extra_args
+                                        .iter()
+                                        .chain(function.dfg.block_params(block))
+                                        .copied()
+                                        .collect::<Vec<_>>(),
+                                    res.into_vec(),
+                                );
+                                maybe_inst = Some(layout.first_inst(block).unwrap());
+                            } else {
+                                panic!("{signature:?} {res:?}");
+                            }
+                        }
+                        InterpreterFunctionRef::Emulated(emulator, _sig) => {
+                            // We don't transfer control to a libcall, we just execute it and return the results
+                            let res = emulator(arguments);
+                            let res = match res {
+                                Err(trap) => {
+                                    return Ok(ControlFlow::Trap(CraneliftTrap::User(trap)));
+                                }
+                                Ok(rets) => rets,
+                            };
+
+                            // Check that what the handler returned is what we expect.
+                            if validate_signature_params(&signature.returns[..], &res[..]) {
+                                let block = table.default_block().block(&function.dfg.value_lists);
+                                let extra_args =
+                                    table.default_block().args_slice(&function.dfg.value_lists);
+                                //println!("returned from invoke at {function}");
+                                self.state.current_frame_mut().set_all(
+                                    &*extra_args
+                                        .iter()
+                                        .chain(function.dfg.block_params(block))
+                                        .copied()
+                                        .collect::<Vec<_>>(),
+                                    res.into_vec(),
+                                );
+                                maybe_inst = Some(layout.first_inst(block).unwrap());
+                            } else {
+                                panic!("{signature:?} {res:?}");
+                            }
+                        }
+                    }
+                }
+                ControlFlow::ReturnCall(called_function, arguments) => {
                     self.state.pop_frame();
-                    let rets = self.call(callee, &args)?.unwrap_return();
-                    return Ok(ControlFlow::Return(rets.into()));
+
+                    let signature = called_function.signature();
+                    let rets = match called_function {
+                        InterpreterFunctionRef::Function(called_function) => {
+                            self.call(called_function, &arguments)?.unwrap_return().into()
+                        }
+                        InterpreterFunctionRef::LibCall(libcall) => {
+                            let libcall_handler = self.state.get_libcall_handler();
+
+                            // We don't transfer control to a libcall, we just execute it and return the results
+                            let res = libcall_handler(libcall, arguments);
+                            let res = match res {
+                                Err(trap) => {
+                                    return Ok(ControlFlow::Trap(CraneliftTrap::User(trap)));
+                                }
+                                Ok(rets) => rets,
+                            };
+
+                            // Check that what the handler returned is what we expect.
+                            if validate_signature_params(&signature.returns[..], &res[..]) {
+                                res
+                            } else {
+                                panic!("{signature:?} {res:?}");
+                            }
+                        }
+                        InterpreterFunctionRef::Emulated(emulator, _sig) => {
+                            // We don't transfer control to a libcall, we just execute it and return the results
+                            let res = emulator(arguments);
+                            let res = match res {
+                                Err(trap) => {
+                                    return Ok(ControlFlow::Trap(CraneliftTrap::User(trap)));
+                                }
+                                Ok(rets) => rets,
+                            };
+
+                            // Check that what the handler returned is what we expect.
+                            if validate_signature_params(&signature.returns[..], &res[..]) {
+                                res
+                            } else {
+                                panic!("{signature:?} {res:?}");
+                            }
+                        }
+                    };
+                    return Ok(ControlFlow::Return(rets));
                 }
                 ControlFlow::Return(returned_values) => {
                     self.state.pop_frame();
