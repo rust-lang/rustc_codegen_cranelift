@@ -718,7 +718,7 @@ impl<'a> Interpreter<'a> {
         let mut maybe_inst = layout.first_inst(block);
         //println!("block at {function}");
         while let Some(inst) = maybe_inst {
-            //println!("{}", function.dfg.display_inst(inst));
+            //println!("[{}] {}", function.name, function.dfg.display_inst(inst));
             let inst_context = DfgInstructionContext::new(inst, &function.dfg);
             match step(&mut self.state, inst_context)? {
                 ControlFlow::Assign(values) => {
@@ -738,9 +738,14 @@ impl<'a> Interpreter<'a> {
                     let signature = called_function.signature();
                     match called_function {
                         InterpreterFunctionRef::Function(called_function) => {
-                            // FIXME handle ControlFlow::Unwind
-                            let returned_arguments =
-                                self.call(called_function, &arguments)?.unwrap_return();
+                            let returned_arguments = match self.call(called_function, &arguments)? {
+                                ControlFlow::Return(rets) => rets.to_vec(),
+                                ControlFlow::Unwind(exception) => {
+                                    self.state.pop_frame();
+                                    return Ok(ControlFlow::Unwind(exception));
+                                }
+                                control_flow => unreachable!("{control_flow:?}"),
+                            };
                             self.state
                                 .current_frame_mut()
                                 .set_all(function.dfg.inst_results(inst), returned_arguments);
@@ -784,7 +789,10 @@ impl<'a> Interpreter<'a> {
                                         panic!("{signature:?} {res:?}");
                                     }
                                 }
-                                Ok(Err(exception)) => return Ok(ControlFlow::Unwind(exception)),
+                                Ok(Err(exception)) => {
+                                    self.state.pop_frame();
+                                    return Ok(ControlFlow::Unwind(exception));
+                                }
                             }
                         }
                     }
@@ -796,6 +804,7 @@ impl<'a> Interpreter<'a> {
                     let signature = called_function.signature();
                     match called_function {
                         InterpreterFunctionRef::Function(called_function) => {
+                            //println!("{:?}", called_function);
                             match self.call(called_function, &arguments)? {
                                 ControlFlow::Return(returned_arguments) => {
                                     let block =
@@ -810,6 +819,28 @@ impl<'a> Interpreter<'a> {
                                             .copied()
                                             .collect::<Vec<_>>(),
                                         returned_arguments.into_vec(),
+                                    );
+                                    maybe_inst = Some(layout.first_inst(block).unwrap());
+                                }
+                                ControlFlow::Unwind(exception) => {
+                                    let block =
+                                        table.as_slice()[0].block(&function.dfg.value_lists);
+                                    let extra_args =
+                                        table.as_slice()[0].args_slice(&function.dfg.value_lists);
+
+                                    //println!("returned from invoke at {function}");
+                                    let values = extra_args
+                                        .iter()
+                                        .map(|val| self.state.current_frame().get(*val).clone())
+                                        .chain(exception.iter().cloned())
+                                        .collect::<Vec<_>>();
+                                    self.state.current_frame_mut().set_all(
+                                        &*extra_args
+                                            .iter()
+                                            .chain(function.dfg.block_params(block))
+                                            .copied()
+                                            .collect::<Vec<_>>(),
+                                        values,
                                     );
                                     maybe_inst = Some(layout.first_inst(block).unwrap());
                                 }
