@@ -603,6 +603,12 @@ pub mod intrinsics {
         #[rustc_safe_intrinsic]
         pub fn bswap<T>(x: T) -> T;
         pub fn write_bytes<T>(dst: *mut T, val: u8, count: usize);
+
+        pub fn r#try(
+            try_fn: fn(_: *mut u8),
+            data: *mut u8,
+            catch_fn: fn(_: *mut u8, _: *mut u8),
+        ) -> i32;
     }
 }
 

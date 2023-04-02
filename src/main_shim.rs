@@ -101,8 +101,11 @@ pub(crate) fn maybe_create_entry_wrapper(
                 // regular main fn, but ignoring #[lang = "start"] as we are running in the jit
                 // FIXME set program arguments somehow
                 let call_inst = bcx.ins().call(main_func_ref, &[]);
-                let call_results = bcx.func.dfg.inst_results(call_inst).to_owned();
+                //let call_results = bcx.func.dfg.inst_results(call_inst).to_owned();
 
+                bcx.ins().iconst(pointer_ty(tcx), 0)
+
+                /*
                 let termination_trait = tcx.require_lang_item(LangItem::Termination, None);
                 let report = tcx
                     .associated_items(termination_trait)
@@ -138,6 +141,7 @@ pub(crate) fn maybe_create_entry_wrapper(
                     types::I64 => bcx.ins().sextend(types::I64, res),
                     _ => unimplemented!("16bit systems are not yet supported"),
                 }
+                */
             } else if is_main_fn {
                 let start_def_id = tcx.require_lang_item(LangItem::Start, None);
                 let start_instance = Instance::resolve(

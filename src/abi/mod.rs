@@ -574,11 +574,11 @@ pub(crate) fn codegen_terminator_call<'tcx>(
         if let Some(cleanup) = cleanup {
             let fallthrough_block = fx.bcx.create_block();
             let fallthrough_block_call = fx.bcx.func.dfg.block_call(fallthrough_block, &[]);
-            let cleanup_block = fx.bcx.create_block();
-            let cleanup_block_call = fx.bcx.func.dfg.block_call(cleanup_block, &[]);
+            let pre_cleanup_block = fx.bcx.create_block();
+            let pre_cleanup_block_call = fx.bcx.func.dfg.block_call(pre_cleanup_block, &[]);
             let jump_table = fx.bcx.func.create_jump_table(JumpTableData::new(
                 fallthrough_block_call,
-                &[cleanup_block_call],
+                &[pre_cleanup_block_call],
             ));
 
             match func_ref {
@@ -590,10 +590,10 @@ pub(crate) fn codegen_terminator_call<'tcx>(
                 }
             }
 
-            fx.bcx.seal_block(cleanup_block);
-            fx.bcx.switch_to_block(cleanup_block);
-            fx.bcx.set_cold_block(cleanup_block);
-            let exception_ptr = fx.bcx.append_block_param(cleanup_block, fx.pointer_type);
+            fx.bcx.seal_block(pre_cleanup_block);
+            fx.bcx.switch_to_block(pre_cleanup_block);
+            fx.bcx.set_cold_block(pre_cleanup_block);
+            let exception_ptr = fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
             fx.exception_slot.store(fx, exception_ptr, MemFlags::trusted());
             let cleanup_block = fx.get_block(cleanup);
             fx.bcx.ins().jump(cleanup_block, &[]);

@@ -97,6 +97,26 @@ enum Ordering {
     Greater = 1,
 }
 
+/// Invoke a closure, capturing the cause of an unwinding panic if one occurs.
+pub unsafe fn catch_unwind<R>(f: fn() -> R) {
+    let data_ptr = f as *mut u8;
+    unsafe {
+        intrinsics::r#try(do_call::<R>, data_ptr, do_catch);
+    }
+
+    fn do_call<R>(data: *mut u8) {
+        unsafe {
+            intrinsics::transmute::<_, fn() -> R>(data)();
+        }
+    }
+
+    fn do_catch(data: *mut u8, payload: *mut u8) {
+        unsafe {
+            puts("Caught exception!\0" as *const str as *const i8);
+        }
+    }
+}
+
 #[lang = "start"]
 fn start<T: Termination + 'static>(
     main: fn() -> T,
@@ -104,19 +124,11 @@ fn start<T: Termination + 'static>(
     argv: *const *const u8,
     _sigpipe: u8,
 ) -> isize {
-    if argc == 3 {
-        unsafe {
-            puts(*argv as *const i8);
-        }
-        unsafe {
-            puts(*((argv as usize + intrinsics::size_of::<*const u8>()) as *const *const i8));
-        }
-        unsafe {
-            puts(*((argv as usize + 2 * intrinsics::size_of::<*const u8>()) as *const *const i8));
-        }
+    unsafe {
+        catch_unwind(main);
     }
 
-    main().report() as isize
+    0
 }
 
 static mut NUM: u8 = 6 * 7;
@@ -172,24 +184,29 @@ extern "C" fn cleanup(_: u64, _: *mut _Unwind_Exception) {}
 
 #[allow(unreachable_code)] // FIXME false positive
 fn main() {
-    let _a = Box::new(0);
-    take_unique(Unique { pointer: unsafe { NonNull(1 as *mut ()) }, _marker: PhantomData });
-    take_f32(0.1);
-
     unsafe {
-        printf(
-            "failed to raise exception: %d\n\0" as *const str as *const i8,
-            _Unwind_RaiseException(
-                Box::new(_Unwind_Exception {
-                    exception_class: 0u64,
-                    exception_cleanup: cleanup,
-                    private: [0; 2],
-                })
-                .0
-                .pointer
-                .0 as *mut _,
-            ) as i32,
-        );
-        panic("foo");
+        catch_unwind(|| {
+            let _a = Box::new(0);
+            take_unique(Unique { pointer: unsafe { NonNull(1 as *mut ()) }, _marker: PhantomData });
+            take_f32(0.1);
+            let _noise = NoisyDropInner;
+
+            unsafe {
+                printf(
+                    "failed to raise exception: %d\n\0" as *const str as *const i8,
+                    _Unwind_RaiseException(
+                        Box::new(_Unwind_Exception {
+                            exception_class: 0u64,
+                            exception_cleanup: cleanup,
+                            private: [0; 2],
+                        })
+                        .0
+                        .pointer
+                        .0 as *mut _,
+                    ) as i32,
+                );
+                panic("foo");
+            }
+        });
     }
 }
