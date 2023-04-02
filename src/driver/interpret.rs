@@ -224,7 +224,7 @@ impl<'a> InterpreterState<'a> {
                                 }),
                                 _ => unreachable!(),
                             }
-                            Ok(smallvec::smallvec![DataValue::I32(0)])
+                            Ok(Ok(smallvec::smallvec![DataValue::I32(0)]))
                         }),
                         self.module.declarations().get_function_decl(func_id).signature.clone(),
                     )),
@@ -237,7 +237,7 @@ impl<'a> InterpreterState<'a> {
                                 }),
                                 _ => unreachable!(),
                             }
-                            Ok(smallvec::smallvec![DataValue::I32(0)])
+                            Ok(Ok(smallvec::smallvec![DataValue::I32(0)]))
                         }),
                         self.module.declarations().get_function_decl(func_id).signature.clone(),
                     )),
@@ -253,7 +253,7 @@ impl<'a> InterpreterState<'a> {
                                 },
                                 _ => unreachable!(),
                             };
-                            Ok(smallvec::smallvec![DataValue::I64(ptr as i64)])
+                            Ok(Ok(smallvec::smallvec![DataValue::I64(ptr as i64)]))
                         }),
                         self.module.declarations().get_function_decl(func_id).signature.clone(),
                     )),
@@ -269,7 +269,7 @@ impl<'a> InterpreterState<'a> {
                                 },
                                 _ => unreachable!(),
                             };
-                            Ok(smallvec::smallvec![DataValue::I64(ptr as i64)])
+                            Ok(Ok(smallvec::smallvec![DataValue::I64(ptr as i64)]))
                         }),
                         self.module.declarations().get_function_decl(func_id).signature.clone(),
                     )),
@@ -285,7 +285,7 @@ impl<'a> InterpreterState<'a> {
                                 },
                                 _ => unreachable!(),
                             };
-                            Ok(smallvec::smallvec![])
+                            Ok(Ok(smallvec::smallvec![]))
                         }),
                         self.module.declarations().get_function_decl(func_id).signature.clone(),
                     )),
@@ -305,7 +305,7 @@ impl<'a> InterpreterState<'a> {
                                 },
                                 _ => unreachable!(),
                             };
-                            Ok(smallvec::smallvec![DataValue::I64(res as i64)])
+                            Ok(Ok(smallvec::smallvec![DataValue::I64(res as i64)]))
                         }),
                         self.module.declarations().get_function_decl(func_id).signature.clone(),
                     )),
@@ -325,7 +325,7 @@ impl<'a> InterpreterState<'a> {
                                 },
                                 _ => unreachable!(),
                             };
-                            Ok(smallvec::smallvec![DataValue::I64(res as i64)])
+                            Ok(Ok(smallvec::smallvec![DataValue::I64(res as i64)]))
                         }),
                         self.module.declarations().get_function_decl(func_id).signature.clone(),
                     )),
@@ -345,7 +345,7 @@ impl<'a> InterpreterState<'a> {
                                 },
                                 _ => unreachable!(),
                             };
-                            Ok(smallvec::smallvec![DataValue::I32(res)])
+                            Ok(Ok(smallvec::smallvec![DataValue::I32(res)]))
                         }),
                         self.module.declarations().get_function_decl(func_id).signature.clone(),
                     )),
@@ -369,7 +369,7 @@ impl<'a> InterpreterState<'a> {
                                 },
                                 _ => unreachable!(),
                             };
-                            Ok(smallvec::smallvec![DataValue::I64(res as i64)])
+                            Ok(Ok(smallvec::smallvec![DataValue::I64(res as i64)]))
                         }),
                         self.module.declarations().get_function_decl(func_id).signature.clone(),
                     )),
@@ -385,7 +385,7 @@ impl<'a> InterpreterState<'a> {
                                 },
                                 _ => unreachable!(),
                             };
-                            Ok(smallvec::smallvec![DataValue::I64(res as i64)])
+                            Ok(Ok(smallvec::smallvec![DataValue::I64(res as i64)]))
                         }),
                         self.module.declarations().get_function_decl(func_id).signature.clone(),
                     )),
@@ -398,10 +398,24 @@ impl<'a> InterpreterState<'a> {
                                 }
                                 gnu_get_libc_version()
                             };
-                            Ok(smallvec::smallvec![DataValue::I64(ptr as i64)])
+                            Ok(Ok(smallvec::smallvec![DataValue::I64(ptr as i64)]))
                         }),
                         self.module.declarations().get_function_decl(func_id).signature.clone(),
                     )),
+                    "_Unwind_RaiseException" | "_Unwind_Resume" => {
+                        Some(InterpreterFunctionRef::Emulated(
+                            Box::new(|args| {
+                                //println!("{args:?}");
+                                match args[0] {
+                                    DataValue::I64(exception) => {
+                                        Ok(Err(smallvec::smallvec![DataValue::I64(exception)]))
+                                    }
+                                    _ => unreachable!(),
+                                }
+                            }),
+                            self.module.declarations().get_function_decl(func_id).signature.clone(),
+                        ))
+                    }
                     name => unimplemented!("{name}"),
                 }
             }
@@ -724,6 +738,7 @@ impl<'a> Interpreter<'a> {
                     let signature = called_function.signature();
                     match called_function {
                         InterpreterFunctionRef::Function(called_function) => {
+                            // FIXME handle ControlFlow::Unwind
                             let returned_arguments =
                                 self.call(called_function, &arguments)?.unwrap_return();
                             self.state
@@ -754,20 +769,22 @@ impl<'a> Interpreter<'a> {
                         InterpreterFunctionRef::Emulated(emulator, _sig) => {
                             // We don't transfer control to a libcall, we just execute it and return the results
                             let res = emulator(arguments);
-                            let res = match res {
+                            match res {
                                 Err(trap) => {
                                     return Ok(ControlFlow::Trap(CraneliftTrap::User(trap)));
                                 }
-                                Ok(rets) => rets,
-                            };
-
-                            // Check that what the handler returned is what we expect.
-                            if validate_signature_params(&signature.returns[..], &res[..]) {
-                                self.state
-                                    .current_frame_mut()
-                                    .set_all(function.dfg.inst_results(inst), res.into_vec());
-                            } else {
-                                panic!("{signature:?} {res:?}");
+                                Ok(Ok(res)) => {
+                                    // Check that what the handler returned is what we expect.
+                                    if validate_signature_params(&signature.returns[..], &res[..]) {
+                                        self.state.current_frame_mut().set_all(
+                                            function.dfg.inst_results(inst),
+                                            res.into_vec(),
+                                        );
+                                    } else {
+                                        panic!("{signature:?} {res:?}");
+                                    }
+                                }
+                                Ok(Err(exception)) => return Ok(ControlFlow::Unwind(exception)),
                             }
                         }
                     }
@@ -835,85 +852,66 @@ impl<'a> Interpreter<'a> {
                         InterpreterFunctionRef::Emulated(emulator, _sig) => {
                             // We don't transfer control to a libcall, we just execute it and return the results
                             let res = emulator(arguments);
-                            let res = match res {
+                            match res {
                                 Err(trap) => {
                                     return Ok(ControlFlow::Trap(CraneliftTrap::User(trap)));
                                 }
-                                Ok(rets) => rets,
-                            };
+                                Ok(Ok(res)) => {
+                                    // Check that what the handler returned is what we expect.
+                                    if validate_signature_params(&signature.returns[..], &res[..]) {
+                                        let block =
+                                            table.default_block().block(&function.dfg.value_lists);
+                                        let extra_args = table
+                                            .default_block()
+                                            .args_slice(&function.dfg.value_lists);
+                                        //println!("returned from invoke at {function}");
+                                        self.state.current_frame_mut().set_all(
+                                            &*extra_args
+                                                .iter()
+                                                .chain(function.dfg.block_params(block))
+                                                .copied()
+                                                .collect::<Vec<_>>(),
+                                            res.into_vec(),
+                                        );
+                                        maybe_inst = Some(layout.first_inst(block).unwrap());
+                                    } else {
+                                        panic!("{signature:?} {res:?}");
+                                    }
+                                }
+                                Ok(Err(exception)) => {
+                                    let block =
+                                        table.as_slice()[0].block(&function.dfg.value_lists);
+                                    let extra_args =
+                                        table.as_slice()[0].args_slice(&function.dfg.value_lists);
 
-                            // Check that what the handler returned is what we expect.
-                            if validate_signature_params(&signature.returns[..], &res[..]) {
-                                let block = table.default_block().block(&function.dfg.value_lists);
-                                let extra_args =
-                                    table.default_block().args_slice(&function.dfg.value_lists);
-                                //println!("returned from invoke at {function}");
-                                self.state.current_frame_mut().set_all(
-                                    &*extra_args
+                                    //println!("returned from invoke at {function}");
+                                    let values = extra_args
                                         .iter()
-                                        .chain(function.dfg.block_params(block))
-                                        .copied()
-                                        .collect::<Vec<_>>(),
-                                    res.into_vec(),
-                                );
-                                maybe_inst = Some(layout.first_inst(block).unwrap());
-                            } else {
-                                panic!("{signature:?} {res:?}");
+                                        .map(|val| self.state.current_frame().get(*val).clone())
+                                        .chain(exception.iter().cloned())
+                                        .collect::<Vec<_>>();
+                                    self.state.current_frame_mut().set_all(
+                                        &*extra_args
+                                            .iter()
+                                            .chain(function.dfg.block_params(block))
+                                            .copied()
+                                            .collect::<Vec<_>>(),
+                                        values,
+                                    );
+                                    maybe_inst = Some(layout.first_inst(block).unwrap());
+                                }
                             }
                         }
                     }
                 }
-                ControlFlow::ReturnCall(called_function, arguments) => {
-                    self.state.pop_frame();
-
-                    let signature = called_function.signature();
-                    let rets = match called_function {
-                        InterpreterFunctionRef::Function(called_function) => {
-                            self.call(called_function, &arguments)?.unwrap_return().into()
-                        }
-                        InterpreterFunctionRef::LibCall(libcall) => {
-                            let libcall_handler = self.state.get_libcall_handler();
-
-                            // We don't transfer control to a libcall, we just execute it and return the results
-                            let res = libcall_handler(libcall, arguments);
-                            let res = match res {
-                                Err(trap) => {
-                                    return Ok(ControlFlow::Trap(CraneliftTrap::User(trap)));
-                                }
-                                Ok(rets) => rets,
-                            };
-
-                            // Check that what the handler returned is what we expect.
-                            if validate_signature_params(&signature.returns[..], &res[..]) {
-                                res
-                            } else {
-                                panic!("{signature:?} {res:?}");
-                            }
-                        }
-                        InterpreterFunctionRef::Emulated(emulator, _sig) => {
-                            // We don't transfer control to a libcall, we just execute it and return the results
-                            let res = emulator(arguments);
-                            let res = match res {
-                                Err(trap) => {
-                                    return Ok(ControlFlow::Trap(CraneliftTrap::User(trap)));
-                                }
-                                Ok(rets) => rets,
-                            };
-
-                            // Check that what the handler returned is what we expect.
-                            if validate_signature_params(&signature.returns[..], &res[..]) {
-                                res
-                            } else {
-                                panic!("{signature:?} {res:?}");
-                            }
-                        }
-                    };
-                    return Ok(ControlFlow::Return(rets));
+                ControlFlow::ReturnCall(_called_function, _arguments) => {
+                    unimplemented!();
                 }
                 ControlFlow::Return(returned_values) => {
                     self.state.pop_frame();
                     return Ok(ControlFlow::Return(returned_values));
                 }
+                ControlFlow::Unwind(_) => unreachable!(),
                 ControlFlow::Trap(trap) => return Ok(ControlFlow::Trap(trap)),
             }
         }
