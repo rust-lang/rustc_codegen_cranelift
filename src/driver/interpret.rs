@@ -181,10 +181,11 @@ pub(crate) fn run_interpret(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> !
     let mut interpreter =
         Interpreter::new(InterpreterState { module: &interpret_module, stack: vec![] });
 
-    let call_res = interpreter
-        .call_by_name("main", &[DataValue::U32(0), DataValue::U64(0)])
-        .unwrap()
-        .unwrap_return();
+    let call_res =
+        match interpreter.call_by_name("main", &[DataValue::U32(0), DataValue::U64(0)]).unwrap() {
+            ControlFlow::Return(res) => res,
+            control_flow => panic!("Unexpected control flow {control_flow:?}"),
+        };
 
     println!("{:?}", call_res);
 
