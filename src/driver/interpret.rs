@@ -547,7 +547,7 @@ impl<'a> State<'a, DataValue> for InterpreterState<'a> {
                 };
                 dst.copy_from_slice(&src.to_vec());
 
-                Ok(smallvec::smallvec![])
+                Ok(smallvec::smallvec![args[0].clone()])
             }
             LibCall::Memset => {
                 let (buffer, ch) = match (&args[0], &args[1], &args[2]) {
@@ -558,7 +558,7 @@ impl<'a> State<'a, DataValue> for InterpreterState<'a> {
                 };
                 buffer.fill(ch);
 
-                Ok(smallvec::smallvec![])
+                Ok(smallvec::smallvec![args[0].clone()])
             }
             _ => todo!("{libcall:?} {args:?}"),
         }
