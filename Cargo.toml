@@ -15,7 +15,7 @@ crate-type = ["dylib"]
 
 [dependencies]
 # These have to be in sync with each other
-cranelift-codegen = { path = "../wasmtime/cranelift/codegen", features = ["unwind", "all-arch"] }
+cranelift-codegen = { path = "../wasmtime/cranelift/codegen", features = ["unwind"] }
 cranelift-frontend = { path = "../wasmtime/cranelift/frontend" }
 cranelift-module = { path = "../wasmtime/cranelift/module" }
 cranelift-native = { path = "../wasmtime/cranelift/native" }
