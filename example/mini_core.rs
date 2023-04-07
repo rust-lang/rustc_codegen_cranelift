@@ -480,9 +480,21 @@ fn panic_bounds_check(index: usize, len: usize) -> ! {
     }
 }
 
+#[lang = "panic_cannot_unwind"]
+fn panic_cannot_unwind() -> ! {
+    unsafe {
+        libc::puts("panic cannot unwind\n\0" as *const str as *const i8);
+        intrinsics::abort();
+    }
+}
+
 #[lang = "eh_personality"]
 fn eh_personality() -> ! {
-    loop {}
+    unsafe {
+        libc::puts("personality\n\0" as *const str as *const i8);
+        intrinsics::abort();
+        // FIXME implement an actual personality function
+    }
 }
 
 #[lang = "drop_in_place"]
