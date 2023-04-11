@@ -210,7 +210,7 @@ pub(crate) fn codegen_intrinsic_call<'tcx>(
     args: &[mir::Operand<'tcx>],
     destination: CPlace<'tcx>,
     target: Option<BasicBlock>,
-    cleanup: Option<BasicBlock>,
+    unwind: UnwindAction,
     source_info: mir::SourceInfo,
 ) {
     let intrinsic = fx.tcx.item_name(instance.def_id());
@@ -238,7 +238,7 @@ pub(crate) fn codegen_intrinsic_call<'tcx>(
             args,
             destination,
             target,
-            cleanup,
+            unwind,
             source_info,
         );
     }
@@ -371,7 +371,7 @@ fn codegen_regular_intrinsic_call<'tcx>(
     args: &[mir::Operand<'tcx>],
     ret: CPlace<'tcx>,
     destination: Option<BasicBlock>,
-    cleanup: Option<BasicBlock>,
+    unwind: UnwindAction,
     source_info: mir::SourceInfo,
 ) {
     let usize_layout = fx.layout_of(fx.tcx.types.usize);

@@ -372,7 +372,7 @@ pub(crate) fn codegen_terminator_call<'tcx>(
     args: &[Operand<'tcx>],
     destination: Place<'tcx>,
     target: Option<BasicBlock>,
-    cleanup: Option<BasicBlock>,
+    unwind: UnwindAction,
 ) {
     let func = codegen_operand(fx, func);
     let fn_sig = func.layout().ty.fn_sig(fx.tcx);
@@ -405,7 +405,7 @@ pub(crate) fn codegen_terminator_call<'tcx>(
                     args,
                     ret_place,
                     target,
-                    cleanup,
+                    unwind,
                     source_info,
                 );
                 return;
@@ -571,61 +571,65 @@ pub(crate) fn codegen_terminator_call<'tcx>(
             fx.bcx.func.dfg.signatures[sig_ref].params = abi_params;
         }
 
-        if let Some(cleanup) = cleanup {
-            let fallthrough_block = fx.bcx.create_block();
-            let fallthrough_block_call = fx.bcx.func.dfg.block_call(fallthrough_block, &[]);
-            let pre_cleanup_block = fx.bcx.create_block();
-            let pre_cleanup_block_call = fx.bcx.func.dfg.block_call(pre_cleanup_block, &[]);
-            let jump_table = fx.bcx.func.create_jump_table(JumpTableData::new(
-                fallthrough_block_call,
-                &[pre_cleanup_block_call],
-            ));
+        match unwind {
+            // FIXME abort on unreachable and terminate unwinds
+            UnwindAction::Continue | UnwindAction::Unreachable | UnwindAction::Terminate => {
+                let call_inst = match func_ref {
+                    CallTarget::Direct(func_ref) => fx.bcx.ins().call(func_ref, &call_args),
+                    CallTarget::Indirect(sig, func_ptr) => {
+                        fx.bcx.ins().call_indirect(sig, func_ptr, &call_args)
+                    }
+                };
 
-            match func_ref {
-                CallTarget::Direct(func_ref) => {
-                    fx.bcx.ins().invoke(func_ref, &call_args, jump_table);
-                }
-                CallTarget::Indirect(sig, func_ptr) => {
-                    fx.bcx.ins().invoke_indirect(sig, func_ptr, &call_args, jump_table);
-                }
+                fx.bcx
+                    .func
+                    .dfg
+                    .inst_results(call_inst)
+                    .iter()
+                    .copied()
+                    .collect::<SmallVec<[Value; 2]>>()
             }
+            UnwindAction::Cleanup(cleanup) => {
+                let fallthrough_block = fx.bcx.create_block();
+                let fallthrough_block_call = fx.bcx.func.dfg.block_call(fallthrough_block, &[]);
+                let pre_cleanup_block = fx.bcx.create_block();
+                let pre_cleanup_block_call = fx.bcx.func.dfg.block_call(pre_cleanup_block, &[]);
+                let jump_table = fx.bcx.func.create_jump_table(JumpTableData::new(
+                    fallthrough_block_call,
+                    &[pre_cleanup_block_call],
+                ));
 
-            fx.bcx.seal_block(pre_cleanup_block);
-            fx.bcx.switch_to_block(pre_cleanup_block);
-            fx.bcx.set_cold_block(pre_cleanup_block);
-            let exception_ptr = fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
-            fx.exception_slot.store(fx, exception_ptr, MemFlags::trusted());
-            let cleanup_block = fx.get_block(cleanup);
-            fx.bcx.ins().jump(cleanup_block, &[]);
-
-            fx.bcx.seal_block(fallthrough_block);
-            fx.bcx.switch_to_block(fallthrough_block);
-            let returns_types = fx.bcx.func.dfg.signatures[sig_ref]
-                .returns
-                .iter()
-                .map(|return_param| return_param.value_type)
-                .collect::<Vec<_>>();
-            let returns = returns_types
-                .into_iter()
-                .map(|ty| fx.bcx.append_block_param(fallthrough_block, ty))
-                .collect();
-            fx.bcx.ins().nop();
-            returns
-        } else {
-            let call_inst = match func_ref {
-                CallTarget::Direct(func_ref) => fx.bcx.ins().call(func_ref, &call_args),
-                CallTarget::Indirect(sig, func_ptr) => {
-                    fx.bcx.ins().call_indirect(sig, func_ptr, &call_args)
+                match func_ref {
+                    CallTarget::Direct(func_ref) => {
+                        fx.bcx.ins().invoke(func_ref, &call_args, jump_table);
+                    }
+                    CallTarget::Indirect(sig, func_ptr) => {
+                        fx.bcx.ins().invoke_indirect(sig, func_ptr, &call_args, jump_table);
+                    }
                 }
-            };
 
-            fx.bcx
-                .func
-                .dfg
-                .inst_results(call_inst)
-                .iter()
-                .copied()
-                .collect::<SmallVec<[Value; 2]>>()
+                fx.bcx.seal_block(pre_cleanup_block);
+                fx.bcx.switch_to_block(pre_cleanup_block);
+                fx.bcx.set_cold_block(pre_cleanup_block);
+                let exception_ptr = fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
+                fx.exception_slot.store(fx, exception_ptr, MemFlags::trusted());
+                let cleanup_block = fx.get_block(cleanup);
+                fx.bcx.ins().jump(cleanup_block, &[]);
+
+                fx.bcx.seal_block(fallthrough_block);
+                fx.bcx.switch_to_block(fallthrough_block);
+                let returns_types = fx.bcx.func.dfg.signatures[sig_ref]
+                    .returns
+                    .iter()
+                    .map(|return_param| return_param.value_type)
+                    .collect::<Vec<_>>();
+                let returns = returns_types
+                    .into_iter()
+                    .map(|ty| fx.bcx.append_block_param(fallthrough_block, ty))
+                    .collect();
+                fx.bcx.ins().nop();
+                returns
+            }
         }
     });
 
