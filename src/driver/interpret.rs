@@ -201,15 +201,7 @@ struct InterpreterState<'a> {
 }
 
 impl<'a> InterpreterState<'a> {
-    fn current_frame_mut(&mut self) -> &mut Frame<'a> {
-        &mut self.stack.last_mut().unwrap().0
-    }
-
-    fn current_frame(&self) -> &Frame<'a> {
-        &self.stack.last().unwrap().0
-    }
-
-    fn get_func_from_id(&self, func_id: FuncId) -> Option<InterpreterFunctionRef<'a, DataValue>> {
+    fn get_func_from_id(&self, func_id: FuncId) -> Option<InterpreterFunctionRef<'a>> {
         /*println!(
             "Get function {}",
             self.module.declarations().get_function_decl(func_id).linkage_name(func_id)
@@ -514,8 +506,8 @@ impl<'a> InterpreterState<'a> {
     }
 }
 
-impl<'a> State<'a, DataValue> for InterpreterState<'a> {
-    fn get_function(&self, func_ref: FuncRef) -> Option<InterpreterFunctionRef<'a, DataValue>> {
+impl<'a> State<'a> for InterpreterState<'a> {
+    fn get_function(&self, func_ref: FuncRef) -> Option<InterpreterFunctionRef<'a>> {
         let func_id =
             FuncId::from_u32(match self.get_current_function().dfg.ext_funcs[func_ref].name {
                 cranelift_codegen::ir::ExternalName::User(user) => {
@@ -533,7 +525,7 @@ impl<'a> State<'a, DataValue> for InterpreterState<'a> {
         self.stack.last().unwrap().0.function()
     }
 
-    fn get_libcall_handler(&self) -> cranelift_interpreter::interpreter::LibCallHandler<DataValue> {
+    fn get_libcall_handler(&self) -> cranelift_interpreter::interpreter::LibCallHandler {
         |libcall, args| match libcall {
             LibCall::Memcpy | LibCall::Memmove => {
                 let (dst, src) = match (&args[0], &args[1], &args[2]) {
@@ -584,12 +576,12 @@ impl<'a> State<'a, DataValue> for InterpreterState<'a> {
         //println!("Pop frame: {:?}", frame);
     }
 
-    fn get_value(&self, name: Value) -> Option<DataValue> {
-        Some(self.current_frame().get(name).clone())
+    fn current_frame_mut(&mut self) -> &mut Frame<'a> {
+        &mut self.stack.last_mut().unwrap().0
     }
 
-    fn set_value(&mut self, name: Value, value: DataValue) -> Option<DataValue> {
-        self.current_frame_mut().set(name, value)
+    fn current_frame(&self) -> &Frame<'a> {
+        &self.stack.last().unwrap().0
     }
 
     fn stack_address(
@@ -682,7 +674,7 @@ impl<'a> State<'a, DataValue> for InterpreterState<'a> {
     fn get_function_from_address(
         &self,
         address: cranelift_interpreter::address::Address,
-    ) -> Option<cranelift_interpreter::state::InterpreterFunctionRef<'a, DataValue>> {
+    ) -> Option<cranelift_interpreter::state::InterpreterFunctionRef<'a>> {
         self.get_func_from_id(FuncId::from_u32(address.offset as u32))
     }
 
@@ -776,7 +768,7 @@ impl<'a> Interpreter<'a> {
         &mut self,
         func_name: &str,
         arguments: &[DataValue],
-    ) -> Result<ControlFlow<'a, DataValue>, InterpreterError> {
+    ) -> Result<ControlFlow<'a>, InterpreterError> {
         let func_id = match self.state.module.declarations().get_name(func_name).unwrap() {
             cranelift_module::FuncOrDataId::Func(func_id) => func_id,
             cranelift_module::FuncOrDataId::Data(_) => panic!(),
@@ -792,7 +784,7 @@ impl<'a> Interpreter<'a> {
         &mut self,
         function: &'a Function,
         arguments: &[DataValue],
-    ) -> Result<ControlFlow<'a, DataValue>, InterpreterError> {
+    ) -> Result<ControlFlow<'a>, InterpreterError> {
         let first_block = function.layout.blocks().next().expect("to have a first block");
         let parameters = function.dfg.block_params(first_block);
         self.state.push_frame(function);
@@ -803,7 +795,7 @@ impl<'a> Interpreter<'a> {
 
     /// Interpret a [Block] in a [Function]. This drives the interpretation over sequences of
     /// instructions, which may continue in other blocks, until the function returns.
-    fn block(&mut self, block: Block) -> Result<ControlFlow<'a, DataValue>, InterpreterError> {
+    fn block(&mut self, block: Block) -> Result<ControlFlow<'a>, InterpreterError> {
         let function = self.state.current_frame_mut().function();
         let layout = &function.layout;
         let mut maybe_inst = layout.first_inst(block);
