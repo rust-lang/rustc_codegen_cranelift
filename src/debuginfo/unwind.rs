@@ -3,12 +3,13 @@
 use crate::prelude::*;
 
 use cranelift_codegen::ir::Endianness;
-use cranelift_codegen::isa::{unwind::UnwindInfo, TargetIsa};
+use cranelift_codegen::isa::unwind::UnwindInfo;
 
 use cranelift_object::ObjectProduct;
-use gimli::write::{Address, CieId, EhFrame, FrameTable, Section};
+use gimli::write::{CieId, EhFrame, FrameTable, Section};
 use gimli::RunTimeEndian;
 
+use super::emit::{address_for_data, address_for_func};
 use super::object::WriteDebugInfo;
 
 pub(crate) struct UnwindContext {
@@ -18,18 +19,45 @@ pub(crate) struct UnwindContext {
 }
 
 impl UnwindContext {
-    pub(crate) fn new(isa: &dyn TargetIsa, pic_eh_frame: bool) -> Self {
-        let endian = match isa.endianness() {
+    pub(crate) fn new(module: &mut dyn Module, pic_eh_frame: bool) -> Self {
+        let endian = match module.isa().endianness() {
             Endianness::Little => RunTimeEndian::Little,
             Endianness::Big => RunTimeEndian::Big,
         };
         let mut frame_table = FrameTable::default();
 
-        let cie_id = if let Some(mut cie) = isa.create_systemv_cie() {
+        let cie_id = if let Some(mut cie) = module.isa().create_systemv_cie() {
             if pic_eh_frame {
                 cie.fde_address_encoding =
                     gimli::DwEhPe(gimli::DW_EH_PE_pcrel.0 | gimli::DW_EH_PE_sdata4.0);
+                cie.lsda_encoding =
+                    Some(gimli::DwEhPe(gimli::DW_EH_PE_pcrel.0 | gimli::DW_EH_PE_sdata4.0));
+            } else {
+                cie.fde_address_encoding = gimli::DW_EH_PE_absptr;
+                cie.lsda_encoding = Some(gimli::DW_EH_PE_absptr);
             }
+            // FIXME use eh_personality lang item instead
+            let personality = module
+                .declare_function(
+                    "rust_eh_personality",
+                    Linkage::Import,
+                    &Signature {
+                        params: vec![
+                            AbiParam::new(types::I32),
+                            AbiParam::new(types::I32),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(module.target_config().pointer_type()),
+                            AbiParam::new(module.target_config().pointer_type()),
+                        ],
+                        returns: vec![AbiParam::new(types::I32)],
+                        call_conv: module.target_config().default_call_conv,
+                    },
+                )
+                .unwrap();
+            cie.personality = Some((
+                gimli::DwEhPe(gimli::DW_EH_PE_pcrel.0 | gimli::DW_EH_PE_sdata4.0),
+                address_for_func(personality),
+            ));
             Some(frame_table.add_cie(cie))
         } else {
             None
@@ -38,9 +66,14 @@ impl UnwindContext {
         UnwindContext { endian, frame_table, cie_id }
     }
 
-    pub(crate) fn add_function(&mut self, func_id: FuncId, context: &Context, isa: &dyn TargetIsa) {
+    pub(crate) fn add_function(
+        &mut self,
+        module: &mut dyn Module,
+        func_id: FuncId,
+        context: &Context,
+    ) {
         let unwind_info = if let Some(unwind_info) =
-            context.compiled_code().unwrap().create_unwind_info(isa).unwrap()
+            context.compiled_code().unwrap().create_unwind_info(module.isa()).unwrap()
         {
             unwind_info
         } else {
@@ -49,11 +82,14 @@ impl UnwindContext {
 
         match unwind_info {
             UnwindInfo::SystemV(unwind_info) => {
-                self.frame_table.add_fde(
-                    self.cie_id.unwrap(),
-                    unwind_info
-                        .to_fde(Address::Symbol { symbol: func_id.as_u32() as usize, addend: 0 }),
-                );
+                let mut fde = unwind_info.to_fde(address_for_func(func_id));
+                let lsda = module.declare_anonymous_data(false, false).unwrap();
+                let mut data = DataDescription::new();
+                data.define(Box::new([0]));
+                data.set_segment_section("", ".cranelift_except_table");
+                module.define_data(lsda, &data).unwrap();
+                fde.lsda = Some(address_for_data(lsda));
+                self.frame_table.add_fde(self.cie_id.unwrap(), fde);
             }
             UnwindInfo::WindowsX64(_) => {
                 // FIXME implement this

@@ -43,7 +43,7 @@ bincode = { version = "1.3.3", optional = true }
 #cranelift-jit = { path = "../wasmtime/cranelift/jit" }
 #cranelift-object = { path = "../wasmtime/cranelift/object" }
 
-#gimli = { path = "../" }
+gimli = { git = "https://github.com/bjorn3/gimli.git", branch = "bsc-unwinding-fix-lsda-encoding" }
 
 [features]
 # Enable features not ready to be enabled when compiling as part of rustc

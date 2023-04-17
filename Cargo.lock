@@ -204,8 +204,7 @@ checksum = "4443176a9f2c162692bd3d352d745ef9413eec5782a80d8fd6f8a1ac692a07f7"
 [[package]]
 name = "gimli"
 version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad0a93d233ebf96623465aad4046a8d3aa4da22d4f4beba5388838c8a434bbb4"
+source = "git+https://github.com/bjorn3/gimli.git?branch=bsc-unwinding-fix-lsda-encoding#a84fc553a53261e4a86393e26bf0c4d7e58c4bb0"
 dependencies = [
  "fallible-iterator",
  "indexmap",

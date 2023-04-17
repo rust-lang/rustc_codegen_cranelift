@@ -73,7 +73,7 @@ impl JITModule {
         self.jit_module.finalize_definitions().unwrap();
         let prev_unwind_context = std::mem::replace(
             &mut self.unwind_context,
-            UnwindContext::new(self.jit_module.isa(), false),
+            UnwindContext::new(&mut self.jit_module, false),
         );
         unsafe { prev_unwind_context.register_jit(&self.jit_module) };
     }
@@ -133,7 +133,7 @@ impl Module for JITModule {
         ctrl_plane: &mut ControlPlane,
     ) -> ModuleResult<()> {
         self.jit_module.define_function_with_control_plane(func, ctx, ctrl_plane)?;
-        self.unwind_context.add_function(func, ctx, self.jit_module.isa());
+        self.unwind_context.add_function(&mut self.jit_module, func, ctx);
         Ok(())
     }
 
@@ -166,8 +166,8 @@ fn create_jit_module(
     crate::compiler_builtins::register_functions_for_jit(&mut jit_builder);
     //jit_builder.symbol_lookup_fn(dep_symbol_lookup_fn(tcx.sess, crate_info));
     jit_builder.symbol("__clif_jit_fn", clif_jit_fn as *const u8);
-    let jit_module = cranelift_jit::JITModule::new(jit_builder);
-    let unwind_context = UnwindContext::new(jit_module.isa(), false);
+    let mut jit_module = cranelift_jit::JITModule::new(jit_builder);
+    let unwind_context = UnwindContext::new(&mut jit_module, false);
     let mut jit_module = JITModule { jit_module, unwind_context };
 
     for (_name, module) in super::lto::load_lto_modules(tcx, &crate_info, &backend_config) {

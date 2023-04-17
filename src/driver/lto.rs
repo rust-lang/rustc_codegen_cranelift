@@ -317,8 +317,8 @@ fn emit_module(
         // can easily double the amount of time necessary to perform linking.
         builder
             .per_function_section(tcx.sess.opts.unstable_opts.function_sections.unwrap_or(false));
-        let aot_module = ObjectModule::new(builder);
-        let unwind_context = UnwindContext::new(aot_module.isa(), true);
+        let mut aot_module = ObjectModule::new(builder);
+        let unwind_context = UnwindContext::new(&mut aot_module, true);
         let mut module = super::aot::AOTModule { aot_module, unwind_context };
 
         serialize_module.apply_to(&mut module);

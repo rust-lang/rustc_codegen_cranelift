@@ -193,7 +193,7 @@ impl Module for AOTModule {
         ctrl_plane: &mut ControlPlane,
     ) -> ModuleResult<()> {
         self.aot_module.define_function_with_control_plane(func, ctx, ctrl_plane)?;
-        self.unwind_context.add_function(func, ctx, self.aot_module.isa());
+        self.unwind_context.add_function(&mut self.aot_module, func, ctx);
         Ok(())
     }
 
@@ -222,8 +222,8 @@ fn make_module(sess: &Session, backend_config: &BackendConfig, name: String) -> 
     // is important, while cg_clif cares more about compilation times. Enabling -Zfunction-sections
     // can easily double the amount of time necessary to perform linking.
     builder.per_function_section(sess.opts.unstable_opts.function_sections.unwrap_or(false));
-    let aot_module = ObjectModule::new(builder);
-    let unwind_context = UnwindContext::new(aot_module.isa(), true);
+    let mut aot_module = ObjectModule::new(builder);
+    let unwind_context = UnwindContext::new(&mut aot_module, true);
     AOTModule { aot_module, unwind_context }
 }
 
