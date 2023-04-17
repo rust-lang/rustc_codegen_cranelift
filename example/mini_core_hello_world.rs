@@ -186,9 +186,9 @@ extern "C" fn cleanup(_: u64, _: *mut _Unwind_Exception) {}
 fn main() {
     unsafe {
         catch_unwind(|| {
-            let _a = Box::new(0);
-            take_unique(Unique { pointer: unsafe { NonNull(1 as *mut ()) }, _marker: PhantomData });
-            take_f32(0.1);
+            //let _a = Box::new(0);
+            //take_unique(Unique { pointer: unsafe { NonNull(1 as *mut ()) }, _marker: PhantomData });
+            //take_f32(0.1);
             let _noise = NoisyDropInner;
 
             unsafe {
