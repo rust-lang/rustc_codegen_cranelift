@@ -6,95 +6,26 @@
     extern_types,
     thread_local,
     repr_simd,
-    c_unwind
+    c_unwind,
+    intrinsics,
+    rustc_attrs,
+    transparent_unions,
+    auto_traits
 )]
 #![no_core]
-#![allow(dead_code, non_camel_case_types)]
+#![allow(non_camel_case_types)]
+#![no_main]
 
-extern crate mini_core;
+use self::libc::*;
 
-use mini_core::libc::*;
-use mini_core::*;
-
-macro_rules! assert {
-    ($e:expr) => {
-        if !$e {
-            panic(stringify!(!$e));
-        }
-    };
-}
-
-macro_rules! assert_eq {
-    ($l:expr, $r: expr) => {
-        if $l != $r {
-            panic(stringify!($l != $r));
-        }
-    };
-}
-
-#[lang = "termination"]
-trait Termination {
-    fn report(self) -> i32;
-}
-
-impl Termination for () {
-    fn report(self) -> i32 {
-        unsafe {
-            NUM = 6 * 7 + 1 + (1u8 == 1u8) as u8; // 44
-            assert_eq!(*NUM_REF as i32, 44);
-        }
-        0
-    }
-}
-
-trait SomeTrait {
-    fn object_safe(&self);
-}
-
-impl SomeTrait for &'static str {
-    fn object_safe(&self) {
-        unsafe {
-            puts(*self as *const str as *const i8);
-        }
-    }
-}
-
-struct NoisyDrop {
-    text: &'static str,
-    inner: NoisyDropInner,
-}
-
-struct NoisyDropUnsized {
-    inner: NoisyDropInner,
-    text: str,
-}
-
-struct NoisyDropInner;
+struct NoisyDrop;
 
 impl Drop for NoisyDrop {
-    fn drop(&mut self) {
-        unsafe {
-            puts(self.text as *const str as *const i8);
-        }
-    }
-}
-
-impl Drop for NoisyDropInner {
     fn drop(&mut self) {
         unsafe {
             puts("Inner got dropped!\0" as *const str as *const i8);
         }
     }
-}
-
-impl SomeTrait for NoisyDrop {
-    fn object_safe(&self) {}
-}
-
-enum Ordering {
-    Less = -1,
-    Equal = 0,
-    Greater = 1,
 }
 
 /// Invoke a closure, capturing the cause of an unwinding panic if one occurs.
@@ -110,63 +41,16 @@ pub unsafe fn catch_unwind<R>(f: fn() -> R) {
         }
     }
 
-    fn do_catch(data: *mut u8, payload: *mut u8) {
+    fn do_catch(_data: *mut u8, _payload: *mut u8) {
         unsafe {
             puts("Caught exception!\0" as *const str as *const i8);
         }
     }
 }
 
-#[lang = "start"]
-fn start<T: Termination + 'static>(
-    main: fn() -> T,
-    argc: isize,
-    argv: *const *const u8,
-    _sigpipe: u8,
-) -> isize {
-    unsafe {
-        catch_unwind(main);
-    }
-
-    0
-}
-
-static mut NUM: u8 = 6 * 7;
-static NUM_REF: &'static u8 = unsafe { &NUM };
-
-unsafe fn zeroed<T>() -> T {
-    let mut uninit = MaybeUninit { uninit: () };
-    intrinsics::write_bytes(&mut uninit.value.value as *mut T, 0, 1);
-    uninit.value.value
-}
-
-fn take_f32(_f: f32) {}
-fn take_unique(_u: Unique<()>) {}
-
-fn return_u128_pair() -> (u128, u128) {
-    (0, 0)
-}
-
-fn call_return_u128_pair() {
-    return_u128_pair();
-}
-
-#[repr(C)]
-pub struct bool_11 {
-    field0: bool,
-    field1: bool,
-    field2: bool,
-    field3: bool,
-    field4: bool,
-    field5: bool,
-    field6: bool,
-    field7: bool,
-    field8: bool,
-    field9: bool,
-    field10: bool,
-}
-
-extern "C" fn bool_struct_in_11(_arg0: bool_11) {}
+type _Unwind_Exception_Class = u64;
+type _Unwind_Word = usize;
+type _Unwind_Ptr = usize;
 
 #[link(name = "gcc_s")]
 extern "C-unwind" {
@@ -174,39 +58,274 @@ extern "C-unwind" {
     fn _Unwind_Resume(exception: *mut _Unwind_Exception) -> !;
 }
 
+extern "C" {
+    fn _Unwind_DeleteException(exception: *mut _Unwind_Exception);
+    fn _Unwind_GetLanguageSpecificData(ctx: *mut _Unwind_Context) -> *mut ();
+    fn _Unwind_GetRegionStart(ctx: *mut _Unwind_Context) -> _Unwind_Ptr;
+    fn _Unwind_GetTextRelBase(ctx: *mut _Unwind_Context) -> _Unwind_Ptr;
+    fn _Unwind_GetDataRelBase(ctx: *mut _Unwind_Context) -> _Unwind_Ptr;
+
+    fn _Unwind_GetGR(ctx: *mut _Unwind_Context, reg_index: i32) -> _Unwind_Word;
+    fn _Unwind_SetGR(ctx: *mut _Unwind_Context, reg_index: i32, value: _Unwind_Word);
+    fn _Unwind_GetIP(ctx: *mut _Unwind_Context) -> _Unwind_Word;
+    fn _Unwind_SetIP(ctx: *mut _Unwind_Context, value: _Unwind_Word);
+    fn _Unwind_GetIPInfo(ctx: *mut _Unwind_Context, ip_before_insn: *mut i32) -> _Unwind_Word;
+    fn _Unwind_FindEnclosingFunction(pc: *mut ()) -> *mut ();
+}
+
+#[repr(C)]
 struct _Unwind_Exception {
-    exception_class: u64,
-    exception_cleanup: extern "C" fn(unwind_code: u64, exception: *mut _Unwind_Exception),
-    private: [usize; 2],
+    _exception_class: u64,
+    _exception_cleanup: extern "C" fn(unwind_code: u64, exception: *mut _Unwind_Exception),
+    _private: [usize; 2],
 }
 
 extern "C" fn cleanup(_: u64, _: *mut _Unwind_Exception) {}
 
-#[allow(unreachable_code)] // FIXME false positive
-fn main() {
-    unsafe {
-        catch_unwind(|| {
-            //let _a = Box::new(0);
-            //take_unique(Unique { pointer: unsafe { NonNull(1 as *mut ()) }, _marker: PhantomData });
-            //take_f32(0.1);
-            let _noise = NoisyDropInner;
+static mut EXC: _Unwind_Exception =
+    _Unwind_Exception { _exception_class: 0u64, _exception_cleanup: cleanup, _private: [0; 2] };
 
+#[no_mangle]
+fn main(_argc: isize, _argv: *const *const u8) {
+    unsafe {
+        fn f() {
             unsafe {
+                let _noise = NoisyDrop;
+
                 printf(
                     "failed to raise exception: %d\n\0" as *const str as *const i8,
-                    _Unwind_RaiseException(
-                        Box::new(_Unwind_Exception {
-                            exception_class: 0u64,
-                            exception_cleanup: cleanup,
-                            private: [0; 2],
-                        })
-                        .0
-                        .pointer
-                        .0 as *mut _,
-                    ) as i32,
+                    _Unwind_RaiseException(&mut EXC) as i32,
                 );
                 panic("foo");
             }
-        });
+        }
+        catch_unwind(f);
     }
+}
+
+#[repr(C)]
+pub enum _Unwind_Reason_Code {
+    _URC_NO_REASON = 0,
+    _URC_FOREIGN_EXCEPTION_CAUGHT = 1,
+    _URC_FATAL_PHASE2_ERROR = 2,
+    _URC_FATAL_PHASE1_ERROR = 3,
+    _URC_NORMAL_STOP = 4,
+    _URC_END_OF_STACK = 5,
+    _URC_HANDLER_FOUND = 6,
+    _URC_INSTALL_CONTEXT = 7,
+    _URC_CONTINUE_UNWIND = 8,
+    _URC_FAILURE = 9, // used only by ARM EHABI
+}
+
+pub enum _Unwind_Context {}
+
+#[repr(C)]
+pub enum _Unwind_Action {
+    _UA_SEARCH_PHASE = 1,
+    _UA_CLEANUP_PHASE = 2,
+    _UA_HANDLER_FRAME = 4,
+    _UA_FORCE_UNWIND = 8,
+    _UA_END_OF_STACK = 16,
+}
+
+#[lang = "eh_personality"]
+unsafe extern "C" fn rust_eh_personality(
+    version: i32,
+    actions: _Unwind_Action,
+    exception_class: _Unwind_Exception_Class,
+    exception_object: *mut _Unwind_Exception,
+    context: *mut _Unwind_Context,
+) -> _Unwind_Reason_Code {
+    libc::printf(
+        "personality for %p; lsda=%p\n\0" as *const str as *const i8,
+        _Unwind_GetIP(context),
+        _Unwind_GetLanguageSpecificData(context),
+    );
+    //intrinsics::abort();
+    // FIXME implement an actual personality function
+    _Unwind_Reason_Code::_URC_CONTINUE_UNWIND
+}
+
+#[lang = "sized"]
+pub trait Sized {}
+
+#[lang = "receiver"]
+pub trait Receiver {}
+
+impl<T: ?Sized> Receiver for &T {}
+impl<T: ?Sized> Receiver for &mut T {}
+
+#[lang = "copy"]
+pub unsafe trait Copy {}
+
+unsafe impl Copy for bool {}
+unsafe impl Copy for u8 {}
+unsafe impl Copy for u16 {}
+unsafe impl Copy for u32 {}
+unsafe impl Copy for u64 {}
+unsafe impl Copy for u128 {}
+unsafe impl Copy for usize {}
+unsafe impl Copy for i8 {}
+unsafe impl Copy for i16 {}
+unsafe impl Copy for i32 {}
+unsafe impl Copy for isize {}
+unsafe impl Copy for f32 {}
+unsafe impl Copy for f64 {}
+unsafe impl Copy for char {}
+unsafe impl<'a, T: ?Sized> Copy for &'a T {}
+unsafe impl<T: ?Sized> Copy for *const T {}
+unsafe impl<T: ?Sized> Copy for *mut T {}
+
+#[lang = "sync"]
+pub unsafe trait Sync {}
+
+unsafe impl Sync for bool {}
+unsafe impl Sync for u8 {}
+unsafe impl Sync for u16 {}
+unsafe impl Sync for u32 {}
+unsafe impl Sync for u64 {}
+unsafe impl Sync for usize {}
+unsafe impl Sync for i8 {}
+unsafe impl Sync for i16 {}
+unsafe impl Sync for i32 {}
+unsafe impl Sync for isize {}
+unsafe impl Sync for char {}
+unsafe impl<'a, T: ?Sized> Sync for &'a T {}
+unsafe impl Sync for [u8; 16] {}
+
+#[lang = "freeze"]
+unsafe auto trait Freeze {}
+
+unsafe impl<T: ?Sized> Freeze for PhantomData<T> {}
+unsafe impl<T: ?Sized> Freeze for *const T {}
+unsafe impl<T: ?Sized> Freeze for *mut T {}
+unsafe impl<T: ?Sized> Freeze for &T {}
+unsafe impl<T: ?Sized> Freeze for &mut T {}
+
+#[lang = "structural_peq"]
+pub trait StructuralPartialEq {}
+
+#[lang = "structural_teq"]
+pub trait StructuralEq {}
+
+#[lang = "destruct"]
+pub trait Destruct {}
+
+#[lang = "phantom_data"]
+pub struct PhantomData<T: ?Sized>;
+
+#[lang = "panic"]
+#[track_caller]
+pub fn panic(_msg: &'static str) -> ! {
+    unsafe {
+        libc::puts("Panicking\n\0" as *const str as *const i8);
+        intrinsics::abort();
+    }
+}
+
+#[lang = "panic_cannot_unwind"]
+fn panic_cannot_unwind() -> ! {
+    unsafe {
+        libc::puts("panic in a function that cannot unwind\n\0" as *const str as *const i8);
+        intrinsics::abort();
+    }
+}
+
+#[lang = "drop_in_place"]
+#[allow(unconditional_recursion)]
+pub unsafe fn drop_in_place<T: ?Sized>(to_drop: *mut T) {
+    // Code here does not matter - this is replaced by the
+    // real drop glue by the compiler.
+    drop_in_place(to_drop);
+}
+
+#[lang = "deref"]
+pub trait Deref {
+    type Target: ?Sized;
+
+    fn deref(&self) -> &Self::Target;
+}
+
+#[lang = "drop"]
+pub trait Drop {
+    fn drop(&mut self);
+}
+
+#[lang = "manually_drop"]
+#[repr(transparent)]
+pub struct ManuallyDrop<T: ?Sized> {
+    pub value: T,
+}
+
+#[lang = "maybe_uninit"]
+#[repr(transparent)]
+pub union MaybeUninit<T> {
+    pub uninit: (),
+    pub value: ManuallyDrop<T>,
+}
+
+pub mod intrinsics {
+    extern "rust-intrinsic" {
+        #[rustc_safe_intrinsic]
+        pub fn abort() -> !;
+        #[rustc_safe_intrinsic]
+        pub fn size_of<T>() -> usize;
+        pub fn size_of_val<T: ?::Sized>(val: *const T) -> usize;
+        #[rustc_safe_intrinsic]
+        pub fn min_align_of<T>() -> usize;
+        pub fn min_align_of_val<T: ?::Sized>(val: *const T) -> usize;
+        pub fn copy<T>(src: *const T, dst: *mut T, count: usize);
+        pub fn transmute<T, U>(e: T) -> U;
+        pub fn ctlz_nonzero<T>(x: T) -> T;
+        #[rustc_safe_intrinsic]
+        pub fn needs_drop<T: ?::Sized>() -> bool;
+        #[rustc_safe_intrinsic]
+        pub fn bitreverse<T>(x: T) -> T;
+        #[rustc_safe_intrinsic]
+        pub fn bswap<T>(x: T) -> T;
+        pub fn write_bytes<T>(dst: *mut T, val: u8, count: usize);
+
+        pub fn r#try(
+            try_fn: fn(_: *mut u8),
+            data: *mut u8,
+            catch_fn: fn(_: *mut u8, _: *mut u8),
+        ) -> i32;
+    }
+}
+
+pub mod libc {
+    // With the new Universal CRT, msvc has switched to all the printf functions being inline wrapper
+    // functions. legacy_stdio_definitions.lib which provides the printf wrapper functions as normal
+    // symbols to link against.
+    #[cfg_attr(unix, link(name = "c"))]
+    #[cfg_attr(target_env = "msvc", link(name = "legacy_stdio_definitions"))]
+    extern "C" {
+        pub fn printf(format: *const i8, ...) -> i32;
+    }
+
+    #[cfg_attr(unix, link(name = "c"))]
+    #[cfg_attr(target_env = "msvc", link(name = "msvcrt"))]
+    extern "C" {
+        pub fn puts(s: *const i8) -> i32;
+        pub fn malloc(size: usize) -> *mut u8;
+        pub fn free(ptr: *mut u8);
+        pub fn memcpy(dst: *mut u8, src: *const u8, size: usize);
+        pub fn memmove(dst: *mut u8, src: *const u8, size: usize);
+        pub fn strncpy(dst: *mut u8, src: *const u8, size: usize);
+    }
+}
+
+extern "C" {
+    type VaListImpl;
+}
+
+#[lang = "va_list"]
+#[repr(transparent)]
+pub struct VaList<'a>(&'a mut VaListImpl);
+
+#[lang = "panic_location"]
+struct PanicLocation {
+    _file: &'static str,
+    _line: u32,
+    _column: u32,
 }

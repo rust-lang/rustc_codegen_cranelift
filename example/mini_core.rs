@@ -481,7 +481,6 @@ fn panic_bounds_check(index: usize, len: usize) -> ! {
 }
 
 #[lang = "panic_cannot_unwind"]
-#[track_caller]
 fn panic_cannot_unwind() -> ! {
     unsafe {
         libc::puts("panic in a function that cannot unwind\n\0" as *const str as *const i8);
