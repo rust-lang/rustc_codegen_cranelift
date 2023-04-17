@@ -26,6 +26,7 @@ use rustc_middle::ty::layout::{HasParamEnv, ValidityRequirement};
 use rustc_middle::ty::print::{with_no_trimmed_paths, with_no_visible_paths};
 use rustc_middle::ty::subst::SubstsRef;
 use rustc_span::symbol::{kw, sym, Symbol};
+use rustc_target::spec::PanicStrategy;
 
 use crate::prelude::*;
 use cranelift_codegen::ir::{AtomicRmwOp, JumpTableData};
@@ -1106,39 +1107,52 @@ fn codegen_regular_intrinsic_call<'tcx>(
                 returns: vec![],
             });
 
-            let catch_fn_sig = fx.bcx.func.import_signature(Signature {
-                call_conv: fx.target_config.default_call_conv,
-                params: vec![AbiParam::new(pointer_ty(fx.tcx)), AbiParam::new(pointer_ty(fx.tcx))],
-                returns: vec![],
-            });
+            if fx.tcx.sess.panic_strategy() == PanicStrategy::Abort {
+                fx.bcx.ins().call_indirect(f_sig, f, &[data]);
 
-            let fallthrough_block = fx.bcx.create_block();
-            let fallthrough_block_call = fx.bcx.func.dfg.block_call(fallthrough_block, &[]);
-            let catch_block = fx.bcx.create_block();
-            let catch_block_call = fx.bcx.func.dfg.block_call(catch_block, &[]);
-            let jump_table = fx
-                .bcx
-                .func
-                .create_jump_table(JumpTableData::new(fallthrough_block_call, &[catch_block_call]));
+                let layout = fx.layout_of(fx.tcx.types.i32);
+                let ret_val = CValue::by_val(fx.bcx.ins().iconst(types::I32, 0), layout);
+                ret.write_cvalue(fx, ret_val);
 
-            fx.bcx.ins().invoke_indirect(f_sig, f, &[data], jump_table);
+                fx.bcx.ins().jump(ret_block, &[]);
+            } else {
+                let catch_fn_sig = fx.bcx.func.import_signature(Signature {
+                    call_conv: fx.target_config.default_call_conv,
+                    params: vec![
+                        AbiParam::new(pointer_ty(fx.tcx)),
+                        AbiParam::new(pointer_ty(fx.tcx)),
+                    ],
+                    returns: vec![],
+                });
 
-            fx.bcx.seal_block(fallthrough_block);
-            fx.bcx.switch_to_block(fallthrough_block);
-            let layout = fx.layout_of(fx.tcx.types.i32);
-            let ret_val = CValue::by_val(fx.bcx.ins().iconst(types::I32, 0), layout);
-            ret.write_cvalue(fx, ret_val);
-            fx.bcx.ins().jump(ret_block, &[]);
+                let fallthrough_block = fx.bcx.create_block();
+                let fallthrough_block_call = fx.bcx.func.dfg.block_call(fallthrough_block, &[]);
+                let catch_block = fx.bcx.create_block();
+                let catch_block_call = fx.bcx.func.dfg.block_call(catch_block, &[]);
+                let jump_table = fx.bcx.func.create_jump_table(JumpTableData::new(
+                    fallthrough_block_call,
+                    &[catch_block_call],
+                ));
 
-            fx.bcx.seal_block(catch_block);
-            fx.bcx.switch_to_block(catch_block);
-            fx.bcx.set_cold_block(catch_block);
-            let exception = fx.bcx.append_block_param(catch_block, pointer_ty(fx.tcx));
-            fx.bcx.ins().call_indirect(catch_fn_sig, catch_fn, &[data, exception]);
-            let layout = fx.layout_of(fx.tcx.types.i32);
-            let ret_val = CValue::by_val(fx.bcx.ins().iconst(types::I32, 1), layout);
-            ret.write_cvalue(fx, ret_val);
-            fx.bcx.ins().jump(ret_block, &[]);
+                fx.bcx.ins().invoke_indirect(f_sig, f, &[data], jump_table);
+
+                fx.bcx.seal_block(fallthrough_block);
+                fx.bcx.switch_to_block(fallthrough_block);
+                let layout = fx.layout_of(fx.tcx.types.i32);
+                let ret_val = CValue::by_val(fx.bcx.ins().iconst(types::I32, 0), layout);
+                ret.write_cvalue(fx, ret_val);
+                fx.bcx.ins().jump(ret_block, &[]);
+
+                fx.bcx.seal_block(catch_block);
+                fx.bcx.switch_to_block(catch_block);
+                fx.bcx.set_cold_block(catch_block);
+                let exception = fx.bcx.append_block_param(catch_block, pointer_ty(fx.tcx));
+                fx.bcx.ins().call_indirect(catch_fn_sig, catch_fn, &[data, exception]);
+                let layout = fx.layout_of(fx.tcx.types.i32);
+                let ret_val = CValue::by_val(fx.bcx.ins().iconst(types::I32, 1), layout);
+                ret.write_cvalue(fx, ret_val);
+                fx.bcx.ins().jump(ret_block, &[]);
+            }
 
             return;
         }
