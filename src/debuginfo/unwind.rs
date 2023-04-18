@@ -85,7 +85,15 @@ impl UnwindContext {
                 let mut fde = unwind_info.to_fde(address_for_func(func_id));
                 let lsda = module.declare_anonymous_data(false, false).unwrap();
                 let mut data = DataDescription::new();
-                data.define(Box::new([0]));
+                data.define(
+                    module
+                        .declarations()
+                        .get_function_decl(func_id)
+                        .linkage_name(func_id)
+                        .bytes()
+                        .chain(std::iter::once(0))
+                        .collect(),
+                );
                 data.set_segment_section("", ".cranelift_except_table");
                 module.define_data(lsda, &data).unwrap();
                 fde.lsda = Some(address_for_data(lsda));

@@ -128,6 +128,8 @@ pub enum _Unwind_Action {
     _UA_END_OF_STACK = 16,
 }
 
+unsafe impl Copy for _Unwind_Action {}
+
 #[lang = "eh_personality"]
 unsafe extern "C" fn rust_eh_personality(
     version: i32,
@@ -136,14 +138,50 @@ unsafe extern "C" fn rust_eh_personality(
     exception_object: *mut _Unwind_Exception,
     context: *mut _Unwind_Context,
 ) -> _Unwind_Reason_Code {
-    libc::printf(
-        "personality for %p; lsda=%p\n\0" as *const str as *const i8,
-        _Unwind_GetIP(context),
-        _Unwind_GetLanguageSpecificData(context),
-    );
-    //intrinsics::abort();
     // FIXME implement an actual personality function
-    _Unwind_Reason_Code::_URC_CONTINUE_UNWIND
+
+    let ip = _Unwind_GetIP(context);
+    let lsda = _Unwind_GetLanguageSpecificData(context);
+
+    if actions as i32 & _Unwind_Action::_UA_SEARCH_PHASE as i32 != 0 {
+        libc::printf(
+            "personality for %p; lsda=%s; search\n\0" as *const str as *const i8,
+            ip,
+            lsda,
+        );
+
+        if strcmp(
+            lsda as *const i8,
+            "_ZN21mini_core_hello_world12catch_unwind17h1ea22c25ac68e74dE\0" as *const str
+                as *const i8,
+        ) == 0
+        {
+            libc::puts("Catch function found!\0" as *const str as *const i8);
+            _Unwind_Reason_Code::_URC_HANDLER_FOUND
+        } else {
+            _Unwind_Reason_Code::_URC_CONTINUE_UNWIND
+        }
+    } else if actions as i32 & _Unwind_Action::_UA_CLEANUP_PHASE as i32 != 0 {
+        libc::printf(
+            "personality for %p; lsda=%s; cleanup\n\0" as *const str as *const i8,
+            ip,
+            lsda,
+        );
+
+        if strcmp(
+            lsda as *const i8,
+            "_ZN21mini_core_hello_world12catch_unwind17h1ea22c25ac68e74dE\0" as *const str
+                as *const i8,
+        ) == 0
+        {
+            libc::puts("Catch!\0" as *const str as *const i8);
+            _Unwind_Reason_Code::_URC_FATAL_PHASE2_ERROR
+        } else {
+            _Unwind_Reason_Code::_URC_CONTINUE_UNWIND
+        }
+    } else {
+        intrinsics::abort();
+    }
 }
 
 #[lang = "sized"]
@@ -312,6 +350,7 @@ pub mod libc {
         pub fn memcpy(dst: *mut u8, src: *const u8, size: usize);
         pub fn memmove(dst: *mut u8, src: *const u8, size: usize);
         pub fn strncpy(dst: *mut u8, src: *const u8, size: usize);
+        pub fn strcmp(a: *const i8, b: *const i8) -> i32;
     }
 }
 
@@ -328,4 +367,35 @@ struct PanicLocation {
     _file: &'static str,
     _line: u32,
     _column: u32,
+}
+
+#[lang = "eq"]
+pub trait PartialEq<Rhs: ?Sized = Self> {
+    fn eq(&self, other: &Rhs) -> bool;
+    fn ne(&self, other: &Rhs) -> bool;
+}
+
+impl PartialEq for i32 {
+    fn eq(&self, other: &i32) -> bool {
+        (*self) == (*other)
+    }
+    fn ne(&self, other: &i32) -> bool {
+        (*self) != (*other)
+    }
+}
+
+#[lang = "bitand"]
+pub trait BitAnd<RHS = Self> {
+    type Output;
+
+    #[must_use]
+    fn bitand(self, rhs: RHS) -> Self::Output;
+}
+
+impl BitAnd for i32 {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self {
+        self & rhs
+    }
 }
