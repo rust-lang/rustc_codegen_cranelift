@@ -83,6 +83,7 @@ impl UnwindContext {
         match unwind_info {
             UnwindInfo::SystemV(unwind_info) => {
                 let mut fde = unwind_info.to_fde(address_for_func(func_id));
+                // FIXME use unique symbol name derived from function name
                 let lsda = module.declare_anonymous_data(false, false).unwrap();
                 let mut data = DataDescription::new();
                 data.define(

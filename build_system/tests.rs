@@ -401,6 +401,7 @@ impl TestRunner {
         cmd.arg(&self.target_compiler.triple);
         cmd.arg("-Cdebug-assertions=no");
         cmd.arg("--emit=link,llvm-ir,mir");
+        cmd.arg("-Cpanic=abort");
         cmd.args(args);
         cmd
     }
