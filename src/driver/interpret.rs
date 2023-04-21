@@ -182,7 +182,7 @@ pub(crate) fn run_interpret(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> !
         Interpreter::new(InterpreterState { module: &interpret_module, stack: vec![] });
 
     let call_res =
-        match interpreter.call_by_name("main", &[DataValue::U32(0), DataValue::U64(0)]).unwrap() {
+        match interpreter.call_by_name("main", &[DataValue::I32(0), DataValue::I64(0)]).unwrap() {
             ControlFlow::Return(res) => res,
             control_flow => panic!("Unexpected control flow {control_flow:?}"),
         };
@@ -636,11 +636,6 @@ impl<'a> State<'a> for InterpreterState<'a> {
                 DataValue::I32(val) => *(address.offset as *mut i32) = val,
                 DataValue::I64(val) => *(address.offset as *mut i64) = val,
                 DataValue::I128(val) => *(address.offset as *mut i128) = val,
-                DataValue::U8(val) => *(address.offset as *mut u8) = val,
-                DataValue::U16(val) => *(address.offset as *mut u16) = val,
-                DataValue::U32(val) => *(address.offset as *mut u32) = val,
-                DataValue::U64(val) => *(address.offset as *mut u64) = val,
-                DataValue::U128(val) => *(address.offset as *mut u128) = val,
                 DataValue::F32(val) => *(address.offset as *mut f32) = val.as_f32(),
                 DataValue::F64(val) => *(address.offset as *mut f64) = val.as_f64(),
                 DataValue::V128(val) => todo!(),
