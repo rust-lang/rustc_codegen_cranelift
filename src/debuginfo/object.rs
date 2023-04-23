@@ -66,9 +66,7 @@ impl WriteDebugInfo for ObjectProduct {
                 } else {
                     self.data_symbol(DataId::from_u32(id & !(1 << 31)))
                 };
-                self.object
-                    .symbol_section_and_offset(symbol_id)
-                    .expect("Debug reloc for undef sym???")
+                self.object.symbol_section_and_offset(symbol_id).unwrap_or((symbol_id, 0))
             }
         };
         self.object
