@@ -33,8 +33,8 @@ aot.mini_core_hello_world
 #aot.issue_91827_extern_types
 #build.alloc_system
 #aot.alloc_example
-jit.std_example
-#aot.std_example
+#jit.std_example
+aot.std_example
 #aot.dst_field_align
 #aot.subslice-patterns-const-eval
 #aot.track-caller-attribute

@@ -152,7 +152,7 @@ unsafe extern "C" fn rust_eh_personality(
 
         if strcmp(
             lsda as *const i8,
-            "_ZN21mini_core_hello_world12catch_unwind17h1ea22c25ac68e74dE\0" as *const str
+            "_ZN21mini_core_hello_world12catch_unwind17h349b550af0b8971cE\0" as *const str
                 as *const i8,
         ) == 0
         {
@@ -170,7 +170,7 @@ unsafe extern "C" fn rust_eh_personality(
 
         if strcmp(
             lsda as *const i8,
-            "_ZN21mini_core_hello_world12catch_unwind17h1ea22c25ac68e74dE\0" as *const str
+            "_ZN21mini_core_hello_world12catch_unwind17h349b550af0b8971cE\0" as *const str
                 as *const i8,
         ) == 0
         {
