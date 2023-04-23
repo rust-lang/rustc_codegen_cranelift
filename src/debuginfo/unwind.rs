@@ -6,10 +6,13 @@ use cranelift_codegen::ir::Endianness;
 use cranelift_codegen::isa::unwind::UnwindInfo;
 
 use cranelift_object::ObjectProduct;
+use eh_frame_experiments::{
+    ActionTable, CallSiteTable, ExceptionSpecTable, GccExceptTable, TypeInfoTable,
+};
 use gimli::write::{CieId, EhFrame, FrameTable, Section};
-use gimli::RunTimeEndian;
+use gimli::{Encoding, Format, RunTimeEndian};
 
-use super::emit::{address_for_data, address_for_func};
+use super::emit::{address_for_data, address_for_func, DebugRelocName};
 use super::object::WriteDebugInfo;
 
 pub(crate) struct UnwindContext {
@@ -85,17 +88,49 @@ impl UnwindContext {
                 let mut fde = unwind_info.to_fde(address_for_func(func_id));
                 // FIXME use unique symbol name derived from function name
                 let lsda = module.declare_anonymous_data(false, false).unwrap();
+
+                let encoding = Encoding {
+                    format: Format::Dwarf32,
+                    version: 1,
+                    address_size: module.isa().frontend_config().pointer_bytes(),
+                };
+
+                // FIXME add actual exception information here
+                let gcc_except_table_data = GccExceptTable {
+                    call_sites: CallSiteTable(vec![]),
+                    actions: ActionTable::new(),
+                    type_info: TypeInfoTable::new(gimli::DW_EH_PE_udata4),
+                    exception_specs: ExceptionSpecTable::new(),
+                };
+
+                let mut gcc_except_table = super::emit::WriterRelocate::new(self.endian);
+
+                gcc_except_table_data.write(&mut gcc_except_table, encoding).unwrap();
+
                 let mut data = DataDescription::new();
-                data.define(
-                    module
-                        .declarations()
-                        .get_function_decl(func_id)
-                        .linkage_name(func_id)
-                        .bytes()
-                        .chain(std::iter::once(0))
-                        .collect(),
-                );
-                data.set_segment_section("", ".cranelift_except_table");
+                data.define(gcc_except_table.writer.into_vec().into_boxed_slice());
+                data.set_segment_section("", ".gcc_except_table");
+
+                for reloc in &gcc_except_table.relocs {
+                    match reloc.name {
+                        DebugRelocName::Section(_id) => unreachable!(),
+                        DebugRelocName::Symbol(id) => {
+                            let id = id.try_into().unwrap();
+                            if id & 1 << 31 == 0 {
+                                let func_ref =
+                                    module.declare_func_in_data(FuncId::from_u32(id), &mut data);
+                                data.write_function_addr(reloc.offset, func_ref);
+                            } else {
+                                let gv = module.declare_data_in_data(
+                                    DataId::from_u32(id & !(1 << 31)),
+                                    &mut data,
+                                );
+                                data.write_data_addr(reloc.offset, gv, 0);
+                            }
+                        }
+                    };
+                }
+
                 module.define_data(lsda, &data).unwrap();
                 fde.lsda = Some(address_for_data(lsda));
                 self.frame_table.add_fde(self.cie_id.unwrap(), fde);

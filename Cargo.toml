@@ -26,6 +26,7 @@ cranelift-interpreter = { path = "../wasmtime/cranelift/interpreter" }
 target-lexicon = "0.12.0"
 gimli = { version = "0.27.2", default-features = false, features = ["write"]}
 object = { version = "0.30.3", default-features = false, features = ["std", "read_core", "write", "archive", "coff", "elf", "macho", "pe", "unaligned"] }
+eh_frame_experiments = { git = "ssh://git@github.com/bjorn3/eh_frame_experiments.git" }
 
 indexmap = "1.9.3"
 libloading = { version = "0.7.3", optional = true }
