@@ -319,7 +319,11 @@ fn emit_module(
             .per_function_section(tcx.sess.opts.unstable_opts.function_sections.unwrap_or(false));
         let mut aot_module = ObjectModule::new(builder);
         let unwind_context = UnwindContext::new(&mut aot_module, true);
-        let mut module = super::aot::AOTModule { aot_module, unwind_context };
+        let mut module = super::aot::AOTModule {
+            aot_module,
+            unwind_context,
+            output_filenames: (**tcx.output_filenames(())).clone(),
+        };
 
         serialize_module.apply_to(&mut module);
 

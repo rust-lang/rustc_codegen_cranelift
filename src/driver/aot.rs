@@ -129,6 +129,7 @@ impl OngoingCodegen {
 pub(super) struct AOTModule {
     pub(super) aot_module: ObjectModule,
     pub(super) unwind_context: UnwindContext,
+    pub(super) output_filenames: OutputFilenames,
 }
 
 impl AOTModule {
@@ -192,8 +193,42 @@ impl Module for AOTModule {
         ctx: &mut Context,
         ctrl_plane: &mut ControlPlane,
     ) -> ModuleResult<()> {
+        ctx.want_disasm = true;
+
+        let _clif_guard = {
+            use std::fmt::Write;
+
+            let func_clone = ctx.func.clone();
+            let mut clif = String::new();
+            for flag in self.isa().flags().iter() {
+                writeln!(clif, "set {}", flag).unwrap();
+            }
+            write!(clif, "target {}", self.isa().triple().architecture.to_string()).unwrap();
+            for isa_flag in self.isa().isa_flags().iter() {
+                write!(clif, " {}", isa_flag).unwrap();
+            }
+            writeln!(clif, "\n").unwrap();
+            crate::PrintOnPanic(move || {
+                let mut clif = clif.clone();
+                ::cranelift_codegen::write::write_function(&mut clif, &func_clone).unwrap();
+                clif
+            })
+        };
+
         self.aot_module.define_function_with_control_plane(func, ctx, ctrl_plane)?;
         self.unwind_context.add_function(&mut self.aot_module, func, ctx);
+
+        /*if let Some(disasm) = &ctx.compiled_code().unwrap().vcode {
+            crate::pretty_clif::write_ir_file(
+                &self.output_filenames,
+                &format!(
+                    "{}.vcode",
+                    self.declarations().get_function_decl(func).linkage_name(func)
+                ),
+                |file| file.write_all(disasm.as_bytes()),
+            )
+        }*/
+
         Ok(())
     }
 
@@ -213,7 +248,12 @@ impl Module for AOTModule {
     }
 }
 
-fn make_module(sess: &Session, backend_config: &BackendConfig, name: String) -> AOTModule {
+fn make_module(
+    sess: &Session,
+    backend_config: &BackendConfig,
+    name: String,
+    output_filenames: &OutputFilenames,
+) -> AOTModule {
     let isa = crate::build_isa(sess, backend_config);
 
     let mut builder =
@@ -224,7 +264,7 @@ fn make_module(sess: &Session, backend_config: &BackendConfig, name: String) -> 
     builder.per_function_section(sess.opts.unstable_opts.function_sections.unwrap_or(false));
     let mut aot_module = ObjectModule::new(builder);
     let unwind_context = UnwindContext::new(&mut aot_module, true);
-    AOTModule { aot_module, unwind_context }
+    AOTModule { aot_module, unwind_context, output_filenames: output_filenames.clone() }
 }
 
 fn emit_cgu(
@@ -362,7 +402,12 @@ fn module_codegen(
             let cgu = tcx.codegen_unit(cgu_name);
             let mono_items = cgu.items_in_deterministic_order(tcx);
 
-            let mut module = make_module(tcx.sess, &backend_config, cgu_name.as_str().to_string());
+            let mut module = make_module(
+                tcx.sess,
+                &backend_config,
+                cgu_name.as_str().to_string(),
+                tcx.output_filenames(()),
+            );
 
             let mut cx = crate::CodegenCx::new(
                 tcx,
@@ -509,7 +554,12 @@ pub(crate) fn run_aot(
             .collect::<Vec<_>>()
     });
 
-    let mut allocator_module = make_module(tcx.sess, &backend_config, "allocator_shim".to_string());
+    let mut allocator_module = make_module(
+        tcx.sess,
+        &backend_config,
+        "allocator_shim".to_string(),
+        tcx.output_filenames(()),
+    );
     let created_alloc_shim = crate::allocator::codegen(tcx, &mut allocator_module);
 
     let allocator_module = if created_alloc_shim {

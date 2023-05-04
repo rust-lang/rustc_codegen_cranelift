@@ -14,7 +14,7 @@
 # the sysroot source hasn't changed. This is useful when the codegen backend hasn't been modified.
 # This option can be changed while the build system is already running for as long as sysroot
 # building hasn't started yet.
-#keep_sysroot
+keep_sysroot
 
 
 # Testsuite
@@ -26,9 +26,9 @@ testsuite.no_sysroot
 build.mini_core
 #build.example
 #jit.mini_core_hello_world
-aot.mini_core_hello_world
+#aot.mini_core_hello_world
 
-#testsuite.base_sysroot
+testsuite.base_sysroot
 #aot.arbitrary_self_types_pointers_and_wrappers
 #aot.issue_91827_extern_types
 #build.alloc_system
