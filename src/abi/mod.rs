@@ -13,7 +13,9 @@ use rustc_session::Session;
 use rustc_target::abi::call::{Conv, FnAbi};
 use rustc_target::spec::abi::Abi;
 
-use cranelift_codegen::ir::{AbiParam, SigRef};
+use cranelift_codegen::ir::{AbiParam, JumpTableData, SigRef};
+
+use smallvec::SmallVec;
 
 use self::pass_mode::*;
 use crate::prelude::*;
@@ -370,6 +372,7 @@ pub(crate) fn codegen_terminator_call<'tcx>(
     args: &[Operand<'tcx>],
     destination: Place<'tcx>,
     target: Option<BasicBlock>,
+    unwind: UnwindAction,
 ) {
     let func = codegen_operand(fx, func);
     let fn_sig = func.layout().ty.fn_sig(fx.tcx);
@@ -402,6 +405,7 @@ pub(crate) fn codegen_terminator_call<'tcx>(
                     args,
                     ret_place,
                     target,
+                    unwind,
                     source_info,
                 );
                 return;
@@ -536,11 +540,9 @@ pub(crate) fn codegen_terminator_call<'tcx>(
             )
             .collect::<Vec<Value>>();
 
-        let call_inst = match func_ref {
-            CallTarget::Direct(func_ref) => fx.bcx.ins().call(func_ref, &call_args),
-            CallTarget::Indirect(sig, func_ptr) => {
-                fx.bcx.ins().call_indirect(sig, func_ptr, &call_args)
-            }
+        let sig_ref = match func_ref {
+            CallTarget::Direct(func_ref) => fx.bcx.func.dfg.ext_funcs[func_ref].signature,
+            CallTarget::Indirect(sig_ref, _func_ptr) => sig_ref,
         };
 
         // FIXME find a cleaner way to support varargs
@@ -551,10 +553,10 @@ pub(crate) fn codegen_terminator_call<'tcx>(
                     format!("Variadic call for non-C abi {:?}", fn_sig.abi()),
                 );
             }
-            let sig_ref = fx.bcx.func.dfg.call_signature(call_inst).unwrap();
+
             let abi_params = call_args
-                .into_iter()
-                .map(|arg| {
+                .iter()
+                .map(|&arg| {
                     let ty = fx.bcx.func.dfg.value_type(arg);
                     if !ty.is_int() {
                         // FIXME set %al to upperbound on float args once floats are supported
@@ -569,7 +571,66 @@ pub(crate) fn codegen_terminator_call<'tcx>(
             fx.bcx.func.dfg.signatures[sig_ref].params = abi_params;
         }
 
-        call_inst
+        match unwind {
+            // FIXME abort on unreachable and terminate unwinds
+            UnwindAction::Continue | UnwindAction::Unreachable | UnwindAction::Terminate => {
+                let call_inst = match func_ref {
+                    CallTarget::Direct(func_ref) => fx.bcx.ins().call(func_ref, &call_args),
+                    CallTarget::Indirect(sig, func_ptr) => {
+                        fx.bcx.ins().call_indirect(sig, func_ptr, &call_args)
+                    }
+                };
+
+                fx.bcx
+                    .func
+                    .dfg
+                    .inst_results(call_inst)
+                    .iter()
+                    .copied()
+                    .collect::<SmallVec<[Value; 2]>>()
+            }
+            UnwindAction::Cleanup(cleanup) => {
+                let fallthrough_block = fx.bcx.create_block();
+                let fallthrough_block_call = fx.bcx.func.dfg.block_call(fallthrough_block, &[]);
+                let pre_cleanup_block = fx.bcx.create_block();
+                let pre_cleanup_block_call = fx.bcx.func.dfg.block_call(pre_cleanup_block, &[]);
+                let jump_table = fx.bcx.func.create_jump_table(JumpTableData::new(
+                    fallthrough_block_call,
+                    &[pre_cleanup_block_call],
+                ));
+
+                match func_ref {
+                    CallTarget::Direct(func_ref) => {
+                        fx.bcx.ins().invoke(func_ref, &call_args, jump_table);
+                    }
+                    CallTarget::Indirect(sig, func_ptr) => {
+                        fx.bcx.ins().invoke_indirect(sig, func_ptr, &call_args, jump_table);
+                    }
+                }
+
+                fx.bcx.seal_block(pre_cleanup_block);
+                fx.bcx.switch_to_block(pre_cleanup_block);
+                fx.bcx.set_cold_block(pre_cleanup_block);
+                let exception_ptr = fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
+                fx.exception_slot.store(fx, exception_ptr, MemFlags::trusted());
+                let cleanup_block = fx.get_block(cleanup);
+                fx.bcx.ins().jump(cleanup_block, &[]);
+
+                fx.bcx.seal_block(fallthrough_block);
+                fx.bcx.switch_to_block(fallthrough_block);
+                let returns_types = fx.bcx.func.dfg.signatures[sig_ref]
+                    .returns
+                    .iter()
+                    .map(|return_param| return_param.value_type)
+                    .collect::<Vec<_>>();
+                let returns = returns_types
+                    .into_iter()
+                    .map(|ty| fx.bcx.append_block_param(fallthrough_block, ty))
+                    .collect();
+                fx.bcx.ins().nop();
+                returns
+            }
+        }
     });
 
     if let Some(dest) = target {
@@ -620,6 +681,7 @@ pub(crate) fn codegen_drop<'tcx>(
 
                 let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config.default_call_conv, &fn_abi);
                 let sig = fx.bcx.import_signature(sig);
+                // FIXME use invoke_indirect as necessary
                 fx.bcx.ins().call_indirect(sig, drop_fn, &[ptr]);
             }
             ty::Dynamic(_, _, ty::DynStar) => {
@@ -657,6 +719,7 @@ pub(crate) fn codegen_drop<'tcx>(
 
                 let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config.default_call_conv, &fn_abi);
                 let sig = fx.bcx.import_signature(sig);
+                // FIXME use invoke_indirect as necessary
                 fx.bcx.ins().call_indirect(sig, drop_fn, &[data]);
             }
             _ => {
@@ -685,6 +748,7 @@ pub(crate) fn codegen_drop<'tcx>(
                 }
 
                 let func_ref = fx.get_function_ref(drop_instance);
+                // FIXME use invoke as necessary
                 fx.bcx.ins().call(func_ref, &call_args);
             }
         }

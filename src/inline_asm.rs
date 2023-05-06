@@ -862,6 +862,7 @@ fn call_inline_asm<'tcx>(
     }
 
     let stack_slot_addr = fx.bcx.ins().stack_addr(fx.pointer_type, stack_slot, 0);
+    // FIXME use invoke once unwinding inline assembly is supported
     fx.bcx.ins().call(inline_asm_func, &[stack_slot_addr]);
 
     for (offset, place) in outputs {

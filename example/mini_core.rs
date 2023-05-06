@@ -626,6 +626,10 @@ pub mod libc {
         pub fn memmove(dst: *mut u8, src: *const u8, size: usize);
         pub fn strncpy(dst: *mut u8, src: *const u8, size: usize);
     }
+
+    // For _Unwind_Resume
+    #[cfg_attr(unix, link(name = "gcc_s"))]
+    extern "C" {}
 }
 
 #[lang = "index"]
