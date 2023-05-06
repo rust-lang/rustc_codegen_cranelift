@@ -6,6 +6,7 @@ use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
 use std::sync::{mpsc, Mutex, OnceLock};
 
+use cranelift_codegen::ir::Function;
 use rustc_codegen_ssa::CrateInfo;
 use rustc_middle::mir::mono::MonoItem;
 use rustc_session::Session;
@@ -76,7 +77,7 @@ fn create_jit_module(
     let mut cx = crate::CodegenCx::new(
         tcx,
         backend_config.clone(),
-        jit_module.isa(),
+        &mut jit_module,
         false,
         Symbol::intern("dummy_cgu_name"),
     );
@@ -214,7 +215,7 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
     }
 }
 
-pub(crate) fn codegen_and_compile_fn<'tcx>(
+fn codegen_and_compile_fn<'tcx>(
     tcx: TyCtxt<'tcx>,
     cx: &mut crate::CodegenCx,
     cached_context: &mut Context,
@@ -281,10 +282,11 @@ fn jit_fn(instance_ptr: *const Instance<'static>, trampoline_ptr: *const u8) -> 
 
             jit_module.prepare_for_function_redefine(func_id).unwrap();
 
+            // FIXME properly handle reusing the same Module with different UnwindContext's
             let mut cx = crate::CodegenCx::new(
                 tcx,
                 backend_config,
-                jit_module.isa(),
+                jit_module,
                 false,
                 Symbol::intern("dummy_cgu_name"),
             );
@@ -404,5 +406,5 @@ fn codegen_shim<'tcx>(
     trampoline_builder.ins().return_(&ret_vals);
 
     module.define_function(func_id, context).unwrap();
-    cx.unwind_context.add_function(func_id, context, module.isa());
+    cx.unwind_context.add_function(module, func_id, context);
 }

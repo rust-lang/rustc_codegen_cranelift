@@ -271,7 +271,7 @@ pub(crate) fn create_wrapper_function(
         bcx.finalize();
     }
     module.define_function(wrapper_func_id, &mut ctx).unwrap();
-    unwind_context.add_function(wrapper_func_id, &ctx, module.isa());
+    unwind_context.add_function(module, wrapper_func_id, &ctx);
 }
 
 pub(crate) struct FunctionCx<'m, 'clif, 'tcx: 'm> {

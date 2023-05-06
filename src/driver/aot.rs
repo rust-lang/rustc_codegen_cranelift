@@ -278,7 +278,7 @@ fn module_codegen(
             let mut cx = crate::CodegenCx::new(
                 tcx,
                 backend_config.clone(),
-                module.isa(),
+                &mut module,
                 tcx.sess.opts.debuginfo != DebugInfo::None,
                 cgu_name,
             );
@@ -429,7 +429,7 @@ pub(crate) fn run_aot(
     });
 
     let mut allocator_module = make_module(tcx.sess, &backend_config, "allocator_shim".to_string());
-    let mut allocator_unwind_context = UnwindContext::new(allocator_module.isa(), true);
+    let mut allocator_unwind_context = UnwindContext::new(&mut allocator_module, true);
     let created_alloc_shim =
         crate::allocator::codegen(tcx, &mut allocator_module, &mut allocator_unwind_context);
 

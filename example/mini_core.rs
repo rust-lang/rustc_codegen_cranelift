@@ -481,7 +481,6 @@ fn panic_bounds_check(index: usize, len: usize) -> ! {
 }
 
 #[lang = "panic_cannot_unwind"]
-#[track_caller]
 fn panic_cannot_unwind() -> ! {
     unsafe {
         libc::puts("panic in a function that cannot unwind\n\0" as *const str as *const i8);
@@ -490,8 +489,18 @@ fn panic_cannot_unwind() -> ! {
 }
 
 #[lang = "eh_personality"]
-fn eh_personality() -> ! {
-    loop {}
+unsafe extern "C" fn rust_eh_personality(
+    version: i32,
+    actions: u32,
+    exception_class: u64,
+    exception_object: usize,
+    context: usize,
+) -> u32 {
+    unsafe {
+        libc::puts("personality\n\0" as *const str as *const i8);
+        intrinsics::abort();
+        // FIXME implement an actual personality function
+    }
 }
 
 #[lang = "drop_in_place"]
@@ -603,6 +612,12 @@ pub mod intrinsics {
         #[rustc_safe_intrinsic]
         pub fn bswap<T>(x: T) -> T;
         pub fn write_bytes<T>(dst: *mut T, val: u8, count: usize);
+
+        pub fn r#try(
+            try_fn: fn(_: *mut u8),
+            data: *mut u8,
+            catch_fn: fn(_: *mut u8, _: *mut u8),
+        ) -> i32;
     }
 }
 
@@ -701,6 +716,7 @@ struct PanicLocation {
     column: u32,
 }
 
+/*
 #[no_mangle]
 #[cfg(not(all(windows, target_env = "gnu")))]
 pub fn get_tls() -> u8 {
@@ -709,3 +725,4 @@ pub fn get_tls() -> u8 {
 
     A
 }
+*/

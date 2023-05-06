@@ -1,5 +1,6 @@
 //! Write the debuginfo into an object file.
 
+use cranelift_module::{DataId, FuncId};
 use cranelift_object::ObjectProduct;
 use rustc_data_structures::fx::FxHashMap;
 
@@ -8,6 +9,18 @@ use gimli::{RunTimeEndian, SectionId};
 
 use super::object::WriteDebugInfo;
 use super::DebugContext;
+
+pub(super) fn address_for_func(func_id: FuncId) -> Address {
+    let symbol = func_id.as_u32();
+    assert!(symbol & 1 << 31 == 0);
+    Address::Symbol { symbol: symbol as usize, addend: 0 }
+}
+
+pub(super) fn address_for_data(data_id: DataId) -> Address {
+    let symbol = data_id.as_u32();
+    assert!(symbol & 1 << 31 == 0);
+    Address::Symbol { symbol: (symbol | 1 << 31) as usize, addend: 0 }
+}
 
 impl DebugContext {
     pub(crate) fn emit(&mut self, product: &mut ObjectProduct) {
@@ -172,6 +185,7 @@ impl Writer for WriterRelocate {
                 gimli::DW_EH_PE_pcrel => {
                     let size = match eh_pe.format() {
                         gimli::DW_EH_PE_sdata4 => 4,
+                        gimli::DW_EH_PE_sdata8 => 8,
                         _ => return Err(gimli::write::Error::UnsupportedPointerEncoding(eh_pe)),
                     };
                     self.relocs.push(DebugReloc {

@@ -15,7 +15,7 @@ crate-type = ["dylib"]
 
 [dependencies]
 # These have to be in sync with each other
-cranelift-codegen = { path = "../wasmtime/cranelift/codegen", features = ["unwind", "all-arch"] }
+cranelift-codegen = { path = "../wasmtime/cranelift/codegen", features = ["unwind"] }
 cranelift-frontend = { path = "../wasmtime/cranelift/frontend" }
 cranelift-module = { path = "../wasmtime/cranelift/module" }
 cranelift-native = { path = "../wasmtime/cranelift/native" }
@@ -23,11 +23,13 @@ cranelift-jit = { path = "../wasmtime/cranelift/jit", optional = true }
 cranelift-object = { path = "../wasmtime/cranelift/object" }
 target-lexicon = "0.12.0"
 gimli = { version = "0.27.2", default-features = false, features = ["write"]}
-object = { version = "0.30.3", default-features = false, features = ["std", "read_core", "write", "archive", "coff", "elf", "macho", "pe"] }
+object = { version = "0.30.3", default-features = false, features = ["std", "read_core", "write", "archive", "coff", "elf", "macho", "pe", "unaligned"] }
+eh_frame_experiments = { git = "ssh://git@github.com/bjorn3/eh_frame_experiments.git" }
 
 indexmap = "1.9.3"
 libloading = { version = "0.7.3", optional = true }
 smallvec = "1.8.1"
+pretty_env_logger = "0.4.0"
 
 [patch.crates-io]
 # Uncomment to use local checkout of cranelift
@@ -38,7 +40,7 @@ smallvec = "1.8.1"
 #cranelift-jit = { path = "../wasmtime/cranelift/jit" }
 #cranelift-object = { path = "../wasmtime/cranelift/object" }
 
-#gimli = { path = "../" }
+gimli = { git = "https://github.com/bjorn3/gimli.git", branch = "bsc-unwinding-fix-lsda-encoding" }
 
 [features]
 # Enable features not ready to be enabled when compiling as part of rustc

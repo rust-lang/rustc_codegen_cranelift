@@ -174,6 +174,6 @@ pub(crate) fn maybe_create_entry_wrapper(
             tcx.sess.fatal(format!("entry symbol `{entry_name}` defined multiple times: {err}"));
         }
 
-        unwind_context.add_function(cmain_func_id, &ctx, m.isa());
+        unwind_context.add_function(m, cmain_func_id, &ctx);
     }
 }

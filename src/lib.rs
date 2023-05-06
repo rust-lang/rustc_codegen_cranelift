@@ -39,7 +39,6 @@ use rustc_session::config::OutputFilenames;
 use rustc_session::Session;
 use rustc_span::Symbol;
 
-use cranelift_codegen::isa::TargetIsa;
 use cranelift_codegen::settings::{self, Configurable};
 
 pub use crate::config::*;
@@ -139,16 +138,16 @@ impl CodegenCx {
     fn new(
         tcx: TyCtxt<'_>,
         backend_config: BackendConfig,
-        isa: &dyn TargetIsa,
+        module: &mut dyn Module,
         debug_info: bool,
         cgu_name: Symbol,
     ) -> Self {
-        assert_eq!(pointer_ty(tcx), isa.pointer_type());
+        assert_eq!(pointer_ty(tcx), module.isa().pointer_type());
 
         let unwind_context =
-            UnwindContext::new(isa, matches!(backend_config.codegen_mode, CodegenMode::Aot));
+            UnwindContext::new(module, matches!(backend_config.codegen_mode, CodegenMode::Aot));
         let debug_context = if debug_info && !tcx.sess.target.options.is_like_windows {
-            Some(DebugContext::new(tcx, isa))
+            Some(DebugContext::new(tcx, module.isa()))
         } else {
             None
         };
@@ -176,6 +175,8 @@ impl CodegenBackend for CraneliftCodegenBackend {
     }
 
     fn init(&self, sess: &Session) {
+        pretty_env_logger::init();
+
         use rustc_session::config::Lto;
         match sess.lto() {
             Lto::No | Lto::ThinLocal => {}
@@ -256,7 +257,7 @@ fn build_isa(sess: &Session, backend_config: &BackendConfig) -> Arc<dyn isa::Tar
 
     let mut flags_builder = settings::builder();
     flags_builder.enable("is_pic").unwrap();
-    let enable_verifier = if backend_config.enable_verifier { "true" } else { "false" };
+    let enable_verifier = if true || backend_config.enable_verifier { "true" } else { "false" };
     flags_builder.set("enable_verifier", enable_verifier).unwrap();
     flags_builder.set("regalloc_checker", enable_verifier).unwrap();
 
