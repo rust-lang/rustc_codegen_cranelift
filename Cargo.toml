@@ -18,9 +18,11 @@ target-lexicon = "0.12.0"
 gimli = { version = "0.29", default-features = false, features = ["write"] }
 object = { version = "0.36", default-features = false, features = ["std", "read_core", "write", "archive", "coff", "elf", "macho", "pe"] }
 
+eh_frame_experiments = { git = "http://github.com/bjorn3/eh_frame_experiments.git", branch = "update_gimli" }
 indexmap = "2.0.0"
 libloading = { version = "0.8.0", optional = true }
 smallvec = "1.8.1"
+pretty_env_logger = "0.4.0"
 
 [patch.crates-io]
 # Uncomment to use local checkout of cranelift
@@ -30,8 +32,6 @@ cranelift-module = { path = "../wasmtime/cranelift/module" }
 cranelift-native = { path = "../wasmtime/cranelift/native" }
 cranelift-jit = { path = "../wasmtime/cranelift/jit" }
 cranelift-object = { path = "../wasmtime/cranelift/object" }
-
-#gimli = { path = "../" }
 
 [features]
 # Enable features not ready to be enabled when compiling as part of rustc

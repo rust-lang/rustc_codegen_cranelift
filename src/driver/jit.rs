@@ -203,7 +203,7 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, backend_config: BackendConfig) -> ! {
     }
 }
 
-pub(crate) fn codegen_and_compile_fn<'tcx>(
+fn codegen_and_compile_fn<'tcx>(
     tcx: TyCtxt<'tcx>,
     cx: &mut crate::CodegenCx,
     cached_context: &mut Context,
@@ -276,6 +276,7 @@ fn jit_fn(instance_ptr: *const Instance<'static>, trampoline_ptr: *const u8) -> 
 
             jit_module.module.prepare_for_function_redefine(func_id).unwrap();
 
+            // FIXME properly handle reusing the same Module with different UnwindContext's
             let mut cx = crate::CodegenCx::new(
                 tcx,
                 jit_module.isa(),

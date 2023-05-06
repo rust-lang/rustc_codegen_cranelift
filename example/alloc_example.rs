@@ -18,6 +18,10 @@ extern "C" {
     fn puts(s: *const u8) -> i32;
 }
 
+// For _Unwind_Resume
+#[cfg_attr(unix, link(name = "gcc_s"))]
+extern "C" {}
+
 #[panic_handler]
 fn panic_handler(_: &core::panic::PanicInfo<'_>) -> ! {
     core::intrinsics::abort();
