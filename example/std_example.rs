@@ -19,7 +19,16 @@ use std::io::Write;
 use std::ops::Coroutine;
 
 fn main() {
-    println!("{:?}", std::env::args().collect::<Vec<_>>());
+    //println!("{:?}", std::env::args().collect::<Vec<_>>());
+
+    println!(
+        "{:?}",
+        std::panic::catch_unwind(|| {
+            panic!("foo");
+        })
+    );
+
+    return;
 
     let mutex = std::sync::Mutex::new(());
     let _guard = mutex.lock().unwrap();

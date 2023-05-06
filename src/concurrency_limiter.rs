@@ -105,8 +105,14 @@ pub(super) struct ConcurrencyLimiterToken {
 impl Drop for ConcurrencyLimiterToken {
     fn drop(&mut self) {
         let mut state = self.state.lock().unwrap();
-        state.job_finished();
-        self.available_token_condvar.notify_one();
+        if std::thread::panicking() {
+            println!("thread panicking");
+            state.poison("codegen thread panicked".to_owned());
+            self.available_token_condvar.notify_all();
+        } else {
+            state.job_finished();
+            self.available_token_condvar.notify_one();
+        }
     }
 }
 

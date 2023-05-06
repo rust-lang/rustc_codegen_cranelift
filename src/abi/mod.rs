@@ -7,7 +7,7 @@ mod returning;
 use std::borrow::Cow;
 use std::mem;
 
-use cranelift_codegen::ir::{ArgumentPurpose, SigRef};
+use cranelift_codegen::ir::{ArgumentPurpose, JumpTableData, SigRef};
 use cranelift_codegen::isa::CallConv;
 use cranelift_module::ModuleError;
 use rustc_abi::ExternAbi;
@@ -385,7 +385,7 @@ pub(crate) fn codegen_terminator_call<'tcx>(
     args: &[Spanned<Operand<'tcx>>],
     destination: Place<'tcx>,
     target: Option<BasicBlock>,
-    _unwind: UnwindAction,
+    unwind: UnwindAction,
 ) {
     let func = codegen_operand(fx, func);
     let fn_sig = func.layout().ty.fn_sig(fx.tcx);
@@ -590,14 +590,71 @@ pub(crate) fn codegen_terminator_call<'tcx>(
             with_no_trimmed_paths!(fx.add_comment(nop_inst, format!("abi: {:?}", fn_abi)));
         }
 
-        let call_inst = match func_ref {
-            CallTarget::Direct(func_ref) => fx.bcx.ins().call(func_ref, &call_args),
-            CallTarget::Indirect(sig, func_ptr) => {
-                fx.bcx.ins().call_indirect(sig, func_ptr, &call_args)
-            }
+        let sig_ref = match func_ref {
+            CallTarget::Direct(func_ref) => fx.bcx.func.dfg.ext_funcs[func_ref].signature,
+            CallTarget::Indirect(sig_ref, _func_ptr) => sig_ref,
         };
 
-        fx.bcx.func.dfg.inst_results(call_inst).iter().copied().collect::<SmallVec<[Value; 2]>>()
+        match unwind {
+            // FIXME abort on unreachable and terminate unwinds
+            UnwindAction::Continue | UnwindAction::Unreachable | UnwindAction::Terminate(_) => {
+                let call_inst = match func_ref {
+                    CallTarget::Direct(func_ref) => fx.bcx.ins().call(func_ref, &call_args),
+                    CallTarget::Indirect(sig, func_ptr) => {
+                        fx.bcx.ins().call_indirect(sig, func_ptr, &call_args)
+                    }
+                };
+
+                fx.bcx
+                    .func
+                    .dfg
+                    .inst_results(call_inst)
+                    .iter()
+                    .copied()
+                    .collect::<SmallVec<[Value; 2]>>()
+            }
+            UnwindAction::Cleanup(cleanup) => {
+                let fallthrough_block = fx.bcx.create_block();
+                let fallthrough_block_call = fx.bcx.func.dfg.block_call(fallthrough_block, &[]);
+                let pre_cleanup_block = fx.bcx.create_block();
+                let pre_cleanup_block_call = fx.bcx.func.dfg.block_call(pre_cleanup_block, &[]);
+                let jump_table = fx.bcx.func.create_jump_table(JumpTableData::new(
+                    fallthrough_block_call,
+                    &[pre_cleanup_block_call],
+                ));
+
+                match func_ref {
+                    CallTarget::Direct(func_ref) => {
+                        fx.bcx.ins().invoke(func_ref, &call_args, 0, jump_table);
+                    }
+                    CallTarget::Indirect(sig, func_ptr) => {
+                        fx.bcx.ins().invoke_indirect(sig, func_ptr, &call_args, 0, jump_table);
+                    }
+                }
+
+                fx.bcx.seal_block(pre_cleanup_block);
+                fx.bcx.switch_to_block(pre_cleanup_block);
+                fx.bcx.set_cold_block(pre_cleanup_block);
+                let exception_ptr = fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
+                fx.exception_slot.store(fx, exception_ptr, MemFlags::trusted());
+                let cleanup_block = fx.get_block(cleanup);
+                fx.bcx.ins().jump(cleanup_block, &[]);
+
+                fx.bcx.seal_block(fallthrough_block);
+                fx.bcx.switch_to_block(fallthrough_block);
+                let returns_types = fx.bcx.func.dfg.signatures[sig_ref]
+                    .returns
+                    .iter()
+                    .map(|return_param| return_param.value_type)
+                    .collect::<Vec<_>>();
+                let returns = returns_types
+                    .into_iter()
+                    .map(|ty| fx.bcx.append_block_param(fallthrough_block, ty))
+                    .collect();
+                fx.bcx.ins().nop();
+                returns
+            }
+        }
     });
 
     if let Some(dest) = target {
@@ -707,7 +764,7 @@ pub(crate) fn codegen_drop<'tcx>(
     source_info: mir::SourceInfo,
     drop_place: CPlace<'tcx>,
     target: BasicBlock,
-    _unwind: UnwindAction,
+    unwind: UnwindAction,
 ) {
     let ty = drop_place.layout().ty;
     let drop_instance = Instance::resolve_drop_in_place(fx.tcx, ty);
@@ -754,9 +811,36 @@ pub(crate) fn codegen_drop<'tcx>(
 
                 let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config.default_call_conv, &fn_abi);
                 let sig = fx.bcx.import_signature(sig);
-                // FIXME implement cleanup on exceptions
-                fx.bcx.ins().call_indirect(sig, drop_fn, &[ptr]);
-                fx.bcx.ins().jump(ret_block, &[]);
+                match unwind {
+                    // FIXME abort on unreachable and terminate unwinds
+                    UnwindAction::Continue
+                    | UnwindAction::Unreachable
+                    | UnwindAction::Terminate(_) => {
+                        fx.bcx.ins().call_indirect(sig, drop_fn, &[ptr]);
+                        fx.bcx.ins().jump(ret_block, &[]);
+                    }
+                    UnwindAction::Cleanup(cleanup) => {
+                        let ret_block_call = fx.bcx.func.dfg.block_call(ret_block, &[]);
+                        let pre_cleanup_block = fx.bcx.create_block();
+                        let pre_cleanup_block_call =
+                            fx.bcx.func.dfg.block_call(pre_cleanup_block, &[]);
+                        let jump_table = fx.bcx.func.create_jump_table(JumpTableData::new(
+                            ret_block_call,
+                            &[pre_cleanup_block_call],
+                        ));
+
+                        fx.bcx.ins().invoke_indirect(sig, drop_fn, &[ptr], 0, jump_table);
+
+                        fx.bcx.seal_block(pre_cleanup_block);
+                        fx.bcx.switch_to_block(pre_cleanup_block);
+                        fx.bcx.set_cold_block(pre_cleanup_block);
+                        let exception_ptr =
+                            fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
+                        fx.exception_slot.store(fx, exception_ptr, MemFlags::trusted());
+                        let cleanup_block = fx.get_block(cleanup);
+                        fx.bcx.ins().jump(cleanup_block, &[]);
+                    }
+                }
             }
             ty::Dynamic(_, _, ty::DynStar) => {
                 // IN THIS ARM, WE HAVE:
@@ -799,9 +883,36 @@ pub(crate) fn codegen_drop<'tcx>(
 
                 let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config.default_call_conv, &fn_abi);
                 let sig = fx.bcx.import_signature(sig);
-                fx.bcx.ins().call_indirect(sig, drop_fn, &[data]);
-                // FIXME implement cleanup on exceptions
-                fx.bcx.ins().jump(ret_block, &[]);
+                match unwind {
+                    // FIXME abort on unreachable and terminate unwinds
+                    UnwindAction::Continue
+                    | UnwindAction::Unreachable
+                    | UnwindAction::Terminate(_) => {
+                        fx.bcx.ins().call_indirect(sig, drop_fn, &[data]);
+                        fx.bcx.ins().jump(ret_block, &[]);
+                    }
+                    UnwindAction::Cleanup(cleanup) => {
+                        let ret_block_call = fx.bcx.func.dfg.block_call(ret_block, &[]);
+                        let pre_cleanup_block = fx.bcx.create_block();
+                        let pre_cleanup_block_call =
+                            fx.bcx.func.dfg.block_call(pre_cleanup_block, &[]);
+                        let jump_table = fx.bcx.func.create_jump_table(JumpTableData::new(
+                            ret_block_call,
+                            &[pre_cleanup_block_call],
+                        ));
+
+                        fx.bcx.ins().invoke_indirect(sig, drop_fn, &[data], 0, jump_table);
+
+                        fx.bcx.seal_block(pre_cleanup_block);
+                        fx.bcx.switch_to_block(pre_cleanup_block);
+                        fx.bcx.set_cold_block(pre_cleanup_block);
+                        let exception_ptr =
+                            fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
+                        fx.exception_slot.store(fx, exception_ptr, MemFlags::trusted());
+                        let cleanup_block = fx.get_block(cleanup);
+                        fx.bcx.ins().jump(cleanup_block, &[]);
+                    }
+                }
             }
             _ => {
                 assert!(!matches!(drop_instance.def, InstanceKind::Virtual(_, _)));
@@ -826,9 +937,36 @@ pub(crate) fn codegen_drop<'tcx>(
                 }
 
                 let func_ref = fx.get_function_ref(drop_instance);
-                fx.bcx.ins().call(func_ref, &call_args);
-                // FIXME implement cleanup on exceptions
-                fx.bcx.ins().jump(ret_block, &[]);
+                match unwind {
+                    // FIXME abort on unreachable and terminate unwinds
+                    UnwindAction::Continue
+                    | UnwindAction::Unreachable
+                    | UnwindAction::Terminate(_) => {
+                        fx.bcx.ins().call(func_ref, &call_args);
+                        fx.bcx.ins().jump(ret_block, &[]);
+                    }
+                    UnwindAction::Cleanup(cleanup) => {
+                        let ret_block_call = fx.bcx.func.dfg.block_call(ret_block, &[]);
+                        let pre_cleanup_block = fx.bcx.create_block();
+                        let pre_cleanup_block_call =
+                            fx.bcx.func.dfg.block_call(pre_cleanup_block, &[]);
+                        let jump_table = fx.bcx.func.create_jump_table(JumpTableData::new(
+                            ret_block_call,
+                            &[pre_cleanup_block_call],
+                        ));
+
+                        fx.bcx.ins().invoke(func_ref, &call_args, 0, jump_table);
+
+                        fx.bcx.seal_block(pre_cleanup_block);
+                        fx.bcx.switch_to_block(pre_cleanup_block);
+                        fx.bcx.set_cold_block(pre_cleanup_block);
+                        let exception_ptr =
+                            fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
+                        fx.exception_slot.store(fx, exception_ptr, MemFlags::trusted());
+                        let cleanup_block = fx.get_block(cleanup);
+                        fx.bcx.ins().jump(cleanup_block, &[]);
+                    }
+                }
             }
         }
     }

@@ -2,11 +2,15 @@
 
 use cranelift_codegen::ir::Endianness;
 use cranelift_codegen::isa::unwind::UnwindInfo;
+use cranelift_module::DataId;
 use cranelift_object::ObjectProduct;
-use gimli::RunTimeEndian;
-use gimli::write::{CieId, EhFrame, FrameTable, Section};
+use eh_frame_experiments::{
+    Action, ActionTable, CallSite, CallSiteTable, ExceptionSpecTable, GccExceptTable, TypeInfoTable,
+};
+use gimli::write::{Address, CieId, EhFrame, FrameTable, Section};
+use gimli::{Encoding, Format, RunTimeEndian};
 
-use super::emit::address_for_func;
+use super::emit::{DebugRelocName, address_for_data, address_for_func};
 use super::object::WriteDebugInfo;
 use crate::prelude::*;
 
@@ -28,7 +32,62 @@ impl UnwindContext {
             if pic_eh_frame {
                 cie.fde_address_encoding =
                     gimli::DwEhPe(gimli::DW_EH_PE_pcrel.0 | gimli::DW_EH_PE_sdata4.0);
+                cie.lsda_encoding =
+                    Some(gimli::DwEhPe(gimli::DW_EH_PE_pcrel.0 | gimli::DW_EH_PE_sdata4.0));
+            } else {
+                cie.fde_address_encoding = gimli::DW_EH_PE_absptr;
+                cie.lsda_encoding = Some(gimli::DW_EH_PE_absptr);
             }
+            // FIXME use eh_personality lang item instead
+            let personality = module
+                .declare_function("rust_eh_personality", Linkage::Import, &Signature {
+                    params: vec![
+                        AbiParam::new(types::I32),
+                        AbiParam::new(types::I32),
+                        AbiParam::new(types::I64),
+                        AbiParam::new(module.target_config().pointer_type()),
+                        AbiParam::new(module.target_config().pointer_type()),
+                    ],
+                    returns: vec![AbiParam::new(types::I32)],
+                    call_conv: module.target_config().default_call_conv,
+                })
+                .unwrap();
+
+            // Use indirection here to support PIC when rust_eh_personality is defined in another DSO.
+            let personality_ref = module
+                .declare_data("DW.ref.rust_eh_personality", Linkage::Local, false, false)
+                .unwrap();
+
+            let mut personality_ref_data = DataDescription::new();
+            // Note: Must not use define_zeroinit. The unwinder can't handle this being in the .bss
+            // section for some reason.
+            personality_ref_data.define(Box::new([0; 8])); // FIXME pointer size
+            let personality_func_ref =
+                module.declare_func_in_data(personality, &mut personality_ref_data);
+            personality_ref_data.write_function_addr(0, personality_func_ref);
+
+            module.define_data(personality_ref, &personality_ref_data).unwrap();
+
+            cie.personality = Some((
+                if module.isa().triple().architecture == target_lexicon::Architecture::X86_64 {
+                    gimli::DwEhPe(
+                        gimli::DW_EH_PE_indirect.0
+                            | gimli::DW_EH_PE_pcrel.0
+                            | gimli::DW_EH_PE_sdata4.0,
+                    )
+                } else if let target_lexicon::Architecture::Aarch64(_) =
+                    module.isa().triple().architecture
+                {
+                    gimli::DwEhPe(
+                        gimli::DW_EH_PE_indirect.0
+                            | gimli::DW_EH_PE_pcrel.0
+                            | gimli::DW_EH_PE_sdata8.0,
+                    )
+                } else {
+                    todo!()
+                },
+                address_for_data(personality_ref),
+            ));
             Some(frame_table.add_cie(cie))
         } else {
             None
@@ -63,8 +122,87 @@ impl UnwindContext {
 
         match unwind_info {
             UnwindInfo::SystemV(unwind_info) => {
-                self.frame_table
-                    .add_fde(self.cie_id.unwrap(), unwind_info.to_fde(address_for_func(func_id)));
+                let mut fde = unwind_info.to_fde(address_for_func(func_id));
+                // FIXME use unique symbol name derived from function name
+                let lsda = module.declare_anonymous_data(false, false).unwrap();
+
+                let encoding = Encoding {
+                    format: Format::Dwarf32,
+                    version: 1,
+                    address_size: module.isa().frontend_config().pointer_bytes(),
+                };
+
+                // FIXME add actual exception information here
+                let mut gcc_except_table_data = GccExceptTable {
+                    call_sites: CallSiteTable(vec![]),
+                    actions: ActionTable::new(),
+                    type_info: TypeInfoTable::new(gimli::DW_EH_PE_udata4),
+                    exception_specs: ExceptionSpecTable::new(),
+                };
+
+                let catch_type = gcc_except_table_data.type_info.add(Address::Constant(0));
+                let catch_action = gcc_except_table_data.actions.add(Action {
+                    kind: eh_frame_experiments::ActionKind::Catch(catch_type),
+                    next_action: None,
+                });
+
+                //println!("{:?}", context.compiled_code().unwrap().buffer.call_sites());
+                for call_site in context.compiled_code().unwrap().buffer.call_sites() {
+                    match call_site.id.map(|id| id.bits()) {
+                        None => gcc_except_table_data.call_sites.0.push(CallSite {
+                            start: u64::from(call_site.ret_addr - 1),
+                            length: 1,
+                            landing_pad: 0,
+                            action_entry: None,
+                        }),
+                        Some(0) => gcc_except_table_data.call_sites.0.push(CallSite {
+                            start: u64::from(call_site.ret_addr - 1),
+                            length: 1,
+                            landing_pad: u64::from(call_site.alternate_targets[0]),
+                            action_entry: None,
+                        }),
+                        Some(1) => gcc_except_table_data.call_sites.0.push(CallSite {
+                            start: u64::from(call_site.ret_addr - 1),
+                            length: 1,
+                            landing_pad: u64::from(call_site.alternate_targets[0]),
+                            action_entry: Some(catch_action),
+                        }),
+                        _ => unreachable!(),
+                    }
+                }
+                //println!("{gcc_except_table_data:?}");
+
+                let mut gcc_except_table = super::emit::WriterRelocate::new(self.endian);
+
+                gcc_except_table_data.write(&mut gcc_except_table, encoding).unwrap();
+
+                let mut data = DataDescription::new();
+                data.define(gcc_except_table.writer.into_vec().into_boxed_slice());
+                data.set_segment_section("", ".gcc_except_table");
+
+                for reloc in &gcc_except_table.relocs {
+                    match reloc.name {
+                        DebugRelocName::Section(_id) => unreachable!(),
+                        DebugRelocName::Symbol(id) => {
+                            let id = id.try_into().unwrap();
+                            if id & 1 << 31 == 0 {
+                                let func_ref =
+                                    module.declare_func_in_data(FuncId::from_u32(id), &mut data);
+                                data.write_function_addr(reloc.offset, func_ref);
+                            } else {
+                                let gv = module.declare_data_in_data(
+                                    DataId::from_u32(id & !(1 << 31)),
+                                    &mut data,
+                                );
+                                data.write_data_addr(reloc.offset, gv, 0);
+                            }
+                        }
+                    };
+                }
+
+                module.define_data(lsda, &data).unwrap();
+                fde.lsda = Some(address_for_data(lsda));
+                self.frame_table.add_fde(self.cie_id.unwrap(), fde);
             }
             UnwindInfo::WindowsX64(_) | UnwindInfo::WindowsArm64(_) => {
                 // Windows does not have debug info for its unwind info.

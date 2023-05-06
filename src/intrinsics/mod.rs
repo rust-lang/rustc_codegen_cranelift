@@ -17,13 +17,14 @@ mod llvm_aarch64;
 mod llvm_x86;
 mod simd;
 
-use cranelift_codegen::ir::AtomicRmwOp;
+use cranelift_codegen::ir::{AtomicRmwOp, JumpTableData};
 use rustc_middle::ty;
 use rustc_middle::ty::GenericArgsRef;
 use rustc_middle::ty::layout::ValidityRequirement;
 use rustc_middle::ty::print::{with_no_trimmed_paths, with_no_visible_paths};
 use rustc_span::source_map::Spanned;
 use rustc_span::{Symbol, sym};
+use rustc_target::spec::PanicStrategy;
 
 pub(crate) use self::llvm::codegen_llvm_intrinsic_call;
 use crate::cast::clif_intcast;
@@ -1155,23 +1156,67 @@ fn codegen_regular_intrinsic_call<'tcx>(
         }
 
         sym::catch_unwind => {
+            let ret_block = fx.get_block(destination.unwrap());
+
             intrinsic_args!(fx, args => (f, data, catch_fn); intrinsic);
             let f = f.load_scalar(fx);
             let data = data.load_scalar(fx);
-            let _catch_fn = catch_fn.load_scalar(fx);
+            let catch_fn = catch_fn.load_scalar(fx);
 
-            // FIXME once unwinding is supported, change this to actually catch panics
             let f_sig = fx.bcx.func.import_signature(Signature {
                 call_conv: fx.target_config.default_call_conv,
                 params: vec![AbiParam::new(pointer_ty(fx.tcx))],
                 returns: vec![],
             });
 
-            fx.bcx.ins().call_indirect(f_sig, f, &[data]);
+            if fx.tcx.sess.panic_strategy() == PanicStrategy::Abort {
+                fx.bcx.ins().call_indirect(f_sig, f, &[data]);
 
-            let layout = fx.layout_of(fx.tcx.types.i32);
-            let ret_val = CValue::by_val(fx.bcx.ins().iconst(types::I32, 0), layout);
-            ret.write_cvalue(fx, ret_val);
+                let layout = fx.layout_of(fx.tcx.types.i32);
+                let ret_val = CValue::by_val(fx.bcx.ins().iconst(types::I32, 0), layout);
+                ret.write_cvalue(fx, ret_val);
+
+                fx.bcx.ins().jump(ret_block, &[]);
+            } else {
+                let catch_fn_sig = fx.bcx.func.import_signature(Signature {
+                    call_conv: fx.target_config.default_call_conv,
+                    params: vec![
+                        AbiParam::new(pointer_ty(fx.tcx)),
+                        AbiParam::new(pointer_ty(fx.tcx)),
+                    ],
+                    returns: vec![],
+                });
+
+                let fallthrough_block = fx.bcx.create_block();
+                let fallthrough_block_call = fx.bcx.func.dfg.block_call(fallthrough_block, &[]);
+                let catch_block = fx.bcx.create_block();
+                let catch_block_call = fx.bcx.func.dfg.block_call(catch_block, &[]);
+                let jump_table = fx.bcx.func.create_jump_table(JumpTableData::new(
+                    fallthrough_block_call,
+                    &[catch_block_call],
+                ));
+
+                fx.bcx.ins().invoke_indirect(f_sig, f, &[data], 1, jump_table);
+
+                fx.bcx.seal_block(fallthrough_block);
+                fx.bcx.switch_to_block(fallthrough_block);
+                let layout = fx.layout_of(fx.tcx.types.i32);
+                let ret_val = CValue::by_val(fx.bcx.ins().iconst(types::I32, 0), layout);
+                ret.write_cvalue(fx, ret_val);
+                fx.bcx.ins().jump(ret_block, &[]);
+
+                fx.bcx.seal_block(catch_block);
+                fx.bcx.switch_to_block(catch_block);
+                fx.bcx.set_cold_block(catch_block);
+                let exception = fx.bcx.append_block_param(catch_block, pointer_ty(fx.tcx));
+                fx.bcx.ins().call_indirect(catch_fn_sig, catch_fn, &[data, exception]);
+                let layout = fx.layout_of(fx.tcx.types.i32);
+                let ret_val = CValue::by_val(fx.bcx.ins().iconst(types::I32, 1), layout);
+                ret.write_cvalue(fx, ret_val);
+                fx.bcx.ins().jump(ret_block, &[]);
+            }
+
+            return Ok(());
         }
 
         sym::fadd_fast
