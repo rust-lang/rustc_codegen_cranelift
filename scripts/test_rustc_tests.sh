@@ -31,6 +31,16 @@ git checkout -- tests/ui/entry-point/auxiliary/bad_main_functions.rs
 # missing features
 # ================
 
+rm -r tests/run-make/bin-emit-no-symbols # wrong personality definition
+rm -r tests/run-make/foreign-double-unwind
+rm -r tests/run-make/rustdoc-target-spec-json-path
+rm -r tests/run-make/std-core-cycle
+rm -r tests/run-make/c-unwind-abi-catch-lib-panic
+rm -r tests/run-make/no-alloc-shim
+rm -r tests/run-make/crate-circular-deps-link
+rm tests/ui/extern-flag/auxiliary/panic_handler.rs
+rm tests/ui/panic-runtime/incompatible-type.rs
+
 # vendor intrinsics
 rm tests/ui/asm/x86_64/evex512-implicit-feature.rs # unimplemented AVX512 x86 vendor intrinsic
 rm tests/ui/simd/dont-invalid-bitcast-x86_64.rs # unimplemented llvm.x86.sse41.round.ps

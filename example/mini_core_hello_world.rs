@@ -256,6 +256,9 @@ pub trait LegacyReceiver {}
 impl<T: ?Sized> LegacyReceiver for &T {}
 impl<T: ?Sized> LegacyReceiver for &mut T {}
 
+#[lang = "unpin"]
+pub auto trait Unpin {}
+
 #[lang = "panic"]
 #[track_caller]
 pub fn panic(_msg: &'static str) -> ! {
