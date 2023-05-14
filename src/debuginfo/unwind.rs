@@ -128,7 +128,7 @@ impl UnwindContext {
                     next_action: None,
                 });
 
-                println!("{:?}", context.compiled_code().unwrap().buffer.call_sites());
+                //println!("{:?}", context.compiled_code().unwrap().buffer.call_sites());
                 for call_site in context.compiled_code().unwrap().buffer.call_sites() {
                     match call_site.id.map(|id| id.bits()) {
                         None => gcc_except_table_data.call_sites.0.push(CallSite {
@@ -152,7 +152,7 @@ impl UnwindContext {
                         _ => unreachable!(),
                     }
                 }
-                println!("{gcc_except_table_data:?}");
+                //println!("{gcc_except_table_data:?}");
 
                 let mut gcc_except_table = super::emit::WriterRelocate::new(self.endian);
 
