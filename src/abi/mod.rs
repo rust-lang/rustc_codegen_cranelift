@@ -409,7 +409,6 @@ pub(crate) fn codegen_terminator_call<'tcx>(
                     args,
                     ret_place,
                     target,
-                    unwind,
                     source_info,
                 ) {
                     Ok(()) => return,
