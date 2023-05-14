@@ -269,7 +269,6 @@ pub(crate) fn codegen_intrinsic_call<'tcx>(
     args: &[Spanned<mir::Operand<'tcx>>],
     destination: CPlace<'tcx>,
     target: Option<BasicBlock>,
-    unwind: UnwindAction,
     source_info: mir::SourceInfo,
 ) -> Result<(), Instance<'tcx>> {
     let intrinsic = fx.tcx.item_name(instance.def_id());
@@ -297,7 +296,6 @@ pub(crate) fn codegen_intrinsic_call<'tcx>(
             args,
             destination,
             target,
-            unwind,
             source_info,
         )?;
     }
@@ -442,7 +440,6 @@ fn codegen_regular_intrinsic_call<'tcx>(
     args: &[Spanned<mir::Operand<'tcx>>],
     ret: CPlace<'tcx>,
     destination: Option<BasicBlock>,
-    unwind: UnwindAction,
     source_info: mir::SourceInfo,
 ) -> Result<(), Instance<'tcx>> {
     assert_eq!(generic_args, instance.args);
