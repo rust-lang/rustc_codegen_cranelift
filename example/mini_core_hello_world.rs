@@ -253,6 +253,9 @@ pub trait Destruct {}
 #[lang = "phantom_data"]
 pub struct PhantomData<T: ?Sized>;
 
+#[lang = "unpin"]
+pub auto trait Unpin {}
+
 #[lang = "panic"]
 #[track_caller]
 pub fn panic(_msg: &'static str) -> ! {
