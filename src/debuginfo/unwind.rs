@@ -8,9 +8,9 @@ use cranelift_codegen::isa::unwind::UnwindInfo;
 use cranelift_module::DataId;
 use cranelift_object::ObjectProduct;
 use eh_frame_experiments::{
-    ActionTable, CallSiteTable, ExceptionSpecTable, GccExceptTable, TypeInfoTable,
+    Action, ActionTable, CallSite, CallSiteTable, ExceptionSpecTable, GccExceptTable, TypeInfoTable,
 };
-use gimli::write::{CieId, EhFrame, FrameTable, Section};
+use gimli::write::{Address, CieId, EhFrame, FrameTable, Section};
 use gimli::{Encoding, Format, RunTimeEndian};
 
 use super::emit::{address_for_data, address_for_func, DebugRelocName};
@@ -115,12 +115,44 @@ impl UnwindContext {
                 };
 
                 // FIXME add actual exception information here
-                let gcc_except_table_data = GccExceptTable {
+                let mut gcc_except_table_data = GccExceptTable {
                     call_sites: CallSiteTable(vec![]),
                     actions: ActionTable::new(),
                     type_info: TypeInfoTable::new(gimli::DW_EH_PE_udata4),
                     exception_specs: ExceptionSpecTable::new(),
                 };
+
+                let catch_type = gcc_except_table_data.type_info.add(Address::Constant(0));
+                let catch_action = gcc_except_table_data.actions.add(Action {
+                    kind: eh_frame_experiments::ActionKind::Catch(catch_type),
+                    next_action: None,
+                });
+
+                println!("{:?}", context.compiled_code().unwrap().buffer.call_sites());
+                for call_site in context.compiled_code().unwrap().buffer.call_sites() {
+                    match call_site.id.map(|id| id.bits()) {
+                        None => gcc_except_table_data.call_sites.0.push(CallSite {
+                            start: u64::from(call_site.ret_addr - 1),
+                            length: 1,
+                            landing_pad: 0,
+                            action_entry: None,
+                        }),
+                        Some(0) => gcc_except_table_data.call_sites.0.push(CallSite {
+                            start: u64::from(call_site.ret_addr - 1),
+                            length: 1,
+                            landing_pad: u64::from(call_site.alternate_targets[0]),
+                            action_entry: None,
+                        }),
+                        Some(1) => gcc_except_table_data.call_sites.0.push(CallSite {
+                            start: u64::from(call_site.ret_addr - 1),
+                            length: 1,
+                            landing_pad: u64::from(call_site.alternate_targets[0]),
+                            action_entry: Some(catch_action),
+                        }),
+                        _ => unreachable!(),
+                    }
+                }
+                println!("{gcc_except_table_data:?}");
 
                 let mut gcc_except_table = super::emit::WriterRelocate::new(self.endian);
 

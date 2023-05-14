@@ -42,6 +42,9 @@ pretty_env_logger = "0.4.0"
 
 gimli = { git = "https://github.com/bjorn3/gimli.git", branch = "bsc-unwinding-fix-lsda-encoding" }
 
+#[patch."ssh://git@github.com/bjorn3/eh_frame_experiments.git"]
+#eh_frame_experiments = { path = "./eh_frame_experiments" }
+
 [features]
 # Enable features not ready to be enabled when compiling as part of rustc
 unstable-features = ["jit", "inline_asm"]

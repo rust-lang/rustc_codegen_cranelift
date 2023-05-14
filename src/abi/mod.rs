@@ -601,10 +601,10 @@ pub(crate) fn codegen_terminator_call<'tcx>(
 
                 match func_ref {
                     CallTarget::Direct(func_ref) => {
-                        fx.bcx.ins().invoke(func_ref, &call_args, jump_table);
+                        fx.bcx.ins().invoke(func_ref, &call_args, 0, jump_table);
                     }
                     CallTarget::Indirect(sig, func_ptr) => {
-                        fx.bcx.ins().invoke_indirect(sig, func_ptr, &call_args, jump_table);
+                        fx.bcx.ins().invoke_indirect(sig, func_ptr, &call_args, 0, jump_table);
                     }
                 }
 

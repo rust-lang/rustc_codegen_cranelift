@@ -1053,7 +1053,7 @@ fn codegen_panic_inner<'tcx>(
                 fallthrough_block_call,
                 &[cleanup_block_call],
             ));
-            let call_inst = fx.bcx.ins().invoke(func_ref, args, jump_table);
+            let call_inst = fx.bcx.ins().invoke(func_ref, args, 0, jump_table);
             if fx.clif_comments.enabled() {
                 fx.add_comment(call_inst, format!("panic {}", symbol_name));
             }

@@ -1134,7 +1134,7 @@ fn codegen_regular_intrinsic_call<'tcx>(
                     &[catch_block_call],
                 ));
 
-                fx.bcx.ins().invoke_indirect(f_sig, f, &[data], jump_table);
+                fx.bcx.ins().invoke_indirect(f_sig, f, &[data], 1, jump_table);
 
                 fx.bcx.seal_block(fallthrough_block);
                 fx.bcx.switch_to_block(fallthrough_block);
