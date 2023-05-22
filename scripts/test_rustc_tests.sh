@@ -11,12 +11,12 @@ pushd rust
 command -v rg >/dev/null 2>&1 || cargo install ripgrep
 
 rm -r tests/ui/{unsized-locals/,lto/,linkage*} || true
-for test in $(rg --files-with-matches "lto|// needs-asm-support|// needs-unwind" tests/{codegen-units,ui,incremental}); do
+for test in $(rg --files-with-matches "lto|// needs-asm-support" tests/{codegen-units,ui,incremental}); do
   rm $test
 done
 
 for test in tests/run-make/**/Makefile; do
-  if rg "# needs-asm-support|# needs-unwind" $test >/dev/null; then
+  if rg "# needs-asm-support" $test >/dev/null; then
     rm -r $(dirname $test)
   fi
 done
@@ -32,17 +32,10 @@ rm tests/ui/parser/unclosed-delimiter-in-dep.rs # submodule contains //~ERROR
 # missing features
 # ================
 
-# requires stack unwinding
-# FIXME add needs-unwind to this test
-rm -r tests/run-make/libtest-junit
-
-# extra warning about -Cpanic=abort for proc macros
-rm tests/ui/proc-macro/crt-static.rs
-rm tests/ui/proc-macro/proc-macro-deprecated-attr.rs
-rm tests/ui/proc-macro/quote-debug.rs
-rm tests/ui/proc-macro/no-missing-docs.rs
-rm tests/ui/rust-2018/proc-macro-crate-in-paths.rs
-rm tests/ui/proc-macro/allowed-signatures.rs
+rm -r tests/run-make/foreign-double-unwind
+rm -r tests/run-make/issue-69368 # wrong personality definition
+rm -r tests/run-make/rustdoc-target-spec-json-path
+rm -r tests/run-make/std-core-cycle
 
 # vendor intrinsics
 rm tests/ui/sse2.rs # cpuid not supported, so sse2 not detected
@@ -138,6 +131,7 @@ rm -r tests/run-make/issue-30063 # same
 rm -r tests/run-make/multiple-emits # same
 rm -r tests/run-make/output-type-permutations # same
 rm -r tests/run-make/used # same
+rm -r tests/run-make/c-unwind-abi-catch-lib-panic
 
 # bugs in the test suite
 # ======================

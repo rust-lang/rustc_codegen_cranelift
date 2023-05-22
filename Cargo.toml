@@ -15,12 +15,12 @@ crate-type = ["dylib"]
 
 [dependencies]
 # These have to be in sync with each other
-cranelift-codegen = { path = "../wasmtime/cranelift/codegen", features = ["unwind"] }
-cranelift-frontend = { path = "../wasmtime/cranelift/frontend" }
-cranelift-module = { path = "../wasmtime/cranelift/module" }
-cranelift-native = { path = "../wasmtime/cranelift/native" }
-cranelift-jit = { path = "../wasmtime/cranelift/jit", optional = true }
-cranelift-object = { path = "../wasmtime/cranelift/object" }
+cranelift-codegen = { path = "/home/gh-bjorn3/wasmtime/cranelift/codegen", features = ["unwind"] }
+cranelift-frontend = { path = "/home/gh-bjorn3/wasmtime/cranelift/frontend" }
+cranelift-module = { path = "/home/gh-bjorn3/wasmtime/cranelift/module" }
+cranelift-native = { path = "/home/gh-bjorn3/wasmtime/cranelift/native" }
+cranelift-jit = { path = "/home/gh-bjorn3/wasmtime/cranelift/jit", optional = true }
+cranelift-object = { path = "/home/gh-bjorn3/wasmtime/cranelift/object" }
 target-lexicon = "0.12.0"
 gimli = { version = "0.27.2", default-features = false, features = ["write"]}
 object = { version = "0.30.3", default-features = false, features = ["std", "read_core", "write", "archive", "coff", "elf", "macho", "pe", "unaligned"] }
