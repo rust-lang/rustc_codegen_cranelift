@@ -11,6 +11,8 @@ pub(crate) fn prepare(dirs: &Dirs) {
     std::fs::create_dir_all(&dirs.download_dir).unwrap();
     crate::tests::RAND_REPO.fetch(dirs);
     crate::tests::REGEX_REPO.fetch(dirs);
+    crate::tests::IMAGE_REPO.fetch(dirs);
+    crate::tests::BLAKE3_REPO.fetch(dirs);
 }
 
 pub(crate) struct GitRepo {

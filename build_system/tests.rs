@@ -157,6 +157,26 @@ static SYSROOT_TESTS_SRC: RelPath = RelPath::build("sysroot_tests");
 
 static SYSROOT_TESTS: CargoProject = CargoProject::new(&SYSROOT_TESTS_SRC, "sysroot_tests_target");
 
+pub(crate) static IMAGE_REPO: GitRepo = GitRepo::github(
+    "image-rs",
+    "image",
+    "c8d67ecc2a9ba42bb105be8cd430bba4248ee974",
+    "3a7a845a9749123f",
+    "image",
+);
+
+static IMAGE: CargoProject = CargoProject::new(&IMAGE_REPO.source_dir(), "image_target");
+
+pub(crate) static BLAKE3_REPO: GitRepo = GitRepo::github(
+    "BLAKE3-team",
+    "BLAKE3",
+    "8e2e07e0222851a7f071eee9ffaca4c17fb7872c",
+    "6011bb8c767b053c",
+    "blake3",
+);
+
+static BLAKE3: CargoProject = CargoProject::new(&BLAKE3_REPO.source_dir(), "blake3_target");
+
 const EXTENDED_SYSROOT_SUITE: &[TestCase] = &[
     TestCase::custom("test.rust-random/rand", &|runner| {
         RAND_REPO.patch(&runner.dirs);
@@ -223,6 +243,48 @@ const EXTENDED_SYSROOT_SUITE: &[TestCase] = &[
 
         if runner.is_native {
             let mut test_cmd = PORTABLE_SIMD.test(&runner.target_compiler, &runner.dirs);
+            test_cmd.arg("-q");
+            spawn_and_wait(test_cmd);
+        }
+    }),
+    TestCase::custom("test.image-fractal", &|runner| {
+        IMAGE_REPO.patch(&runner.dirs);
+
+        IMAGE.clean(&runner.dirs);
+
+        let mut build_cmd = IMAGE.build(&runner.target_compiler, &runner.dirs);
+        build_cmd
+            .arg("--example")
+            .arg("fractal")
+            .arg("--no-default-features")
+            .arg("--features")
+            .arg("png");
+        spawn_and_wait(build_cmd);
+
+        if runner.is_native {
+            let mut run_cmd = IMAGE.run(&runner.target_compiler, &runner.dirs);
+            run_cmd
+                .arg("--example")
+                .arg("fractal")
+                .arg("--no-default-features")
+                .arg("--features")
+                .arg("png");
+            run_cmd.current_dir(IMAGE.target_dir(&runner.dirs));
+
+            spawn_and_wait(run_cmd);
+        }
+    }),
+    TestCase::custom("test.blake3", &|runner| {
+        BLAKE3_REPO.patch(&runner.dirs);
+
+        BLAKE3.clean(&runner.dirs);
+
+        let mut build_cmd = BLAKE3.build(&runner.target_compiler, &runner.dirs);
+        build_cmd.arg("--all-targets");
+        spawn_and_wait(build_cmd);
+
+        if runner.is_native {
+            let mut test_cmd = BLAKE3.test(&runner.target_compiler, &runner.dirs);
             test_cmd.arg("-q");
             spawn_and_wait(test_cmd);
         }
