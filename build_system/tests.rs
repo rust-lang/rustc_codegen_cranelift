@@ -77,6 +77,18 @@ const BASE_SYSROOT_SUITE: &[TestCase] = &[
     TestCase::build_bin_and_run("aot.alloc_example", "example/alloc_example.rs", &[]),
     TestCase::jit_bin("jit.std_example", "example/std_example.rs", ""),
     TestCase::build_bin_and_run("aot.std_example", "example/std_example.rs", &["arg"]),
+    TestCase::custom("aot.exception_bench", &|runner| {
+        runner.run_rustc([
+            "example/exception_bench.rs",
+            "--crate-name",
+            "exception_bench_abort",
+            "-Cpanic=abort",
+        ]);
+        runner.run_out_command("exception_bench_abort", &[]);
+
+        runner.run_rustc(["example/exception_bench.rs", "--crate-name", "exception_bench_unwind"]);
+        runner.run_out_command("exception_bench_unwind", &[]);
+    }),
     TestCase::build_bin_and_run("aot.dst_field_align", "example/dst-field-align.rs", &[]),
     TestCase::build_bin_and_run(
         "aot.subslice-patterns-const-eval",
@@ -377,6 +389,7 @@ impl TestRunner {
         cmd.arg("--out-dir");
         cmd.arg(format!("{}", BUILD_EXAMPLE_OUT_DIR.to_path(&self.dirs).display()));
         cmd.arg("-Cdebuginfo=2");
+        cmd.arg("-Copt-level=3");
         cmd.arg("--target");
         cmd.arg(&self.target_compiler.triple);
         cmd.args(args);

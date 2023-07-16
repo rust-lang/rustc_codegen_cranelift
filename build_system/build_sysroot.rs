@@ -236,8 +236,10 @@ fn build_clif_sysroot_for_triple(
     }
 
     // Build sysroot
+    compiler.rustc = RelPath::DIST.join("rustc-clif").to_path(dirs);
     let mut rustflags = " -Zforce-unstable-if-unmarked".to_string();
-    rustflags.push_str(&format!(" -Zcodegen-backend={}", cg_clif_dylib_path.to_str().unwrap()));
+    rustflags.push_str(" --for-sysroot");
+    //rustflags.push_str(&format!(" -Zcodegen-backend={}", cg_clif_dylib_path.to_str().unwrap()));
     // Necessary for MinGW to find rsbegin.o and rsend.o
     rustflags
         .push_str(&format!(" --sysroot {}", RTSTARTUP_SYSROOT.to_path(dirs).to_str().unwrap()));
@@ -254,6 +256,7 @@ fn build_clif_sysroot_for_triple(
     if compiler.triple.contains("apple") {
         build_cmd.env("CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO", "packed");
     }
+    build_cmd.env("FOR_SYSROOT", "1");
     spawn_and_wait(build_cmd);
 
     for entry in fs::read_dir(build_dir.join("deps")).unwrap() {

@@ -17,16 +17,22 @@ fn main() {
 
     let passed_args = std::env::args_os().skip(1).collect::<Vec<_>>();
     let mut args = vec![];
-    let mut codegen_backend_arg = OsString::from("-Zcodegen-backend=");
-    codegen_backend_arg.push(cg_clif_dylib_path);
-    args.push(codegen_backend_arg);
-    if !passed_args.iter().any(|arg| {
-        arg == "--sysroot" || arg.to_str().map(|s| s.starts_with("--sysroot=")) == Some(true)
-    }) {
-        args.push(OsString::from("--sysroot"));
-        args.push(OsString::from(sysroot.to_str().unwrap()));
+    if !std::env::var("FOR_SYSROOT").is_ok() || passed_args.iter().any(|arg| arg == "--for-sysroot")
+    {
+        let mut codegen_backend_arg = OsString::from("-Zcodegen-backend=");
+        codegen_backend_arg.push(cg_clif_dylib_path);
+        args.push(codegen_backend_arg);
+        if !passed_args.iter().any(|arg| {
+            arg == "--sysroot" || arg.to_str().map(|s| s.starts_with("--sysroot=")) == Some(true)
+        }) {
+            args.push(OsString::from("--sysroot"));
+            args.push(OsString::from(sysroot.to_str().unwrap()));
+        }
+        if passed_args.iter().any(|arg| arg == "panic_abort") {
+            args.push(OsString::from("-Cpanic=abort"));
+        }
     }
-    args.extend(passed_args);
+    args.extend(passed_args.into_iter().filter(|arg| arg != "--for-sysroot"));
 
     // Ensure that the right toolchain is used
     env::set_var("RUSTUP_TOOLCHAIN", env!("TOOLCHAIN_NAME"));
