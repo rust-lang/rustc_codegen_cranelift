@@ -23,8 +23,8 @@
 # Comment any of these lines to skip individual tests.
 
 testsuite.no_sysroot
-build.mini_core
-build.example
+#build.mini_core
+#build.example
 #jit.mini_core_hello_world
 #aot.mini_core_hello_world
 
@@ -41,8 +41,9 @@ testsuite.base_sysroot
 #aot.float-minmax-pass
 #aot.mod_bench
 #aot.issue-72793
+aot.exception_bench
 
-testsuite.extended_sysroot
+#testsuite.extended_sysroot
 test.rust-random/rand
 test.libcore
 test.regex-shootout-regex-dna

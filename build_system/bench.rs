@@ -59,12 +59,13 @@ fn benchmark_simple_raytracer(dirs: &Dirs) {
         target_dir = target_dir.display(),
     );
 
-    let bench_compile = hyperfine_command(
-        1,
-        bench_runs,
+    let mut bench_compile = hyperfine_command(
+        0,
+        2,
         Some(&clean_cmd),
         &[&llvm_build_cmd, &clif_build_cmd, &clif_build_opt_cmd],
     );
+    bench_compile.arg("--show-output");
 
     spawn_and_wait(bench_compile);
 

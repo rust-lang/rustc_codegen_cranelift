@@ -25,6 +25,7 @@ fn main() {
     );
     rustflags.push_str(" --sysroot ");
     rustflags.push_str(sysroot.to_str().unwrap());
+    rustflags.push_str(" -Cpanic=abort");
     env::set_var("RUSTFLAGS", env::var("RUSTFLAGS").unwrap_or(String::new()) + &rustflags);
     env::set_var("RUSTDOCFLAGS", env::var("RUSTDOCFLAGS").unwrap_or(String::new()) + &rustflags);
 
