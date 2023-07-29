@@ -75,9 +75,23 @@ impl UnwindContext {
             module.define_data(personality_ref, &personality_ref_data).unwrap();
 
             cie.personality = Some((
-                gimli::DwEhPe(
-                    gimli::DW_EH_PE_indirect.0 | gimli::DW_EH_PE_pcrel.0 | gimli::DW_EH_PE_sdata8.0,
-                ),
+                if module.isa().triple().architecture == target_lexicon::Architecture::X86_64 {
+                    gimli::DwEhPe(
+                        gimli::DW_EH_PE_indirect.0
+                            | gimli::DW_EH_PE_pcrel.0
+                            | gimli::DW_EH_PE_sdata4.0,
+                    )
+                } else if let target_lexicon::Architecture::Aarch64(_) =
+                    module.isa().triple().architecture
+                {
+                    gimli::DwEhPe(
+                        gimli::DW_EH_PE_indirect.0
+                            | gimli::DW_EH_PE_pcrel.0
+                            | gimli::DW_EH_PE_sdata8.0,
+                    )
+                } else {
+                    todo!()
+                },
                 address_for_data(personality_ref),
             ));
             Some(frame_table.add_cie(cie))
