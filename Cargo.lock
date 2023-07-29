@@ -204,7 +204,7 @@ dependencies = [
 [[package]]
 name = "eh_frame_experiments"
 version = "0.1.0"
-source = "git+ssh://git@github.com/bjorn3/eh_frame_experiments.git#d7393b49d8dc660e918419ab7dfcbcea2fb04592"
+source = "git+https://github.com/bjorn3/eh_frame_experiments.git#d7393b49d8dc660e918419ab7dfcbcea2fb04592"
 dependencies = [
  "gimli",
  "object 0.31.0",
