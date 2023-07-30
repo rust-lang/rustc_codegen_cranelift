@@ -4,7 +4,7 @@ use std::path::Path;
 use super::path::{Dirs, RelPath};
 use super::prepare::GitRepo;
 use super::rustc_info::get_file_name;
-use super::utils::{hyperfine_command, spawn_and_wait};
+use super::utils::hyperfine_command;
 
 static SIMPLE_RAYTRACER_REPO: GitRepo = GitRepo::github(
     "ebobby",
@@ -59,19 +59,17 @@ fn benchmark_simple_raytracer(dirs: &Dirs) {
         target_dir = target_dir.display(),
     );
 
-    let mut bench_compile = hyperfine_command(
+    hyperfine_command(
         0,
-        2,
+        1,
         Some(&clean_cmd),
         &[&llvm_build_cmd, &clif_build_cmd, &clif_build_opt_cmd],
+        Path::new("."),
     );
-    bench_compile.arg("--show-output");
-
-    spawn_and_wait(bench_compile);
 
     eprintln!("[BENCH RUN] ebobby/simple-raytracer");
 
-    let mut bench_run = hyperfine_command(
+    hyperfine_command(
         0,
         bench_runs,
         None,
@@ -80,7 +78,6 @@ fn benchmark_simple_raytracer(dirs: &Dirs) {
             Path::new(".").join(get_file_name("raytracer_cg_clif", "bin")).to_str().unwrap(),
             Path::new(".").join(get_file_name("raytracer_cg_clif_opt", "bin")).to_str().unwrap(),
         ],
+        &RelPath::BUILD.to_path(dirs),
     );
-    bench_run.current_dir(RelPath::BUILD.to_path(dirs));
-    spawn_and_wait(bench_run);
 }

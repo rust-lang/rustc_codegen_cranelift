@@ -157,30 +157,46 @@ impl CargoProject {
     }
 }
 
-#[must_use]
 pub(crate) fn hyperfine_command(
     warmup: u64,
     runs: u64,
     prepare: Option<&str>,
     cmds: &[&str],
-) -> Command {
-    let mut bench = Command::new("hyperfine");
+    dir: &Path,
+) {
+    if runs == 1 && warmup == 0 {
+        for cmd in cmds {
+            if let Some(prepare) = prepare {
+                let mut prepare_cmd = Command::new("sh");
+                prepare_cmd.arg("-c").arg(prepare);
+                eprintln!("{prepare}");
+                spawn_and_wait(prepare_cmd);
+            }
+            let mut bench = Command::new("sh");
+            bench.arg("-c").arg(cmd);
+            eprintln!("{cmd}");
+            spawn_and_wait(bench);
+        }
+    } else {
+        let mut bench = Command::new("hyperfine");
 
-    if warmup != 0 {
-        bench.arg("--warmup").arg(warmup.to_string());
+        if warmup != 0 {
+            bench.arg("--warmup").arg(warmup.to_string());
+        }
+
+        if runs != 0 {
+            bench.arg("--runs").arg(runs.to_string());
+        }
+
+        if let Some(prepare) = prepare {
+            bench.arg("--prepare").arg(prepare);
+        }
+
+        bench.args(cmds);
+        bench.current_dir(dir);
+
+        spawn_and_wait(bench);
     }
-
-    if runs != 0 {
-        bench.arg("--runs").arg(runs.to_string());
-    }
-
-    if let Some(prepare) = prepare {
-        bench.arg("--prepare").arg(prepare);
-    }
-
-    bench.args(cmds);
-
-    bench
 }
 
 #[must_use]
