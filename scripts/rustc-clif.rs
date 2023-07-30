@@ -32,8 +32,10 @@ fn main() {
             args.push(OsString::from("-Cpanic=abort"));
         }
     }
-    if !passed_args.iter().any(|arg| arg == "panic_unwind") {
-        args.push(OsString::from("-Cpanic=abort"));
+    if env!("PANIC_ABORT") == "1" {
+        if !passed_args.iter().any(|arg| arg == "panic_unwind") {
+            args.push(OsString::from("-Cpanic=abort"));
+        }
     }
     args.extend(passed_args.into_iter().filter(|arg| arg != "--for-sysroot"));
 

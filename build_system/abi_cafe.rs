@@ -29,6 +29,7 @@ pub(crate) fn run(
         cg_clif_dylib,
         bootstrap_host_compiler,
         bootstrap_host_compiler.triple.clone(),
+        false,
     );
 
     eprintln!("Running abi-cafe");

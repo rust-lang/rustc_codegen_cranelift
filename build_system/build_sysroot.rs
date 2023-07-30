@@ -18,6 +18,7 @@ pub(crate) fn build_sysroot(
     cg_clif_dylib_src: &Path,
     bootstrap_host_compiler: &Compiler,
     target_triple: String,
+    panic_abort: bool,
 ) -> Compiler {
     eprintln!("[BUILD] sysroot {:?}", sysroot_kind);
 
@@ -53,6 +54,11 @@ pub(crate) fn build_sysroot(
             .arg("-o")
             .arg(&wrapper_path)
             .arg("-Cstrip=debuginfo");
+        if panic_abort {
+            build_cargo_wrapper_cmd.env("PANIC_ABORT", "1");
+        } else {
+            build_cargo_wrapper_cmd.env("PANIC_ABORT", "0");
+        }
         spawn_and_wait(build_cargo_wrapper_cmd);
         try_hard_link(wrapper_path, BIN_DIR.to_path(dirs).join(wrapper_name));
     }

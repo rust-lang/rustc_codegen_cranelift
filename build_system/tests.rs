@@ -239,6 +239,7 @@ pub(crate) fn run_tests(
             cg_clif_dylib,
             bootstrap_host_compiler,
             target_triple.clone(),
+            false,
         );
 
         let runner = TestRunner::new(
@@ -264,6 +265,7 @@ pub(crate) fn run_tests(
             cg_clif_dylib,
             bootstrap_host_compiler,
             target_triple.clone(),
+            false,
         );
         // Rust's build system denies a couple of lints that trigger on several of the test
         // projects. Changing the code to fix them is not worth it, so just silence all lints.
