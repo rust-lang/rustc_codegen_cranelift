@@ -41,8 +41,14 @@ fn benchmark_simple_raytracer(dirs: &Dirs) {
         manifest_path = manifest_path.display(),
         target_dir = target_dir.display(),
     );
+    // FIXME apply -Cpanic=abort to cg_llvm compiled code
     let llvm_build_cmd = format!(
-        "RUSTC=rustc cargo build --manifest-path {manifest_path} --target-dir {target_dir} && (rm build/raytracer_cg_llvm || true) && ln build/simple_raytracer/debug/main build/raytracer_cg_llvm",
+        "RUSTC=rustc cargo build -Zbuild-std=std --target aarch64-unknown-linux-gnu --manifest-path {manifest_path} --target-dir {target_dir} && (rm build/raytracer_cg_llvm || true) && ln build/simple_raytracer/aarch64-unknown-linux-gnu/debug/main build/raytracer_cg_llvm",
+        manifest_path = manifest_path.display(),
+        target_dir = target_dir.display(),
+    );
+    let llvm_build_opt_cmd = format!(
+        "RUSTC=rustc cargo build -Zbuild-std=std --target aarch64-unknown-linux-gnu --release --manifest-path {manifest_path} --target-dir {target_dir} && (rm build/raytracer_cg_llvm_opt || true) && ln build/simple_raytracer/aarch64-unknown-linux-gnu/release/main build/raytracer_cg_llvm_opt",
         manifest_path = manifest_path.display(),
         target_dir = target_dir.display(),
     );
@@ -63,7 +69,7 @@ fn benchmark_simple_raytracer(dirs: &Dirs) {
         0,
         1,
         Some(&clean_cmd),
-        &[&llvm_build_cmd, &clif_build_cmd, &clif_build_opt_cmd],
+        &[&llvm_build_cmd, &llvm_build_opt_cmd, &clif_build_cmd, &clif_build_opt_cmd],
         Path::new("."),
     );
 
@@ -75,6 +81,7 @@ fn benchmark_simple_raytracer(dirs: &Dirs) {
         None,
         &[
             Path::new(".").join(get_file_name("raytracer_cg_llvm", "bin")).to_str().unwrap(),
+            Path::new(".").join(get_file_name("raytracer_cg_llvm_opt", "bin")).to_str().unwrap(),
             Path::new(".").join(get_file_name("raytracer_cg_clif", "bin")).to_str().unwrap(),
             Path::new(".").join(get_file_name("raytracer_cg_clif_opt", "bin")).to_str().unwrap(),
         ],
