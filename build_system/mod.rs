@@ -180,29 +180,14 @@ pub(crate) fn main() {
             );
         }
         Command::Bench => {
-            eprintln!("Benchmarking panic=unwind");
-            build_sysroot::build_sysroot(
+            bench::benchmark(
                 &dirs,
                 channel,
                 sysroot_kind,
                 &cg_clif_dylib,
                 &bootstrap_host_compiler,
                 target_triple.clone(),
-                false,
             );
-            bench::benchmark(&dirs, false);
-
-            eprintln!("Benchmarking panic=abort");
-            build_sysroot::build_sysroot(
-                &dirs,
-                channel,
-                sysroot_kind,
-                &cg_clif_dylib,
-                &bootstrap_host_compiler,
-                target_triple,
-                true,
-            );
-            bench::benchmark(&dirs, true);
         }
     }
 }

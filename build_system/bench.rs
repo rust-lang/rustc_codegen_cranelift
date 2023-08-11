@@ -1,5 +1,9 @@
 use std::env;
 use std::path::Path;
+use std::process::Command;
+
+use crate::build_system::utils::{spawn_and_wait, Compiler};
+use crate::build_system::{build_sysroot, SysrootKind};
 
 use super::path::{Dirs, RelPath};
 use super::prepare::GitRepo;
@@ -13,8 +17,41 @@ static SIMPLE_RAYTRACER_REPO: GitRepo = GitRepo::github(
     "<none>",
 );
 
-pub(crate) fn benchmark(dirs: &Dirs, panic_abort: bool) {
-    benchmark_simple_raytracer(dirs, panic_abort);
+pub(crate) fn benchmark(
+    dirs: &Dirs,
+    channel: &str,
+    sysroot_kind: SysrootKind,
+    cg_clif_dylib_src: &Path,
+    bootstrap_host_compiler: &Compiler,
+    target_triple: String,
+) {
+    eprintln!("Benchmarking panic=unwind");
+
+    build_sysroot::build_sysroot(
+        &dirs,
+        channel,
+        sysroot_kind,
+        cg_clif_dylib_src,
+        &bootstrap_host_compiler,
+        target_triple.clone(),
+        false,
+    );
+
+    benchmark_simple_raytracer(dirs, false);
+
+    eprintln!("Benchmarking panic=abort");
+
+    build_sysroot::build_sysroot(
+        &dirs,
+        channel,
+        sysroot_kind,
+        cg_clif_dylib_src,
+        &bootstrap_host_compiler,
+        target_triple.clone(),
+        true,
+    );
+
+    benchmark_simple_raytracer(dirs, true);
 }
 
 fn benchmark_simple_raytracer(dirs: &Dirs, panic_abort: bool) {
@@ -36,51 +73,42 @@ fn benchmark_simple_raytracer(dirs: &Dirs, panic_abort: bool) {
     let manifest_path = SIMPLE_RAYTRACER_REPO.source_dir().to_path(dirs).join("Cargo.toml");
     let target_dir = RelPath::BUILD.join("simple_raytracer").to_path(dirs);
 
-    let clean_cmd = format!(
-        "RUSTC=rustc cargo clean --manifest-path {manifest_path} --target-dir {target_dir}",
-        manifest_path = manifest_path.display(),
-        target_dir = target_dir.display(),
-    );
-    let llvm_build_cmd = format!(
-        "RUSTC=rustc cargo build --manifest-path {manifest_path} --target-dir {target_dir} && (rm build/raytracer_cg_llvm || true) && ln build/simple_raytracer/debug/main build/raytracer_cg_llvm",
-        manifest_path = manifest_path.display(),
-        target_dir = target_dir.display(),
-    );
-    let llvm_build_opt_cmd = format!(
-        "RUSTC=rustc cargo build --release --manifest-path {manifest_path} --target-dir {target_dir} && (rm build/raytracer_cg_llvm_opt || true) && ln build/simple_raytracer/release/main build/raytracer_cg_llvm_opt",
-        manifest_path = manifest_path.display(),
-        target_dir = target_dir.display(),
-    );
-    let clif_build_cmd = format!(
-        "RUSTC=rustc {cargo_clif} build --manifest-path {manifest_path} --target-dir {target_dir} && (rm build/raytracer_cg_clif || true) && ln build/simple_raytracer/debug/main build/raytracer_cg_clif",
-        cargo_clif = cargo_clif.display(),
-        manifest_path = manifest_path.display(),
-        target_dir = target_dir.display(),
-    );
-    let clif_build_opt_cmd = format!(
-        "RUSTC=rustc {cargo_clif} build --manifest-path {manifest_path} --target-dir {target_dir} --release && (rm build/raytracer_cg_clif_opt || true) && ln build/simple_raytracer/release/main build/raytracer_cg_clif_opt",
-        cargo_clif = cargo_clif.display(),
-        manifest_path = manifest_path.display(),
-        target_dir = target_dir.display(),
-    );
+    let do_build = |cmd: &str, channel: &str, out_exe: &str| {
+        let _ = std::fs::remove_dir_all(&target_dir);
 
-    if panic_abort {
-        hyperfine_command(
-            0,
-            1,
-            Some(&clean_cmd),
-            &[&clif_build_cmd, &clif_build_opt_cmd],
-            Path::new("."),
+        let build_cmd = format!(
+            "RUSTC=rustc {cmd} --manifest-path {manifest_path} --target-dir {target_dir}",
+            manifest_path = manifest_path.display(),
+            target_dir = target_dir.display(),
         );
-    } else {
-        hyperfine_command(
-            0,
-            1,
-            Some(&clean_cmd),
-            &[&llvm_build_cmd, &llvm_build_opt_cmd, &clif_build_cmd, &clif_build_opt_cmd],
-            Path::new("."),
-        );
+        let mut bench = Command::new("sh");
+        bench.arg("-c").arg(&build_cmd);
+        eprintln!("{build_cmd}");
+        spawn_and_wait(bench);
+
+        let _ = std::fs::remove_file(RelPath::BUILD.to_path(dirs).join(out_exe));
+        std::fs::hard_link(
+            target_dir.join(channel).join("main"),
+            RelPath::BUILD.to_path(dirs).join(out_exe),
+        )
+        .unwrap();
+    };
+
+    if !panic_abort {
+        do_build("cargo build", "debug", "raytracer_cg_llvm");
+        do_build("cargo build --release", "release", "raytracer_cg_llvm_opt");
     }
+
+    do_build(
+        &format!("{cargo_clif} build", cargo_clif = cargo_clif.display()),
+        "debug",
+        "raytracer_cg_clif",
+    );
+    do_build(
+        &format!("{cargo_clif} build --release", cargo_clif = cargo_clif.display()),
+        "release",
+        "raytracer_cg_clif_opt",
+    );
 
     eprintln!("[BENCH RUN] ebobby/simple-raytracer");
 
