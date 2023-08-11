@@ -13,11 +13,11 @@ static SIMPLE_RAYTRACER_REPO: GitRepo = GitRepo::github(
     "<none>",
 );
 
-pub(crate) fn benchmark(dirs: &Dirs) {
-    benchmark_simple_raytracer(dirs);
+pub(crate) fn benchmark(dirs: &Dirs, panic_abort: bool) {
+    benchmark_simple_raytracer(dirs, panic_abort);
 }
 
-fn benchmark_simple_raytracer(dirs: &Dirs) {
+fn benchmark_simple_raytracer(dirs: &Dirs, panic_abort: bool) {
     if std::process::Command::new("hyperfine").output().is_err() {
         eprintln!("Hyperfine not installed");
         eprintln!("Hint: Try `cargo install hyperfine` to install hyperfine");
@@ -41,14 +41,13 @@ fn benchmark_simple_raytracer(dirs: &Dirs) {
         manifest_path = manifest_path.display(),
         target_dir = target_dir.display(),
     );
-    // FIXME apply -Cpanic=abort to cg_llvm compiled code
     let llvm_build_cmd = format!(
-        "RUSTC=rustc cargo build -Zbuild-std=std --target aarch64-unknown-linux-gnu --manifest-path {manifest_path} --target-dir {target_dir} && (rm build/raytracer_cg_llvm || true) && ln build/simple_raytracer/aarch64-unknown-linux-gnu/debug/main build/raytracer_cg_llvm",
+        "RUSTC=rustc cargo build --manifest-path {manifest_path} --target-dir {target_dir} && (rm build/raytracer_cg_llvm || true) && ln build/simple_raytracer/debug/main build/raytracer_cg_llvm",
         manifest_path = manifest_path.display(),
         target_dir = target_dir.display(),
     );
     let llvm_build_opt_cmd = format!(
-        "RUSTC=rustc cargo build -Zbuild-std=std --target aarch64-unknown-linux-gnu --release --manifest-path {manifest_path} --target-dir {target_dir} && (rm build/raytracer_cg_llvm_opt || true) && ln build/simple_raytracer/aarch64-unknown-linux-gnu/release/main build/raytracer_cg_llvm_opt",
+        "RUSTC=rustc cargo build --release --manifest-path {manifest_path} --target-dir {target_dir} && (rm build/raytracer_cg_llvm_opt || true) && ln build/simple_raytracer/release/main build/raytracer_cg_llvm_opt",
         manifest_path = manifest_path.display(),
         target_dir = target_dir.display(),
     );
@@ -65,26 +64,62 @@ fn benchmark_simple_raytracer(dirs: &Dirs) {
         target_dir = target_dir.display(),
     );
 
-    hyperfine_command(
-        0,
-        1,
-        Some(&clean_cmd),
-        &[&llvm_build_cmd, &llvm_build_opt_cmd, &clif_build_cmd, &clif_build_opt_cmd],
-        Path::new("."),
-    );
+    if panic_abort {
+        hyperfine_command(
+            0,
+            1,
+            Some(&clean_cmd),
+            &[&clif_build_cmd, &clif_build_opt_cmd],
+            Path::new("."),
+        );
+    } else {
+        hyperfine_command(
+            0,
+            1,
+            Some(&clean_cmd),
+            &[&llvm_build_cmd, &llvm_build_opt_cmd, &clif_build_cmd, &clif_build_opt_cmd],
+            Path::new("."),
+        );
+    }
 
     eprintln!("[BENCH RUN] ebobby/simple-raytracer");
 
-    hyperfine_command(
-        0,
-        bench_runs,
-        None,
-        &[
-            Path::new(".").join(get_file_name("raytracer_cg_llvm", "bin")).to_str().unwrap(),
-            Path::new(".").join(get_file_name("raytracer_cg_llvm_opt", "bin")).to_str().unwrap(),
-            Path::new(".").join(get_file_name("raytracer_cg_clif", "bin")).to_str().unwrap(),
-            Path::new(".").join(get_file_name("raytracer_cg_clif_opt", "bin")).to_str().unwrap(),
-        ],
-        &RelPath::BUILD.to_path(dirs),
-    );
+    if panic_abort {
+        // cargo -Zbuild-std has a bug where compiling with panic=abort fails. As such we can't test
+        // the LLVM backend with panic=abort. To avoid confusion skip running the benchmarks
+        // compiled with LLVM when benchmarking panic=abort.
+
+        hyperfine_command(
+            0,
+            bench_runs,
+            None,
+            &[
+                Path::new(".").join(get_file_name("raytracer_cg_clif", "bin")).to_str().unwrap(),
+                Path::new(".")
+                    .join(get_file_name("raytracer_cg_clif_opt", "bin"))
+                    .to_str()
+                    .unwrap(),
+            ],
+            &RelPath::BUILD.to_path(dirs),
+        );
+    } else {
+        hyperfine_command(
+            0,
+            bench_runs,
+            None,
+            &[
+                Path::new(".").join(get_file_name("raytracer_cg_llvm", "bin")).to_str().unwrap(),
+                Path::new(".")
+                    .join(get_file_name("raytracer_cg_llvm_opt", "bin"))
+                    .to_str()
+                    .unwrap(),
+                Path::new(".").join(get_file_name("raytracer_cg_clif", "bin")).to_str().unwrap(),
+                Path::new(".")
+                    .join(get_file_name("raytracer_cg_clif_opt", "bin"))
+                    .to_str()
+                    .unwrap(),
+            ],
+            &RelPath::BUILD.to_path(dirs),
+        );
+    }
 }

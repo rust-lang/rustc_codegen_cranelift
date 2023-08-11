@@ -190,7 +190,7 @@ pub(crate) fn main() {
                 target_triple.clone(),
                 false,
             );
-            bench::benchmark(&dirs);
+            bench::benchmark(&dirs, false);
 
             eprintln!("Benchmarking panic=abort");
             build_sysroot::build_sysroot(
@@ -202,7 +202,7 @@ pub(crate) fn main() {
                 target_triple,
                 true,
             );
-            bench::benchmark(&dirs);
+            bench::benchmark(&dirs, true);
         }
     }
 }
