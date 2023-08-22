@@ -228,6 +228,7 @@ pub(crate) fn try_hard_link(src: impl AsRef<Path>, dst: impl AsRef<Path>) {
 #[track_caller]
 pub(crate) fn spawn_and_wait(mut cmd: Command) {
     if !cmd.spawn().unwrap().wait().unwrap().success() {
+        println!("exited with non-zero exit code");
         process::exit(1);
     }
 }
