@@ -70,6 +70,38 @@ With panic=unwind
       1_000 throws catch unwinding 100 frames took 137.244674ms
 ```
 
+Commit 368bd4c6d1caff3e1981b26462948cf726b8c0ed:
+
+```
+[BENCH RUN] rust-lang/rustc-perf: runtime-benchmarks/css
+Benchmark 1: ./css_bench_cg_llvm_unwind
+  Time (mean ± σ):      3.458 s ±  0.003 s    [User: 3.319 s, System: 0.139 s]
+  Range (min … max):    3.452 s …  3.463 s    10 runs
+
+Benchmark 2: ./css_bench_cg_clif_unwind
+  Time (mean ± σ):      3.779 s ±  0.063 s    [User: 3.636 s, System: 0.143 s]
+  Range (min … max):    3.710 s …  3.891 s    10 runs
+
+Benchmark 3: ./css_bench_cg_clif_unwind_opt
+  Time (mean ± σ):      2.283 s ±  0.029 s    [User: 2.138 s, System: 0.145 s]
+  Range (min … max):    2.241 s …  2.324 s    10 runs
+
+Benchmark 4: ./css_bench_cg_clif_abort
+  Time (mean ± σ):      3.679 s ±  0.075 s    [User: 3.517 s, System: 0.163 s]
+  Range (min … max):    3.592 s …  3.785 s    10 runs
+
+Benchmark 5: ./css_bench_cg_clif_abort_opt
+  Time (mean ± σ):      2.274 s ±  0.026 s    [User: 2.125 s, System: 0.149 s]
+  Range (min … max):    2.238 s …  2.307 s    10 runs
+
+Summary
+  './css_bench_cg_clif_abort_opt' ran
+    1.00 ± 0.02 times faster than './css_bench_cg_clif_unwind_opt'
+    1.52 ± 0.02 times faster than './css_bench_cg_llvm_unwind'
+    1.62 ± 0.04 times faster than './css_bench_cg_clif_abort'
+    1.66 ± 0.03 times faster than './css_bench_cg_clif_unwind'
+```
+
 # x86_64
 
 Commit a8859cca62563b1eda0cc4b0f51fdb8ac48470c3:
@@ -140,4 +172,35 @@ With panic=unwind
      10_000 throws catch unwinding few frame took 88.937706ms
      10_000 throws catch unwinding few frame with landingpad took 95.823128ms
       1_000 throws catch unwinding 100 frames took 87.839065ms
+```
+
+Commit 368bd4c6d1caff3e1981b26462948cf726b8c0ed:
+
+```
+Benchmark 1: ./css_bench_cg_llvm_unwind
+  Time (mean ± σ):      2.581 s ±  0.011 s    [User: 2.455 s, System: 0.125 s]
+  Range (min … max):    2.569 s …  2.606 s    10 runs
+
+Benchmark 2: ./css_bench_cg_clif_unwind
+  Time (mean ± σ):      2.950 s ±  0.012 s    [User: 2.816 s, System: 0.133 s]
+  Range (min … max):    2.940 s …  2.975 s    10 runs
+
+Benchmark 3: ./css_bench_cg_clif_unwind_opt
+  Time (mean ± σ):      1.870 s ±  0.019 s    [User: 1.727 s, System: 0.143 s]
+  Range (min … max):    1.846 s …  1.902 s    10 runs
+
+Benchmark 4: ./css_bench_cg_clif_abort
+  Time (mean ± σ):      2.958 s ±  0.030 s    [User: 2.820 s, System: 0.138 s]
+  Range (min … max):    2.905 s …  3.011 s    10 runs
+
+Benchmark 5: ./css_bench_cg_clif_abort_opt
+  Time (mean ± σ):      1.814 s ±  0.011 s    [User: 1.680 s, System: 0.134 s]
+  Range (min … max):    1.801 s …  1.837 s    10 runs
+
+Summary
+  './css_bench_cg_clif_abort_opt' ran
+    1.03 ± 0.01 times faster than './css_bench_cg_clif_unwind_opt'
+    1.42 ± 0.01 times faster than './css_bench_cg_llvm_unwind'
+    1.63 ± 0.01 times faster than './css_bench_cg_clif_unwind'
+    1.63 ± 0.02 times faster than './css_bench_cg_clif_abort'
 ```
