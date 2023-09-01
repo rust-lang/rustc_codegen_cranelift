@@ -14,9 +14,7 @@ use rustc_span::{
 use cranelift_codegen::binemit::CodeOffset;
 use cranelift_codegen::MachSrcLoc;
 
-use gimli::write::{
-    Address, AttributeValue, FileId, FileInfo, LineProgram, LineString, LineStringTable,
-};
+use gimli::write::{AttributeValue, FileId, FileInfo, LineProgram, LineString, LineStringTable};
 
 // OPTIMIZATION: It is cheaper to do this in one pass than using `.parent()` and `.file_name()`.
 fn split_path_dir_and_file(path: &Path) -> (&Path, &OsStr) {

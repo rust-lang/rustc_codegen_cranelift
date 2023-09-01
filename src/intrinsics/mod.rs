@@ -372,7 +372,7 @@ fn codegen_regular_intrinsic_call<'tcx>(
     args: &[mir::Operand<'tcx>],
     ret: CPlace<'tcx>,
     destination: Option<BasicBlock>,
-    unwind: UnwindAction,
+    _unwind: UnwindAction,
     source_info: mir::SourceInfo,
 ) {
     let usize_layout = fx.layout_of(fx.tcx.types.usize);
