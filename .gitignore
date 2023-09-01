@@ -15,3 +15,4 @@ perf.data.old
 /rust
 /download
 /git-fixed-subtree.sh
+/rustc_perf_bench_css/data/fb.css
