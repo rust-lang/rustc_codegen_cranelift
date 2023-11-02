@@ -106,12 +106,14 @@ mod windows_import_lib {
     //      name: * // import name; null terminated string
     //      dll_name: * // dll name; null terminated string
     pub fn generate(dll_name: &str, import_names: &[&str]) -> Vec<u8> {
-        assert!(dll_name.len() < 16, "long member names not supported yet");
         assert!(import_names.len() <= 0xFFFF, "too many import names");
         // number of symbols, and members containing symbols for symbol lookup members
         let symbol_count = import_names.len();
 
         let mut writer = Writer::new();
+
+        // hack: trim dll name to 15 characters to avoid long member names
+        let member_name = &dll_name[..dll_name.len().min(15)];
 
         // legacy symbol directory
         let mut legacy_symbol_directory = writer.start_member_raw();
@@ -150,7 +152,7 @@ mod windows_import_lib {
 
         // import members
         for (index, name) in import_names.iter().enumerate() {
-            let mut member = writer.start_member(dll_name);
+            let mut member = writer.start_member(member_name);
             // update member offsets
             let member_offset = member.header_offset as u32;
             member.data[legacy_member_table_offset + index * 4..][..4]
