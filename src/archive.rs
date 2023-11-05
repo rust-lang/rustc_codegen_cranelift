@@ -66,10 +66,18 @@ mod windows_import_lib {
     use object::{LittleEndian as LE, U16Bytes, U32Bytes, U16, U32};
 
     fn u16(value: u16) -> U16<LE> {
-        U16Bytes::new(LE, value)
+        U16::new(LE, value)
     }
 
     fn u32(value: u32) -> U32<LE> {
+        U32::new(LE, value)
+    }
+
+    fn u16b(value: u16) -> U16Bytes<LE> {
+        U16Bytes::new(LE, value)
+    }
+
+    fn u32b(value: u32) -> U32Bytes<LE> {
         U32Bytes::new(LE, value)
     }
 
@@ -387,21 +395,21 @@ mod windows_import_lib {
         );
         //   relocation 0: [3] import lookup table rva => points to UNDEF symbol .idata$4
         import_descriptor.write_pod(&ImageRelocation {
-            virtual_address: u32(0),
-            symbol_table_index: u32(3),
-            typ: u16(IMAGE_REL_AMD64_ADDR32NB),
+            virtual_address: u32b(0),
+            symbol_table_index: u32b(3),
+            typ: u16b(IMAGE_REL_AMD64_ADDR32NB),
         });
         //   relocation 1: [2] name rva => points to DLL name section .idata$6
         import_descriptor.write_pod(&ImageRelocation {
-            virtual_address: u32(12),
-            symbol_table_index: u32(2),
-            typ: u16(IMAGE_REL_AMD64_ADDR32NB),
+            virtual_address: u32b(12),
+            symbol_table_index: u32b(2),
+            typ: u16b(IMAGE_REL_AMD64_ADDR32NB),
         });
         //   relocation 2: [4] import address table rva => points to UNDEF symbol .idata$5
         import_descriptor.write_pod(&ImageRelocation {
-            virtual_address: u32(16),
-            symbol_table_index: u32(4),
-            typ: u16(IMAGE_REL_AMD64_ADDR32NB),
+            virtual_address: u32b(16),
+            symbol_table_index: u32b(4),
+            typ: u16b(IMAGE_REL_AMD64_ADDR32NB),
         });
 
         // [1] section .idata$6 data
@@ -455,45 +463,45 @@ mod windows_import_lib {
         //   [0] external __IMPORT_DESCRIPTOR_{dll_basename} => section 1
         import_descriptor.write_pod(&ImageSymbol {
             name: coff_string_table.get_symbol_raw_name(&import_descriptor_symbol),
-            value: u32(0),
-            section_number: u16(1),
-            typ: u16(null_type),
+            value: u32b(0),
+            section_number: u16b(1),
+            typ: u16b(null_type),
             storage_class: IMAGE_SYM_CLASS_EXTERNAL,
             number_of_aux_symbols: 0,
         });
         //   [1] section .idata$2 => section 1
         import_descriptor.write_pod(&ImageSymbol {
             name: coff_string_table.get_symbol_raw_name(".idata$2"),
-            value: u32(0),
-            section_number: u16(1),
-            typ: u16(null_type),
+            value: u32b(0),
+            section_number: u16b(1),
+            typ: u16b(null_type),
             storage_class: IMAGE_SYM_CLASS_SECTION,
             number_of_aux_symbols: 0,
         });
         //   [2] static .idata$6 => section 2
         import_descriptor.write_pod(&ImageSymbol {
             name: coff_string_table.get_symbol_raw_name(".idata$6"),
-            value: u32(0),
-            section_number: u16(2),
-            typ: u16(null_type),
+            value: u32b(0),
+            section_number: u16b(2),
+            typ: u16b(null_type),
             storage_class: IMAGE_SYM_CLASS_STATIC,
             number_of_aux_symbols: 0,
         });
         //   [3] section .idata$4 => undef
         import_descriptor.write_pod(&ImageSymbol {
             name: coff_string_table.get_symbol_raw_name(".idata$4"),
-            value: u32(0),
-            section_number: u16(IMAGE_SYM_UNDEFINED as u16),
-            typ: u16(null_type),
+            value: u32b(0),
+            section_number: u16b(IMAGE_SYM_UNDEFINED as u16),
+            typ: u16b(null_type),
             storage_class: IMAGE_SYM_CLASS_SECTION,
             number_of_aux_symbols: 0,
         });
         //   [4] section .idata$5 => undef
         import_descriptor.write_pod(&ImageSymbol {
             name: coff_string_table.get_symbol_raw_name(".idata$5"),
-            value: u32(0),
-            section_number: u16(IMAGE_SYM_UNDEFINED as u16),
-            typ: u16(null_type),
+            value: u32b(0),
+            section_number: u16b(IMAGE_SYM_UNDEFINED as u16),
+            typ: u16b(null_type),
             storage_class: IMAGE_SYM_CLASS_SECTION,
             number_of_aux_symbols: 0,
         });
