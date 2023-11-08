@@ -1,15 +1,15 @@
-pub struct StringTable(Vec<u8>);
+pub(crate) struct StringTable(Vec<u8>);
 
 impl StringTable {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(vec![])
     }
 
-    pub fn data(&self) -> &[u8] {
+    pub(crate) fn data(&self) -> &[u8] {
         self.0.as_slice()
     }
 
-    pub fn find_or_insert(&mut self, value: &str) -> usize {
+    pub(crate) fn find_or_insert(&mut self, value: &str) -> usize {
         // Find the name *including the null terminator* in the existing buffer.
         // Note, this could find "bar\0" in "foobar\0", but that should be fine?
         // It still counts as a null terminated "bar" string.

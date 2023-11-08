@@ -43,7 +43,7 @@
 //   4: sequence of null-terminated strings
 
 use object::pe::*;
-use object::{LittleEndian as LE, U16Bytes, U32Bytes, U16, U32};
+use object::{LittleEndian as LE, U16Bytes, U32Bytes};
 use std::ops::{Deref, DerefMut};
 
 use super::data::DataWriter;
@@ -51,40 +51,60 @@ use super::string_table::StringTable;
 
 pub(crate) const NULL_IMPORT_DESCRIPTOR_SYMBOL: &str = "__NULL_IMPORT_DESCRIPTOR";
 
-fn u16_aligned(value: u16) -> U16<LE> {
-    U16::new(LE, value)
-}
-
-fn u32_aligned(value: u32) -> U32<LE> {
-    U32::new(LE, value)
-}
-
-fn u16_unaligned(value: u16) -> U16Bytes<LE> {
+fn u16(value: u16) -> U16Bytes<LE> {
     U16Bytes::new(LE, value)
 }
 
-fn u32_unaligned(value: u32) -> U32Bytes<LE> {
+fn u32(value: u32) -> U32Bytes<LE> {
     U32Bytes::new(LE, value)
 }
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub(crate) struct ImportObjectHeaderUnaligned {
+    /// Must be IMAGE_FILE_MACHINE_UNKNOWN
+    pub(crate) sig1: U16Bytes<LE>,
+    /// Must be IMPORT_OBJECT_HDR_SIG2.
+    pub(crate) sig2: U16Bytes<LE>,
+    pub(crate) version: U16Bytes<LE>,
+    pub(crate) machine: U16Bytes<LE>,
+    /// Time/date stamp
+    pub(crate) time_date_stamp: U32Bytes<LE>,
+    /// particularly useful for incremental links
+    pub(crate) size_of_data: U32Bytes<LE>,
+
+    /// if grf & IMPORT_OBJECT_ORDINAL
+    pub(crate) ordinal_or_hint: U16Bytes<LE>,
+
+    // WORD    Type : 2;
+    // WORD    NameType : 3;
+    // WORD    Reserved : 11;
+    pub(crate) name_type: U16Bytes<LE>,
+}
+
+/// # Safety
+/// A type that is `Pod` must:
+/// - be `#[repr(C)]` or `#[repr(transparent)]`
+/// - have no invalid byte values
+/// - have no padding
+unsafe impl object::pod::Pod for ImportObjectHeaderUnaligned {}
 
 pub(crate) fn write_short_import(
     data: &mut DataWriter,
     dll_name: &str,
     name: &&str,
-    ordinal_or_hint: Option<u16>,
+    ordinal_or_hint: Option<std::primitive::u16>,
 ) {
-    data.write_pod(&ImportObjectHeader {
-        sig1: u16_aligned(IMAGE_FILE_MACHINE_UNKNOWN),
-        sig2: u16_aligned(IMPORT_OBJECT_HDR_SIG2),
-        version: u16_aligned(0),
-        machine: u16_aligned(IMAGE_FILE_MACHINE_AMD64),
-        time_date_stamp: u32_aligned(0),
-        size_of_data: u32_aligned((name.len() + 1 + dll_name.len() + 1) as u32),
-        ordinal_or_hint: u16_aligned(ordinal_or_hint.unwrap_or_default()),
-        name_type: u16_aligned(
-            IMPORT_OBJECT_CODE << IMPORT_OBJECT_TYPE_SHIFT
-                | IMPORT_OBJECT_NAME << IMPORT_OBJECT_NAME_SHIFT,
-        ),
+    data.write_pod(&ImportObjectHeaderUnaligned {
+        sig1: u16(IMAGE_FILE_MACHINE_UNKNOWN),
+        sig2: u16(IMPORT_OBJECT_HDR_SIG2),
+        version: u16(0),
+        machine: u16(IMAGE_FILE_MACHINE_AMD64),
+        time_date_stamp: u32(0),
+        size_of_data: u32((name.len() + 1 + dll_name.len() + 1) as u32),
+        ordinal_or_hint: u16(ordinal_or_hint.unwrap_or_default()),
+        name_type: u16(IMPORT_OBJECT_CODE << IMPORT_OBJECT_TYPE_SHIFT
+            | IMPORT_OBJECT_NAME << IMPORT_OBJECT_NAME_SHIFT),
     });
     data.write_c_str(name);
     data.write_c_str(dll_name);
@@ -143,29 +163,29 @@ pub(crate) fn write_import_descriptor(
     let import_descriptor_pointer_to_relocations = file.data.len() - file.offset;
 
     let header = import_directory_header.get_mut(file.data);
-    header.number_of_relocations = u16_aligned(3);
+    header.number_of_relocations = u16(3);
 
-    header.pointer_to_relocations = u32_aligned(import_descriptor_pointer_to_relocations as u32);
+    header.pointer_to_relocations = u32(import_descriptor_pointer_to_relocations as u32);
 
     // todo: CoffRelocWriter
 
     //   relocation 0: [3] import lookup table rva => points to UNDEF symbol .idata$4
     file.data.write_pod(&ImageRelocation {
-        virtual_address: u32_unaligned(0),
-        symbol_table_index: u32_unaligned(3),
-        typ: u16_unaligned(IMAGE_REL_AMD64_ADDR32NB),
+        virtual_address: u32(0),
+        symbol_table_index: u32(3),
+        typ: u16(IMAGE_REL_AMD64_ADDR32NB),
     });
     //   relocation 1: [2] name rva => points to DLL name section .idata$6
     file.data.write_pod(&ImageRelocation {
-        virtual_address: u32_unaligned(12),
-        symbol_table_index: u32_unaligned(2),
-        typ: u16_unaligned(IMAGE_REL_AMD64_ADDR32NB),
+        virtual_address: u32(12),
+        symbol_table_index: u32(2),
+        typ: u16(IMAGE_REL_AMD64_ADDR32NB),
     });
     //   relocation 2: [4] import address table rva => points to UNDEF symbol .idata$5
     file.data.write_pod(&ImageRelocation {
-        virtual_address: u32_unaligned(16),
-        symbol_table_index: u32_unaligned(4),
-        typ: u16_unaligned(IMAGE_REL_AMD64_ADDR32NB),
+        virtual_address: u32(16),
+        symbol_table_index: u32(4),
+        typ: u16(IMAGE_REL_AMD64_ADDR32NB),
     });
 
     // [1] section .idata$6 data
@@ -269,6 +289,47 @@ pub(crate) fn write_null_import_descriptor(data: &mut DataWriter) {
     );
 }
 
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub(crate) struct ImageFileHeaderUnaligned {
+    pub(crate) machine: U16Bytes<LE>,
+    pub(crate) number_of_sections: U16Bytes<LE>,
+    pub(crate) time_date_stamp: U32Bytes<LE>,
+    pub(crate) pointer_to_symbol_table: U32Bytes<LE>,
+    pub(crate) number_of_symbols: U32Bytes<LE>,
+    pub(crate) size_of_optional_header: U16Bytes<LE>,
+    pub(crate) characteristics: U16Bytes<LE>,
+}
+
+/// # Safety
+/// A type that is `Pod` must:
+/// - be `#[repr(C)]` or `#[repr(transparent)]`
+/// - have no invalid byte values
+/// - have no padding
+unsafe impl object::pod::Pod for ImageFileHeaderUnaligned {}
+
+#[derive(Debug, Default, Clone, Copy)]
+#[repr(C)]
+pub(crate) struct ImageSectionHeaderUnaligned {
+    pub(crate) name: [u8; IMAGE_SIZEOF_SHORT_NAME],
+    pub(crate) virtual_size: U32Bytes<LE>,
+    pub(crate) virtual_address: U32Bytes<LE>,
+    pub(crate) size_of_raw_data: U32Bytes<LE>,
+    pub(crate) pointer_to_raw_data: U32Bytes<LE>,
+    pub(crate) pointer_to_relocations: U32Bytes<LE>,
+    pub(crate) pointer_to_linenumbers: U32Bytes<LE>,
+    pub(crate) number_of_relocations: U16Bytes<LE>,
+    pub(crate) number_of_linenumbers: U16Bytes<LE>,
+    pub(crate) characteristics: U32Bytes<LE>,
+}
+
+/// # Safety
+/// A type that is `Pod` must:
+/// - be `#[repr(C)]` or `#[repr(transparent)]`
+/// - have no invalid byte values
+/// - have no padding
+unsafe impl object::pod::Pod for ImageSectionHeaderUnaligned {}
+
 struct CoffFileWriter<'data> {
     data: &'data mut DataWriter,
     offset: usize,
@@ -279,43 +340,43 @@ struct CoffFileWriter<'data> {
 impl<'data> CoffFileWriter<'data> {
     fn new(data: &'data mut DataWriter, machine: u16) -> Self {
         let file_offset = data.len();
-        data.write_pod(&ImageFileHeader {
-            machine: u16_aligned(machine),
-            number_of_sections: u16_aligned(0),
-            time_date_stamp: u32_aligned(0),
-            pointer_to_symbol_table: u32_aligned(0),
-            number_of_symbols: u32_aligned(0),
-            size_of_optional_header: u16_aligned(0),
-            characteristics: u16_aligned(0),
+        data.write_pod(&ImageFileHeaderUnaligned {
+            machine: u16(machine),
+            number_of_sections: u16(0),
+            time_date_stamp: u32(0),
+            pointer_to_symbol_table: u32(0),
+            number_of_symbols: u32(0),
+            size_of_optional_header: u16(0),
+            characteristics: u16(0),
         });
         let string_table = CoffStringTable::new();
         Self { data, offset: file_offset, number_of_sections: 0, string_table }
     }
 
-    fn file_header_mut(&mut self) -> &mut ImageFileHeader {
+    fn file_header_mut(&mut self) -> &mut ImageFileHeaderUnaligned {
         self.data.get_pod_mut(self.offset)
     }
 
     fn write_section_header(&mut self, name: &str, characteristics: u32) -> CoffSectionHeader {
         self.number_of_sections += 1;
-        let offset = self.data.write_pod(&ImageSectionHeader {
+        let offset = self.data.write_pod(&ImageSectionHeaderUnaligned {
             name: self.string_table.get_raw_name(name),
-            virtual_size: u32_aligned(0),
-            virtual_address: u32_aligned(0),
-            size_of_raw_data: u32_aligned(0),    // filled out later
-            pointer_to_raw_data: u32_aligned(0), // ditto.
-            pointer_to_relocations: u32_aligned(0), // (possibly) ditto.
-            pointer_to_linenumbers: u32_aligned(0),
-            number_of_relocations: u16_aligned(0),
-            number_of_linenumbers: u16_aligned(0),
-            characteristics: u32_aligned(characteristics),
+            virtual_size: u32(0),
+            virtual_address: u32(0),
+            size_of_raw_data: u32(0),       // filled out later
+            pointer_to_raw_data: u32(0),    // ditto.
+            pointer_to_relocations: u32(0), // (possibly) ditto.
+            pointer_to_linenumbers: u32(0),
+            number_of_relocations: u16(0),
+            number_of_linenumbers: u16(0),
+            characteristics: u32(characteristics),
         });
         CoffSectionHeader { offset }
     }
 
     fn start_symbol_table(&mut self) -> CoffSymbolTableWriter<'_, 'data> {
         let offset = self.len();
-        self.file_header_mut().pointer_to_symbol_table = u32_aligned((offset - self.offset) as u32);
+        self.file_header_mut().pointer_to_symbol_table = u32((offset - self.offset) as u32);
         CoffSymbolTableWriter { file: self, offset, number_of_symbols: 0 }
     }
 }
@@ -338,7 +399,7 @@ impl Drop for CoffFileWriter<'_> {
     fn drop(&mut self) {
         let number_of_sections = self.number_of_sections;
         let header = self.file_header_mut();
-        header.number_of_sections = u16_aligned(number_of_sections);
+        header.number_of_sections = u16(number_of_sections);
         self.string_table.write(self.data);
     }
 }
@@ -356,7 +417,7 @@ impl CoffStringTable {
         writer.write(data);
     }
 
-    pub fn get_raw_name(&mut self, value: &str) -> [u8; 8] {
+    pub(crate) fn get_raw_name(&mut self, value: &str) -> [u8; 8] {
         let mut result = [0u8; 8];
         if value.len() > 8 {
             // add 4 for the string table length
@@ -375,7 +436,7 @@ struct CoffSectionHeader {
 }
 
 impl CoffSectionHeader {
-    fn get_mut(self, data: &mut DataWriter) -> &mut ImageSectionHeader {
+    fn get_mut(self, data: &mut DataWriter) -> &mut ImageSectionHeaderUnaligned {
         data.get_pod_mut(self.offset)
     }
 }
@@ -416,8 +477,8 @@ impl Drop for CoffSectionRawData<'_, '_> {
         let header = self.header.get_mut(self.file.data);
         let size_of_raw_data = end_offset - self.offset;
         let pointer_to_raw_data = self.offset - self.file.offset;
-        header.size_of_raw_data = u32_aligned(size_of_raw_data as u32);
-        header.pointer_to_raw_data = u32_aligned(pointer_to_raw_data as u32);
+        header.size_of_raw_data = u32(size_of_raw_data as u32);
+        header.pointer_to_raw_data = u32(pointer_to_raw_data as u32);
     }
 }
 
@@ -444,9 +505,9 @@ impl CoffSymbolTableWriter<'_, '_> {
         let name = self.file.string_table.get_raw_name(name);
         self.file.write_pod(&ImageSymbol {
             name,
-            value: u32_unaligned(options.value),
-            section_number: u16_unaligned(options.section_number as u16),
-            typ: u16_unaligned(options.base_type | options.complex_type << 8),
+            value: u32(options.value),
+            section_number: u16(options.section_number as u16),
+            typ: u16(options.base_type | options.complex_type << 8),
             storage_class: options.storage_class,
             number_of_aux_symbols: options.number_of_aux_symbols,
         });
@@ -458,7 +519,7 @@ impl Drop for CoffSymbolTableWriter<'_, '_> {
     fn drop(&mut self) {
         let pointer_to_symbol_table = self.offset - self.file.offset;
         let header = self.file.file_header_mut();
-        header.pointer_to_symbol_table = u32_aligned(pointer_to_symbol_table as u32);
-        header.number_of_symbols = u32_aligned(self.number_of_symbols);
+        header.pointer_to_symbol_table = u32(pointer_to_symbol_table as u32);
+        header.number_of_symbols = u32(self.number_of_symbols);
     }
 }

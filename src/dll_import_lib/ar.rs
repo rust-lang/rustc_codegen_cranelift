@@ -79,7 +79,7 @@ use super::string_table::StringTable;
 use super::DataWriter;
 
 #[derive(Copy, Clone)]
-pub(crate) struct MemberName(pub [u8; 16]);
+pub(crate) struct MemberName(pub(crate) [u8; 16]);
 
 impl MemberName {
     pub(crate) const SYMBOL_TABLE: Self = MemberName(*b"/               ");
@@ -153,6 +153,7 @@ pub(crate) struct Member<'data> {
     pub(crate) header_offset: usize,
 }
 
+#[allow(dead_code)] // TODO: remove if this isn't pulled out into a crate?
 impl<'data> Member<'data> {
     const HEADER_SIZE: usize = std::mem::size_of::<object::archive::Header>();
 
