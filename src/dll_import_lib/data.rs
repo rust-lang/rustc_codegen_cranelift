@@ -36,14 +36,6 @@ impl DataWriter {
         self.data.push(0);
     }
 
-    pub(crate) fn write_u16_le(&mut self, data: u16) {
-        self.data.extend_from_slice(&data.to_le_bytes());
-    }
-
-    pub(crate) fn write_u32_be(&mut self, data: u32) {
-        self.data.extend_from_slice(&data.to_be_bytes());
-    }
-
     pub(crate) fn write_u32_le(&mut self, data: u32) {
         self.data.extend_from_slice(&data.to_le_bytes());
     }
@@ -52,14 +44,6 @@ impl DataWriter {
         let offset = self.data.len();
         self.data.resize(offset + count, 0);
         offset
-    }
-
-    pub(crate) fn set_u32_be(&mut self, offset: usize, data: u32) {
-        self.data[offset..][..4].copy_from_slice(&data.to_be_bytes());
-    }
-
-    pub(crate) fn set_u32_le(&mut self, offset: usize, data: u32) {
-        self.data[offset..][..4].copy_from_slice(&data.to_le_bytes());
     }
 
     pub(crate) fn align(&mut self, alignment: usize, pad: u8) {

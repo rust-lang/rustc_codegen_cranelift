@@ -18,6 +18,7 @@ target-lexicon = "0.12.0"
 gimli = { version = "0.28", default-features = false, features = ["write"]}
 object = { version = "0.32", default-features = false, features = ["std", "read_core", "write", "archive", "coff", "elf", "macho", "pe"] }
 
+ar_archive_writer = "0.1.5"
 indexmap = "2.0.0"
 libloading = { version = "0.7.3", optional = true }
 smallvec = "1.8.1"
