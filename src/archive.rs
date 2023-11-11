@@ -21,14 +21,36 @@ impl ArchiveBuilderBuilder for ArArchiveBuilderBuilder {
         tmpdir: &Path,
         _is_direct_dependency: bool,
     ) -> PathBuf {
-        let mut import_names = Vec::new();
-        for dll_import in dll_imports {
-            import_names.push(dll_import.name.as_str());
-        }
         let lib_path = tmpdir.join(format!("{lib_name}_import.lib"));
+
+        // todo: use the same DllImport type?
+        let import_lib_imports = dll_imports
+            .into_iter()
+            .map(|import| crate::dll_import_lib::Import {
+                symbol_name: import.name.to_string(),
+                ordinal_or_hint: import.ordinal(),
+                name_type: match import.import_name_type {
+                    Some(rustc_session::cstore::PeImportNameType::Ordinal(_)) => {
+                        crate::dll_import_lib::ImportNameType::Ordinal
+                    }
+                    None | Some(rustc_session::cstore::PeImportNameType::Decorated) => {
+                        crate::dll_import_lib::ImportNameType::Name
+                    }
+                    Some(rustc_session::cstore::PeImportNameType::NoPrefix) => {
+                        crate::dll_import_lib::ImportNameType::NameNoPrefix
+                    }
+                    Some(rustc_session::cstore::PeImportNameType::Undecorated) => {
+                        crate::dll_import_lib::ImportNameType::NameUndecorate
+                    }
+                },
+                import_type: crate::dll_import_lib::ImportType::Code,
+            })
+            .collect::<Vec<_>>();
+
+        let import_lib = crate::dll_import_lib::generate(lib_name, &import_lib_imports);
+
         // todo: emit session error instead of expects
-        fs::write(&lib_path, crate::dll_import_lib::generate(lib_name, &import_names))
-            .expect("failed to write import library");
+        fs::write(&lib_path, import_lib).expect("failed to write import library");
 
         lib_path
     }

@@ -11,12 +11,13 @@ use object::{Object, ObjectSymbol};
 
 use data::DataWriter;
 
+mod coff;
 mod data;
 mod string_table;
 
-mod coff;
+pub(crate) use coff::{Import, ImportNameType, ImportType};
 
-pub(crate) fn generate(dll_name: &str, import_names: &[&str]) -> Vec<u8> {
+pub(crate) fn generate(dll_name: &str, imports: &[Import]) -> Vec<u8> {
     let mut members = Vec::new();
 
     // foo.dll => foo so we can construct the import descriptor symbol.
@@ -98,9 +99,9 @@ pub(crate) fn generate(dll_name: &str, import_names: &[&str]) -> Vec<u8> {
     }
 
     // short import object members
-    for name in import_names.iter() {
+    for import in imports {
         let mut buf = DataWriter::new();
-        coff::write_short_import(&mut buf, dll_name, name, None);
+        coff::write_short_import(&mut buf, dll_name, &import);
         members.push(ar_archive_writer::NewArchiveMember {
             member_name: dll_name.to_string(),
             buf: Box::new(buf.into_data()),
