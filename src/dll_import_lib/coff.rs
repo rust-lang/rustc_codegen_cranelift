@@ -51,11 +51,25 @@ use super::string_table::StringTable;
 
 pub(crate) const NULL_IMPORT_DESCRIPTOR_SYMBOL: &str = "__NULL_IMPORT_DESCRIPTOR";
 
-fn u16(value: u16) -> U16Bytes<LE> {
+/// Supported COFF machine types.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Machine {
+    X86_64,
+}
+
+impl Machine {
+    fn as_raw(self) -> u16 {
+        match self {
+            Self::X86_64 => IMAGE_FILE_MACHINE_AMD64,
+        }
+    }
+}
+
+fn make_u16(value: u16) -> U16Bytes<LE> {
     U16Bytes::new(LE, value)
 }
 
-fn u32(value: u32) -> U32Bytes<LE> {
+fn make_u32(value: u32) -> U32Bytes<LE> {
     U32Bytes::new(LE, value)
 }
 
@@ -135,43 +149,76 @@ impl ImportType {
     }
 }
 
+// A more directly COFF short import descriptor equivalent of rustc_session::cstore::DllImport.
 pub(crate) struct Import {
     pub(crate) symbol_name: String,
     pub(crate) name_type: ImportNameType,
     pub(crate) import_type: ImportType,
-    pub(crate) ordinal_or_hint: Option<std::primitive::u16>,
+    pub(crate) ordinal_or_hint: Option<u16>,
 }
 
-pub(crate) fn write_short_import(data: &mut DataWriter, dll_name: &str, import: &Import) {
+pub(crate) fn write_short_import(dll_name: &str, machine: Machine, import: &Import) -> Vec<u8> {
+    let mut vec = Vec::new();
+
     let mut size_of_data = import.symbol_name.len() + 1 + dll_name.len() + 1;
     if let ImportNameType::NameExportAs { export_name } = &import.name_type {
         size_of_data += export_name.len() + 1;
     }
 
-    data.write_pod(&ImportObjectHeaderUnaligned {
-        sig1: u16(IMAGE_FILE_MACHINE_UNKNOWN),
-        sig2: u16(IMPORT_OBJECT_HDR_SIG2),
-        version: u16(0),
-        machine: u16(IMAGE_FILE_MACHINE_AMD64),
-        time_date_stamp: u32(0),
-        size_of_data: u32(size_of_data as u32),
-        ordinal_or_hint: u16(import.ordinal_or_hint.unwrap_or_default()),
-        name_type: u16(import.import_type.as_u16() << IMPORT_OBJECT_TYPE_SHIFT
-            | import.name_type.as_u16() << IMPORT_OBJECT_NAME_SHIFT),
-    });
-    data.write_c_str(&import.symbol_name);
-    data.write_c_str(dll_name);
+    vec.extend_from_slice(object::bytes_of(&ImportObjectHeaderUnaligned {
+        sig1: make_u16(IMAGE_FILE_MACHINE_UNKNOWN),
+        sig2: make_u16(IMPORT_OBJECT_HDR_SIG2),
+        version: make_u16(0),
+        machine: make_u16(machine.as_raw()),
+        time_date_stamp: make_u32(0),
+        size_of_data: make_u32(size_of_data as u32),
+        ordinal_or_hint: make_u16(import.ordinal_or_hint.unwrap_or_default()),
+        name_type: make_u16(
+            import.import_type.as_u16() << IMPORT_OBJECT_TYPE_SHIFT
+                | import.name_type.as_u16() << IMPORT_OBJECT_NAME_SHIFT,
+        ),
+    }));
+    vec.extend_from_slice(import.symbol_name.as_bytes());
+    vec.push(0);
+    vec.extend_from_slice(dll_name.as_bytes());
+    vec.push(0);
     if let ImportNameType::NameExportAs { export_name } = &import.name_type {
-        data.write_c_str(&export_name);
+        vec.extend_from_slice(export_name.as_bytes());
+        vec.push(0);
+    }
+
+    vec
+}
+
+pub(crate) struct ImportDescriptorValues {
+    pub(crate) dll_name: String,
+    pub(crate) machine: Machine,
+    pub(crate) import_descriptor_symbol: String,
+    pub(crate) null_thunk_data_symbol: String,
+}
+
+impl ImportDescriptorValues {
+    pub(crate) fn new(dll_name: String, machine: Machine) -> Self {
+        // foo.dll => foo so we can construct the import descriptor symbol.
+        // At least for the Windows system dlls, don't seem to need any further
+        // escaping, e.g. "api-ms-win-appmodel-runtime-l1-1-1.dll" =>
+        // "__IMPORT_DESCRIPTOR_api-ms-win-appmodel-runtime-l1-1-1"
+        // Not using std::path to avoid having to handle non-unicode paths.
+        let mut dll_basename = dll_name.clone();
+        if let Some(index) = dll_basename.rfind('.') {
+            dll_basename.truncate(index);
+        }
+
+        let import_descriptor_symbol = format!("__IMPORT_DESCRIPTOR_{dll_basename}");
+        let null_thunk_data_symbol = format!("\x7f{dll_basename}_NULL_THUNK_DATA");
+
+        Self { dll_name, machine, import_descriptor_symbol, null_thunk_data_symbol }
     }
 }
 
-pub(crate) fn write_import_descriptor(
-    data: &mut DataWriter,
-    dll_name: &str,
-    import_descriptor_symbol: &str,
-    null_thunk_data_symbol: &str,
-) {
+/// Return a COFF object file containing the import descriptor table entry for the
+/// given DLL name.
+pub(crate) fn generate_import_descriptor(values: &ImportDescriptorValues) -> Vec<u8> {
     // This is a COFF object containing 2 sections:
     //   .idata$2: import directory entry:
     //      20 bytes, all 0 on disk, an Import Directory Table entry
@@ -192,7 +239,9 @@ pub(crate) fn write_import_descriptor(
     //  [6]: external __NULL_THUNK_DATA => undef
 
     // COFF File header:
-    let mut file = CoffFileWriter::new(data, IMAGE_FILE_MACHINE_AMD64);
+    let mut writer = DataWriter::new();
+
+    let mut file = CoffFileWriter::new(&mut writer, values.machine);
 
     // Section table:
     //   [0] .idata$2: import directory entry
@@ -219,38 +268,38 @@ pub(crate) fn write_import_descriptor(
     let import_descriptor_pointer_to_relocations = file.data.len() - file.offset;
 
     let header = import_directory_header.get_mut(file.data);
-    header.number_of_relocations = u16(3);
+    header.number_of_relocations = make_u16(3);
 
-    header.pointer_to_relocations = u32(import_descriptor_pointer_to_relocations as u32);
+    header.pointer_to_relocations = make_u32(import_descriptor_pointer_to_relocations as u32);
 
     // todo: CoffRelocWriter
 
     //   relocation 0: [3] import lookup table rva => points to UNDEF symbol .idata$4
     file.data.write_pod(&ImageRelocation {
-        virtual_address: u32(0),
-        symbol_table_index: u32(3),
-        typ: u16(IMAGE_REL_AMD64_ADDR32NB),
+        virtual_address: make_u32(0),
+        symbol_table_index: make_u32(3),
+        typ: make_u16(IMAGE_REL_AMD64_ADDR32NB),
     });
     //   relocation 1: [2] name rva => points to DLL name section .idata$6
     file.data.write_pod(&ImageRelocation {
-        virtual_address: u32(12),
-        symbol_table_index: u32(2),
-        typ: u16(IMAGE_REL_AMD64_ADDR32NB),
+        virtual_address: make_u32(12),
+        symbol_table_index: make_u32(2),
+        typ: make_u16(IMAGE_REL_AMD64_ADDR32NB),
     });
     //   relocation 2: [4] import address table rva => points to UNDEF symbol .idata$5
     file.data.write_pod(&ImageRelocation {
-        virtual_address: u32(16),
-        symbol_table_index: u32(4),
-        typ: u16(IMAGE_REL_AMD64_ADDR32NB),
+        virtual_address: make_u32(16),
+        symbol_table_index: make_u32(4),
+        typ: make_u16(IMAGE_REL_AMD64_ADDR32NB),
     });
 
     // [1] section .idata$6 data
-    CoffSectionRawData::new(&mut file, dll_name_header).write_c_str(dll_name);
+    CoffSectionRawData::new(&mut file, dll_name_header).write_c_str(&values.dll_name);
 
     // COFF symbol table:
     let mut symbol_table = file.start_symbol_table();
     symbol_table.add(
-        import_descriptor_symbol,
+        &values.import_descriptor_symbol,
         SymbolOptions {
             section_number: 1,
             storage_class: IMAGE_SYM_CLASS_EXTERNAL,
@@ -286,14 +335,19 @@ pub(crate) fn write_import_descriptor(
         SymbolOptions { storage_class: IMAGE_SYM_CLASS_EXTERNAL, ..Default::default() },
     );
     symbol_table.add(
-        null_thunk_data_symbol,
+        &values.null_thunk_data_symbol,
         SymbolOptions { storage_class: IMAGE_SYM_CLASS_EXTERNAL, ..Default::default() },
     );
+    drop(symbol_table);
+    drop(file);
+
+    writer.into_data()
 }
 
-pub(crate) fn write_null_thunk_data(data: &mut DataWriter, symbol: &str) {
+pub(crate) fn generate_null_thunk_data(machine: Machine, symbol: &str) -> Vec<u8> {
+    let mut writer = DataWriter::new();
     // This is a COFF file with a two sections with 8 bytes of null data
-    let mut file = CoffFileWriter::new(data, IMAGE_FILE_MACHINE_AMD64);
+    let mut file = CoffFileWriter::new(&mut writer, machine);
 
     let import_address_section = file.write_section_header(
         ".idata$5",
@@ -322,11 +376,19 @@ pub(crate) fn write_null_thunk_data(data: &mut DataWriter, symbol: &str) {
             ..Default::default()
         },
     );
+    drop(file);
+
+    writer.into_data()
 }
 
-pub(crate) fn write_null_import_descriptor(data: &mut DataWriter) {
+/// Return the COFF object file containing the "Null Import Descriptor" symbols,
+/// used by the linker to terminate the import descriptor table in .idata.
+/// At least one of these must exist across the linker input files.
+pub(crate) fn generate_null_import_descriptor(machine: Machine) -> Vec<u8> {
+    let mut writer = DataWriter::new();
+
     // This is a COFF file with a section with 20 bytes of null data
-    let mut file = CoffFileWriter::new(data, IMAGE_FILE_MACHINE_AMD64);
+    let mut file = CoffFileWriter::new(&mut writer, machine);
     let header = file.write_section_header(
         ".idata$3",
         IMAGE_SCN_ALIGN_4BYTES
@@ -343,6 +405,9 @@ pub(crate) fn write_null_import_descriptor(data: &mut DataWriter) {
             ..Default::default()
         },
     );
+    drop(file);
+
+    writer.into_data()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -394,16 +459,16 @@ struct CoffFileWriter<'data> {
 }
 
 impl<'data> CoffFileWriter<'data> {
-    fn new(data: &'data mut DataWriter, machine: u16) -> Self {
+    fn new(data: &'data mut DataWriter, machine: Machine) -> Self {
         let file_offset = data.len();
         data.write_pod(&ImageFileHeaderUnaligned {
-            machine: u16(machine),
-            number_of_sections: u16(0),
-            time_date_stamp: u32(0),
-            pointer_to_symbol_table: u32(0),
-            number_of_symbols: u32(0),
-            size_of_optional_header: u16(0),
-            characteristics: u16(0),
+            machine: make_u16(machine.as_raw()),
+            number_of_sections: make_u16(0),
+            time_date_stamp: make_u32(0),
+            pointer_to_symbol_table: make_u32(0),
+            number_of_symbols: make_u32(0),
+            size_of_optional_header: make_u16(0),
+            characteristics: make_u16(0),
         });
         let string_table = CoffStringTable::new();
         Self { data, offset: file_offset, number_of_sections: 0, string_table }
@@ -417,22 +482,22 @@ impl<'data> CoffFileWriter<'data> {
         self.number_of_sections += 1;
         let offset = self.data.write_pod(&ImageSectionHeaderUnaligned {
             name: self.string_table.get_raw_name(name),
-            virtual_size: u32(0),
-            virtual_address: u32(0),
-            size_of_raw_data: u32(0),       // filled out later
-            pointer_to_raw_data: u32(0),    // ditto.
-            pointer_to_relocations: u32(0), // (possibly) ditto.
-            pointer_to_linenumbers: u32(0),
-            number_of_relocations: u16(0),
-            number_of_linenumbers: u16(0),
-            characteristics: u32(characteristics),
+            virtual_size: make_u32(0),
+            virtual_address: make_u32(0),
+            size_of_raw_data: make_u32(0),       // filled out later
+            pointer_to_raw_data: make_u32(0),    // ditto.
+            pointer_to_relocations: make_u32(0), // (possibly) ditto.
+            pointer_to_linenumbers: make_u32(0),
+            number_of_relocations: make_u16(0),
+            number_of_linenumbers: make_u16(0),
+            characteristics: make_u32(characteristics),
         });
         CoffSectionHeader { offset }
     }
 
     fn start_symbol_table(&mut self) -> CoffSymbolTableWriter<'_, 'data> {
         let offset = self.len();
-        self.file_header_mut().pointer_to_symbol_table = u32((offset - self.offset) as u32);
+        self.file_header_mut().pointer_to_symbol_table = make_u32((offset - self.offset) as u32);
         CoffSymbolTableWriter { file: self, offset, number_of_symbols: 0 }
     }
 }
@@ -455,7 +520,7 @@ impl Drop for CoffFileWriter<'_> {
     fn drop(&mut self) {
         let number_of_sections = self.number_of_sections;
         let header = self.file_header_mut();
-        header.number_of_sections = u16(number_of_sections);
+        header.number_of_sections = make_u16(number_of_sections);
         self.string_table.write(self.data);
     }
 }
@@ -533,8 +598,8 @@ impl Drop for CoffSectionRawData<'_, '_> {
         let header = self.header.get_mut(self.file.data);
         let size_of_raw_data = end_offset - self.offset;
         let pointer_to_raw_data = self.offset - self.file.offset;
-        header.size_of_raw_data = u32(size_of_raw_data as u32);
-        header.pointer_to_raw_data = u32(pointer_to_raw_data as u32);
+        header.size_of_raw_data = make_u32(size_of_raw_data as u32);
+        header.pointer_to_raw_data = make_u32(pointer_to_raw_data as u32);
     }
 }
 
@@ -561,9 +626,9 @@ impl CoffSymbolTableWriter<'_, '_> {
         let name = self.file.string_table.get_raw_name(name);
         self.file.write_pod(&ImageSymbol {
             name,
-            value: u32(options.value),
-            section_number: u16(options.section_number as u16),
-            typ: u16(options.base_type | options.complex_type << 8),
+            value: make_u32(options.value),
+            section_number: make_u16(options.section_number as u16),
+            typ: make_u16(options.base_type | options.complex_type << 8),
             storage_class: options.storage_class,
             number_of_aux_symbols: options.number_of_aux_symbols,
         });
@@ -575,7 +640,7 @@ impl Drop for CoffSymbolTableWriter<'_, '_> {
     fn drop(&mut self) {
         let pointer_to_symbol_table = self.offset - self.file.offset;
         let header = self.file.file_header_mut();
-        header.pointer_to_symbol_table = u32(pointer_to_symbol_table as u32);
-        header.number_of_symbols = u32(self.number_of_symbols);
+        header.pointer_to_symbol_table = make_u32(pointer_to_symbol_table as u32);
+        header.number_of_symbols = make_u32(self.number_of_symbols);
     }
 }

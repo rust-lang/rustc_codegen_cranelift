@@ -6,6 +6,8 @@ use rustc_codegen_ssa::back::archive::{
 };
 use rustc_session::Session;
 
+struct UnsupportedTargetForRawDyLib;
+
 pub(crate) struct ArArchiveBuilderBuilder;
 
 impl ArchiveBuilderBuilder for ArArchiveBuilderBuilder {
@@ -15,18 +17,26 @@ impl ArchiveBuilderBuilder for ArArchiveBuilderBuilder {
 
     fn create_dll_import_lib(
         &self,
-        _sess: &Session,
+        sess: &Session,
         lib_name: &str,
         dll_imports: &[rustc_session::cstore::DllImport],
         tmpdir: &Path,
         _is_direct_dependency: bool,
     ) -> PathBuf {
-        let lib_path = tmpdir.join(format!("{lib_name}_import.lib"));
+        if sess.target.arch != "x86_64" || !sess.target.is_like_msvc {
+            sess.span_fatal(
+                dll_imports.iter().map(|import| import.span).collect::<Vec<_>>(),
+                "cranelift codegen currently only supports raw_dylib on x86_64 msvc targets.",
+            )
+        }
 
-        // todo: use the same DllImport type?
-        let import_lib_imports = dll_imports
-            .into_iter()
-            .map(|import| crate::dll_import_lib::Import {
+        let mut import_lib = crate::dll_import_lib::ImportLibraryBuilder::new(
+            lib_name,
+            crate::dll_import_lib::Machine::X86_64,
+        );
+
+        for import in dll_imports {
+            import_lib.add_import(crate::dll_import_lib::Import {
                 symbol_name: import.name.to_string(),
                 ordinal_or_hint: import.ordinal(),
                 name_type: match import.import_name_type {
@@ -44,13 +54,32 @@ impl ArchiveBuilderBuilder for ArArchiveBuilderBuilder {
                     }
                 },
                 import_type: crate::dll_import_lib::ImportType::Code,
-            })
-            .collect::<Vec<_>>();
+            });
+        }
 
-        let import_lib = crate::dll_import_lib::generate(lib_name, &import_lib_imports);
+        let lib_path = tmpdir.join(format!(
+            "{prefix}{lib_name}_import{suffix}",
+            prefix = sess.target.staticlib_prefix,
+            suffix = sess.target.staticlib_suffix,
+        ));
 
-        // todo: emit session error instead of expects
-        fs::write(&lib_path, import_lib).expect("failed to write import library");
+        let mut file = match fs::OpenOptions::new().write(true).create_new(true).open(&lib_path) {
+            Ok(file) => file,
+            Err(error) => {
+                sess.fatal(format!(
+                    "failed to create import library file `{path}`: {error}",
+                    path = lib_path.display(),
+                ));
+            }
+        };
+
+        // import_lib.write() internally uses BufWriter, so we don't need anything here.
+        if let Err(error) = import_lib.write(&mut file) {
+            sess.fatal(format!(
+                "failed to write import library `{path}`: {error}",
+                path = lib_path.display(),
+            ));
+        }
 
         lib_path
     }
