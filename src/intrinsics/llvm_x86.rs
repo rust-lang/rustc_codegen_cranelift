@@ -682,7 +682,7 @@ pub(crate) fn codegen_x86_llvm_intrinsic_call<'tcx>(
             }
 
             for idx in 0..lane_count / 2 {
-                let lane = a.value_lane(fx, idx).load_scalar(fx);
+                let lane = a.value_lane(fx, lane_count / 2 + idx).load_scalar(fx);
                 let sat = fx.bcx.ins().smax(lane, zero);
                 let sat = fx.bcx.ins().umin(sat, max_u8);
                 let res = fx.bcx.ins().ireduce(types::I8, sat);
@@ -692,7 +692,7 @@ pub(crate) fn codegen_x86_llvm_intrinsic_call<'tcx>(
             }
 
             for idx in 0..lane_count / 2 {
-                let lane = b.value_lane(fx, idx).load_scalar(fx);
+                let lane = b.value_lane(fx, lane_count / 2 + idx).load_scalar(fx);
                 let sat = fx.bcx.ins().smax(lane, zero);
                 let sat = fx.bcx.ins().umin(sat, max_u8);
                 let res = fx.bcx.ins().ireduce(types::I8, sat);
@@ -816,7 +816,7 @@ pub(crate) fn codegen_x86_llvm_intrinsic_call<'tcx>(
             }
 
             for idx in 0..lane_count / 2 {
-                let lane = a.value_lane(fx, idx).load_scalar(fx);
+                let lane = a.value_lane(fx, (lane_count / 2) + idx).load_scalar(fx);
                 let sat = fx.bcx.ins().smax(lane, min_i16);
                 let sat = fx.bcx.ins().smin(sat, max_i16);
                 let res = fx.bcx.ins().ireduce(types::I16, sat);
@@ -826,7 +826,7 @@ pub(crate) fn codegen_x86_llvm_intrinsic_call<'tcx>(
             }
 
             for idx in 0..lane_count / 2 {
-                let lane = b.value_lane(fx, idx).load_scalar(fx);
+                let lane = b.value_lane(fx, (lane_count / 2) + idx).load_scalar(fx);
                 let sat = fx.bcx.ins().smax(lane, min_i16);
                 let sat = fx.bcx.ins().smin(sat, max_i16);
                 let res = fx.bcx.ins().ireduce(types::I16, sat);
