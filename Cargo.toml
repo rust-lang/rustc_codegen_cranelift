@@ -22,6 +22,8 @@ indexmap = "2.0.0"
 libloading = { version = "0.8.0", optional = true }
 smallvec = "1.8.1"
 
+waffle = "0.1.1"
+
 [patch.crates-io]
 # Uncomment to use local checkout of cranelift
 #cranelift-codegen = { path = "../wasmtime/cranelift/codegen" }
@@ -33,6 +35,8 @@ smallvec = "1.8.1"
 
 #gimli = { path = "../" }
 
+waffle = { path = "./waffle" }
+
 [features]
 # Enable features not ready to be enabled when compiling as part of rustc
 unstable-features = ["jit", "inline_asm_sym"]
@@ -41,3 +45,6 @@ inline_asm_sym = []
 
 [package.metadata.rust-analyzer]
 rustc_private = true
+
+[profile.release.package.rustc_codegen_cranelift]
+opt-level = 0

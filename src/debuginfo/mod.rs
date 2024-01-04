@@ -7,7 +7,7 @@ mod types;
 mod unwind;
 
 use cranelift_codegen::ir::Endianness;
-use cranelift_codegen::isa::TargetIsa;
+use cranelift_codegen::isa::{TargetFrontendConfig, TargetIsa};
 use cranelift_module::DataId;
 use gimli::write::{
     Address, AttributeValue, DwarfUnit, Expression, FileId, LineProgram, LineString, Range,
@@ -52,7 +52,11 @@ pub(crate) struct FunctionDebugContext {
 }
 
 impl DebugContext {
-    pub(crate) fn new(tcx: TyCtxt<'_>, isa: &dyn TargetIsa, cgu_name: &str) -> Self {
+    pub(crate) fn new(
+        tcx: TyCtxt<'_>,
+        frontend_config: TargetFrontendConfig,
+        cgu_name: &str,
+    ) -> Self {
         let encoding = Encoding {
             format: Format::Dwarf32,
             // FIXME this should be configurable
@@ -65,22 +69,12 @@ impl DebugContext {
                 // support it.
                 4
             },
-            address_size: isa.frontend_config().pointer_bytes(),
+            address_size: frontend_config.pointer_bytes(),
         };
 
-        let endian = match isa.endianness() {
-            Endianness::Little => RunTimeEndian::Little,
-            Endianness::Big => RunTimeEndian::Big,
-        };
+        let endian = RunTimeEndian::Little;
 
-        let stack_pointer_register = match isa.triple().architecture {
-            target_lexicon::Architecture::Aarch64(_) => AArch64::SP,
-            target_lexicon::Architecture::Riscv64(_) => RiscV::SP,
-            target_lexicon::Architecture::X86_64 | target_lexicon::Architecture::X86_64h => {
-                X86_64::RSP
-            }
-            _ => Register(u16::MAX),
-        };
+        let stack_pointer_register = Register(u16::MAX);
 
         let mut dwarf = DwarfUnit::new(encoding);
 
@@ -142,7 +136,7 @@ impl DebugContext {
             .set(gimli::DW_AT_encoding, AttributeValue::Encoding(gimli::DW_ATE_unsigned));
         array_size_type_entry.set(
             gimli::DW_AT_byte_size,
-            AttributeValue::Udata(isa.frontend_config().pointer_bytes().into()),
+            AttributeValue::Udata(frontend_config.pointer_bytes().into()),
         );
 
         DebugContext {

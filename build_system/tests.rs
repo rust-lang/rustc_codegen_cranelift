@@ -422,6 +422,8 @@ impl<'a> TestRunner<'a> {
     {
         let mut cmd = Command::new(&self.target_compiler.rustc);
         cmd.args(&self.target_compiler.rustflags);
+        cmd.arg("--emit");
+        cmd.arg("link,metadata");
         cmd.arg("-L");
         cmd.arg(format!("crate={}", BUILD_EXAMPLE_OUT_DIR.to_path(&self.dirs).display()));
         cmd.arg("--out-dir");
@@ -431,6 +433,7 @@ impl<'a> TestRunner<'a> {
         cmd.arg(&self.target_compiler.triple);
         cmd.arg("-Cpanic=abort");
         cmd.arg("--check-cfg=cfg(jit)");
+        cmd.arg("-Zcross-crate-inline-threshold=always");
         cmd.args(args);
         cmd
     }

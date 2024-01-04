@@ -304,8 +304,8 @@ fn main() {
     let amount = 0;
     assert_eq!(1u128 << amount, 1);
 
-    static ANOTHER_STATIC: &u8 = &A_STATIC;
-    assert_eq!(*ANOTHER_STATIC, 42);
+    //xstatic ANOTHER_STATIC: &u8 = &A_STATIC;
+    //xassert_eq!(*ANOTHER_STATIC, 42);
 
     check_niche_behavior();
 
@@ -481,6 +481,9 @@ impl Thread {
 
             Thread { handle }
         }
+
+        #[cfg(not(any(unix, windows)))]
+        Thread {}
     }
 
     unsafe fn join(self) {

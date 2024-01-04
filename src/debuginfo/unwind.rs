@@ -18,53 +18,17 @@ pub(crate) struct UnwindContext {
 }
 
 impl UnwindContext {
-    pub(crate) fn new(isa: &dyn TargetIsa, pic_eh_frame: bool) -> Self {
-        let endian = match isa.endianness() {
-            Endianness::Little => RunTimeEndian::Little,
-            Endianness::Big => RunTimeEndian::Big,
-        };
-        let mut frame_table = FrameTable::default();
+    pub(crate) fn new(_pic_eh_frame: bool) -> Self {
+        let endian = RunTimeEndian::Little;
+        let frame_table = FrameTable::default();
 
-        let cie_id = if let Some(mut cie) = isa.create_systemv_cie() {
-            if pic_eh_frame {
-                cie.fde_address_encoding =
-                    gimli::DwEhPe(gimli::DW_EH_PE_pcrel.0 | gimli::DW_EH_PE_sdata4.0);
-            }
-            Some(frame_table.add_cie(cie))
-        } else {
-            None
-        };
+        let cie_id = None;
 
         UnwindContext { endian, frame_table, cie_id }
     }
 
-    pub(crate) fn add_function(&mut self, func_id: FuncId, context: &Context, isa: &dyn TargetIsa) {
-        if let target_lexicon::OperatingSystem::MacOSX { .. } = isa.triple().operating_system {
-            // The object crate doesn't currently support DW_GNU_EH_PE_absptr, which macOS
-            // requires for unwinding tables. In addition on arm64 it currently doesn't
-            // support 32bit relocations as we currently use for the unwinding table.
-            // See gimli-rs/object#415 and rust-lang/rustc_codegen_cranelift#1371
-            return;
-        }
-
-        let unwind_info = if let Some(unwind_info) =
-            context.compiled_code().unwrap().create_unwind_info(isa).unwrap()
-        {
-            unwind_info
-        } else {
-            return;
-        };
-
-        match unwind_info {
-            UnwindInfo::SystemV(unwind_info) => {
-                self.frame_table
-                    .add_fde(self.cie_id.unwrap(), unwind_info.to_fde(address_for_func(func_id)));
-            }
-            UnwindInfo::WindowsX64(_) | UnwindInfo::WindowsArm64(_) => {
-                // Windows does not have debug info for its unwind info.
-            }
-            unwind_info => unimplemented!("{:?}", unwind_info),
-        }
+    pub(crate) fn add_function(&mut self, _func_id: FuncId, _context: &Context) {
+        return;
     }
 
     pub(crate) fn emit(self, product: &mut ObjectProduct) {
