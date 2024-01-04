@@ -155,8 +155,7 @@ fn build_sysroot_for_triple(
     sysroot_kind: SysrootKind,
 ) -> SysrootTarget {
     match sysroot_kind {
-        SysrootKind::None => build_rtstartup(dirs, &compiler)
-            .unwrap_or(SysrootTarget { triple: compiler.triple, libs: vec![] }),
+        SysrootKind::None => SysrootTarget { triple: compiler.triple, libs: vec![] },
         SysrootKind::Llvm => build_llvm_sysroot_for_triple(compiler),
         SysrootKind::Clif => build_clif_sysroot_for_triple(dirs, compiler, cg_clif_dylib_path),
     }
@@ -235,6 +234,8 @@ fn build_clif_sysroot_for_triple(
     // inlining.
     rustflags.push("-Zinline-mir".to_owned());
 
+    // Ensure all functions are codegened locally to emulate LTO
+    rustflags.push("-Zcross-crate-inline-threshold=always".to_owned());
     if let Some(prefix) = env::var_os("CG_CLIF_STDLIB_REMAP_PATH_PREFIX") {
         rustflags.push("--remap-path-prefix".to_owned());
         rustflags.push(format!(

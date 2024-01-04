@@ -259,106 +259,35 @@ impl Module for WasmModule {
         ctx: &mut Context,
         _ctrl_plane: &mut cranelift_codegen::control::ControlPlane,
     ) -> cranelift_module::ModuleResult<()> {
-        fn translate_ty(ty: types::Type) -> waffle::Type {
-            match ty {
-                types::I8 | types::I16 | types::I32 => waffle::Type::I32,
-                types::I64 => waffle::Type::I64,
-                types::F32 => waffle::Type::F32,
-                types::F64 => waffle::Type::F64,
-                _ => unreachable!(),
-            }
-        }
-
-        let waffle_sig = self.waffle_module.signatures.push(waffle::SignatureData {
-            params: ctx
-                .func
-                .signature
-                .params
-                .iter()
-                .map(|param| translate_ty(param.value_type))
-                .collect(),
-            returns: ctx
-                .func
-                .signature
-                .returns
-                .iter()
-                .map(|param| translate_ty(param.value_type))
-                .collect(),
-        });
-
-        let mut func_body = waffle::FunctionBody::new(&self.waffle_module, waffle_sig);
-
-        let mut block_map = FxHashMap::default();
-        let mut value_map = FxHashMap::default();
-        for block in ctx.func.layout.blocks() {
-            if block == ctx.func.layout.entry_block().unwrap() {
-                let waffle_block = func_body.entry;
-                block_map.insert(block, waffle_block);
-
-                for (i, &param) in ctx.func.dfg.block_params(block).iter().enumerate() {
-                    value_map.insert(param, func_body.blocks[waffle_block].params[i].1);
-                }
-            } else {
-                let waffle_block = func_body.add_block();
-                block_map.insert(block, waffle_block);
-
-                for &param in ctx.func.dfg.block_params(block) {
-                    value_map.insert(
-                        param,
-                        func_body.add_blockparam(
-                            waffle_block,
-                            translate_ty(ctx.func.dfg.value_type(param)),
-                        ),
-                    );
-                }
-            };
-        }
+        let mut b = FunctionBuilder::new(&self.declarations, &ctx.func, &mut self.waffle_module);
 
         for block in ctx.func.layout.blocks() {
             for inst in ctx.func.layout.block_insts(block) {
-                println!("[{block}] {}", ctx.func.dfg.display_inst(inst));
                 match ctx.func.dfg.insts[inst].opcode() {
                     Opcode::Nop => {}
                     Opcode::Iconst => {
-                        let res = *value_map
-                            .entry(ctx.func.dfg.inst_results(inst)[0])
-                            .or_insert_with(|| func_body.add_value(waffle::ValueDef::None));
-
-                        func_body.values[res] = waffle::ValueDef::Operator(
-                            waffle::Operator::I32Const {
-                                value: match ctx.func.dfg.insts[inst] {
-                                    InstructionData::UnaryImm { opcode: _, imm } => {
-                                        imm.bits() as u32
-                                    }
-                                    _ => unreachable!(),
-                                },
-                            },
-                            func_body.arg_pool.from_iter([].into_iter()),
-                            func_body.single_type_list(waffle::Type::I32),
-                        );
-
-                        func_body.append_to_block(block_map[&block], res);
+                        let imm = match ctx.func.dfg.insts[inst] {
+                            InstructionData::UnaryImm { opcode: _, imm } => imm,
+                            _ => unreachable!(),
+                        };
+                        b.emit(inst, match b.clif_func.dfg.ctrl_typevar(inst) {
+                            types::I8 | types::I16 | types::I32 => {
+                                waffle::Operator::I32Const { value: imm.bits() as u32 }
+                            }
+                            types::I64 => waffle::Operator::I64Const { value: imm.bits() as u64 },
+                            _ => unreachable!(),
+                        });
                     }
                     Opcode::Iadd => {
-                        let res = *value_map
-                            .entry(ctx.func.dfg.inst_results(inst)[0])
-                            .or_insert_with(|| func_body.add_value(waffle::ValueDef::None));
-                        let args = ctx.func.dfg.inst_args(inst);
-                        let lhs = value_map[&ctx.func.dfg.resolve_aliases(args[0])];
-                        let rhs = value_map[&ctx.func.dfg.resolve_aliases(args[1])];
-
-                        func_body.values[res] = waffle::ValueDef::Operator(
-                            waffle::Operator::I32Add,
-                            func_body.arg_pool.from_iter([lhs, rhs].into_iter()),
-                            func_body.single_type_list(waffle::Type::I32),
-                        );
-
-                        func_body.append_to_block(block_map[&block], res);
+                        b.emit(inst, match b.clif_func.dfg.ctrl_typevar(inst) {
+                            types::I8 | types::I16 | types::I32 => waffle::Operator::I32Add,
+                            types::I64 => waffle::Operator::I64Add,
+                            _ => unreachable!(),
+                        });
                     }
                     Opcode::Call => {
-                        let (args, func_id) = match ctx.func.dfg.insts[inst] {
-                            InstructionData::Call { opcode: _, args, func_ref } => (
-                                args.as_slice(&ctx.func.dfg.value_lists),
+                        let func_id = match ctx.func.dfg.insts[inst] {
+                            InstructionData::Call { opcode: _, args: _, func_ref } => {
                                 match ctx.func.dfg.ext_funcs[func_ref].name {
                                     ExternalName::User(user) => {
                                         let name = &ctx.func.params.user_named_funcs()[user];
@@ -368,61 +297,21 @@ impl Module for WasmModule {
                                     ExternalName::TestCase(_) => todo!(),
                                     ExternalName::LibCall(libcall) => todo!(),
                                     ExternalName::KnownSymbol(ks) => todo!(),
-                                },
-                            ),
+                                }
+                            }
                             _ => unreachable!(),
                         };
 
-                        let mut res_vals = vec![];
-                        let mut ret_tys = vec![];
-                        for &res in ctx.func.dfg.inst_results(inst) {
-                            res_vals.push(
-                                *value_map
-                                    .entry(res)
-                                    .or_insert_with(|| func_body.add_value(waffle::ValueDef::None)),
-                            );
-                            ret_tys.push(translate_ty(ctx.func.dfg.value_type(res)));
-                        }
-
-                        let args = ctx
-                            .func
-                            .dfg
-                            .inst_args(inst)
-                            .into_iter()
-                            .map(|&arg| value_map[&ctx.func.dfg.resolve_aliases(arg)]);
-
-                        if res_vals.len() == 1 {
-                            func_body.values[res_vals[0]] = waffle::ValueDef::Operator(
-                                waffle::Operator::Call { function_index: self.func_ids[&func_id] },
-                                func_body.arg_pool.from_iter(args),
-                                func_body.type_pool.from_iter(ret_tys.into_iter()),
-                            );
-
-                            func_body.append_to_block(block_map[&block], res_vals[0]);
-                        } else {
-                            let res_def = waffle::ValueDef::Operator(
-                                waffle::Operator::Call { function_index: self.func_ids[&func_id] },
-                                func_body.arg_pool.from_iter(args),
-                                func_body.type_pool.from_iter(ret_tys.iter().cloned()),
-                            );
-                            let res = func_body.add_value(res_def);
-                            func_body.append_to_block(block_map[&block], res);
-
-                            for (i, (res_val, ret_ty)) in
-                                res_vals.into_iter().zip(ret_tys).enumerate()
-                            {
-                                func_body.values[res_val] =
-                                    waffle::ValueDef::PickOutput(res, i as u32, ret_ty);
-                                func_body.append_to_block(block_map[&block], res_val);
-                            }
-                        }
+                        b.emit(inst, waffle::Operator::Call {
+                            function_index: self.func_ids[&func_id],
+                        });
                     }
                     Opcode::Jump => {
                         let target_block = ctx.func.dfg.insts[inst]
                             .branch_destination(&ctx.func.dfg.jump_tables)[0];
-                        func_body.set_terminator(block_map[&block], waffle::Terminator::Br {
+                        b.waffle_func.set_terminator(b.block_map[&block], waffle::Terminator::Br {
                             target: waffle::BlockTarget {
-                                block: block_map[&target_block.block(&ctx.func.dfg.value_lists)],
+                                block: b.block_map[&target_block.block(&ctx.func.dfg.value_lists)],
                                 args: vec![/* TODO */],
                             },
                         });
@@ -431,25 +320,28 @@ impl Module for WasmModule {
                         let returns = ctx.func.dfg.insts[inst].arguments(&ctx.func.dfg.value_lists);
                         let returns = returns
                             .into_iter()
-                            .map(|&arg| value_map[&ctx.func.dfg.resolve_aliases(arg)])
+                            .map(|&arg| b.value_map[&ctx.func.dfg.resolve_aliases(arg)])
                             .collect::<Vec<_>>();
-                        func_body.set_terminator(block_map[&block], waffle::Terminator::Return {
-                            values: returns,
-                        });
+                        b.waffle_func
+                            .set_terminator(b.block_map[&block], waffle::Terminator::Return {
+                                values: returns,
+                            });
                     }
-                    _ => {}
+                    _ => {
+                        panic!("[{block}] {}", ctx.func.dfg.display_inst(inst));
+                    }
                 }
             }
         }
 
         // FIXME fill body
 
-        func_body.validate().unwrap();
+        b.waffle_func.validate().unwrap();
 
         self.waffle_module.funcs[self.func_ids[&func]] = waffle::FuncDecl::Body(
-            waffle_sig,
+            b.waffle_sig,
             self.declarations.get_function_decl(func).linkage_name(func).into_owned(),
-            func_body,
+            b.waffle_func,
         );
 
         //todo!()
@@ -473,5 +365,143 @@ impl Module for WasmModule {
         data: &DataDescription,
     ) -> cranelift_module::ModuleResult<()> {
         todo!()
+    }
+}
+
+struct FunctionBuilder<'a, 'b> {
+    // Source
+    declarations: &'a ModuleDeclarations,
+    clif_func: &'a Function,
+
+    // Destination
+    waffle_module: &'b mut waffle::Module<'static>,
+    waffle_func: waffle::FunctionBody,
+    waffle_sig: waffle::Signature,
+
+    // Translation context
+    block_map: FxHashMap<Block, waffle::Block>,
+    value_map: FxHashMap<Value, waffle::Value>,
+}
+
+impl<'a, 'b> FunctionBuilder<'a, 'b> {
+    fn new(
+        declarations: &'a ModuleDeclarations,
+        clif_func: &'a Function,
+        waffle_module: &'b mut waffle::Module<'static>,
+    ) -> Self {
+        let waffle_sig = waffle_module.signatures.push(waffle::SignatureData {
+            params: clif_func
+                .signature
+                .params
+                .iter()
+                .map(|param| FunctionBuilder::translate_ty(param.value_type))
+                .collect(),
+            returns: clif_func
+                .signature
+                .returns
+                .iter()
+                .map(|param| FunctionBuilder::translate_ty(param.value_type))
+                .collect(),
+        });
+
+        let mut waffle_func = waffle::FunctionBody::new(waffle_module, waffle_sig);
+
+        let mut block_map = FxHashMap::default();
+        let mut value_map = FxHashMap::default();
+        for block in clif_func.layout.blocks() {
+            if block == clif_func.layout.entry_block().unwrap() {
+                let waffle_block = waffle_func.entry;
+                block_map.insert(block, waffle_block);
+
+                for (i, &param) in clif_func.dfg.block_params(block).iter().enumerate() {
+                    value_map.insert(param, waffle_func.blocks[waffle_block].params[i].1);
+                }
+            } else {
+                let waffle_block = waffle_func.add_block();
+                block_map.insert(block, waffle_block);
+
+                for &param in clif_func.dfg.block_params(block) {
+                    value_map.insert(
+                        param,
+                        waffle_func.add_blockparam(
+                            waffle_block,
+                            FunctionBuilder::translate_ty(clif_func.dfg.value_type(param)),
+                        ),
+                    );
+                }
+            };
+        }
+
+        FunctionBuilder {
+            declarations,
+            clif_func,
+            waffle_module,
+            waffle_func,
+            waffle_sig,
+            block_map,
+            value_map,
+        }
+    }
+
+    fn translate_ty(ty: types::Type) -> waffle::Type {
+        match ty {
+            types::I8 | types::I16 | types::I32 => waffle::Type::I32,
+            types::I64 => waffle::Type::I64,
+            types::F32 => waffle::Type::F32,
+            types::F64 => waffle::Type::F64,
+            _ => unreachable!(),
+        }
+    }
+
+    fn get_value(&mut self, value: Value) -> waffle::Value {
+        let value = self.clif_func.dfg.resolve_aliases(value);
+
+        *self
+            .value_map
+            .entry(value)
+            .or_insert_with(|| self.waffle_func.add_value(waffle::ValueDef::None))
+    }
+
+    fn emit(&mut self, inst: Inst, operator: waffle::Operator) {
+        let block = self.clif_func.layout.inst_block(inst).unwrap();
+
+        let args = self
+            .clif_func
+            .dfg
+            .inst_args(inst)
+            .into_iter()
+            .map(|&arg| self.get_value(self.clif_func.dfg.resolve_aliases(arg)))
+            .collect::<Vec<_>>();
+
+        let mut res_vals = vec![];
+        let mut ret_tys = vec![];
+        for &res in self.clif_func.dfg.inst_results(inst) {
+            res_vals.push(self.get_value(res));
+            ret_tys.push(FunctionBuilder::translate_ty(self.clif_func.dfg.value_type(res)));
+        }
+
+        if res_vals.len() == 1 {
+            self.waffle_func.values[res_vals[0]] = waffle::ValueDef::Operator(
+                operator,
+                self.waffle_func.arg_pool.from_iter(args.into_iter()),
+                self.waffle_func.type_pool.from_iter(ret_tys.into_iter()),
+            );
+
+            self.waffle_func.append_to_block(self.block_map[&block], res_vals[0]);
+        } else {
+            let res_def = waffle::ValueDef::Operator(
+                operator,
+                self.waffle_func.arg_pool.from_iter(args.into_iter()),
+                self.waffle_func.type_pool.from_iter(ret_tys.iter().cloned()),
+            );
+            let res = self.waffle_func.add_value(res_def);
+            self.waffle_func.append_to_block(self.block_map[&block], res);
+
+            for (i, (res_val, ret_ty)) in res_vals.into_iter().zip(ret_tys).enumerate() {
+                self.waffle_func.values[res_val] =
+                    waffle::ValueDef::PickOutput(res, i as u32, ret_ty);
+                self.waffle_func.append_to_block(self.block_map[&block], res_val);
+            }
+        }
     }
 }
