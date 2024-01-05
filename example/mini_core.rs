@@ -698,12 +698,39 @@ pub mod libc {
     #[cfg_attr(unix, link(name = "c"))]
     #[cfg_attr(target_env = "msvc", link(name = "msvcrt"))]
     extern "C" {
+        #[cfg(not(target_os = "wasi"))]
         pub fn puts(s: *const i8) -> i32;
         pub fn malloc(size: usize) -> *mut u8;
         pub fn free(ptr: *mut u8);
         pub fn memcpy(dst: *mut u8, src: *const u8, size: usize);
         pub fn memmove(dst: *mut u8, src: *const u8, size: usize);
         pub fn strncpy(dst: *mut u8, src: *const u8, size: usize);
+    }
+
+    #[repr(C)]
+    struct Ciovec {
+        buf: *const u8,
+        buf_len: u32,
+    }
+
+    #[cfg(target_os = "wasi")]
+    #[link(wasm_import_module = "wasi_snapshot_preview1")]
+    extern "C" {
+        fn args_get(argv: *mut *mut u8, argv_buf: *mut u8) -> i32;
+        fn args_sizes_get(argc: *mut u32, argv_size: *mut u32) -> i32;
+        fn fd_write(fd: i32, iovs_ptr: *const Ciovec, iovs_len: i32, rp0: *mut u32) -> i32;
+    }
+
+    #[cfg(target_os = "wasi")]
+    pub extern "C" fn puts(mut s: *const i8) -> i32 {
+        while unsafe { *s != 0 } {
+            let ciovec = Ciovec { buf: s as *const u8, buf_len: 1 };
+            unsafe {
+                fd_write(1, &ciovec, 1, &mut 0);
+            }
+            s = (s as usize + 1) as *const i8;
+        }
+        0
     }
 }
 
