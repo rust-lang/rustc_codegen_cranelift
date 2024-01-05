@@ -226,7 +226,7 @@ impl<T: ?Sized> Receiver for &mut T {}
 
 #[no_mangle]
 fn main(foo: u32) -> u32 {
-    add_1(foo) + add_1_and_2(foo).1
+    add_1(foo) + add_1_and_2(foo).1 + "foo" as *const str as *const u8 as u32
 }
 
 fn add_1(foo: u32) -> u32 {
