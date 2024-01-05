@@ -193,6 +193,8 @@ pub mod intrinsics {
         #[rustc_safe_intrinsic]
         pub fn bswap<T>(x: T) -> T;
         pub fn write_bytes<T>(dst: *mut T, val: u8, count: usize);
+        #[rustc_safe_intrinsic]
+        pub fn caller_location() -> &'static crate::Location<'static>;
     }
 }
 
@@ -270,6 +272,33 @@ extern "C" {
     fn fd_write(fd: i32, iovs_ptr: *const Ciovec, iovs_len: i32, rp0: *mut u32) -> i32;
 }
 
+#[lang = "panic"]
+#[track_caller]
+pub fn panic(_msg: &'static str) -> ! {
+    let ciovec = Ciovec { buf: "Panicking\n" as *const str as *const u8, buf_len: 10 };
+    unsafe {
+        fd_write(2, &ciovec, 1, &mut 0);
+    }
+    let caller = intrinsics::caller_location();
+    let ciovec =
+        Ciovec { buf: caller.file as *const str as *const u8, buf_len: 22 /* FIXME */ };
+    unsafe {
+        fd_write(2, &ciovec, 1, &mut 0);
+    }
+    let ciovec = Ciovec { buf: "\n" as *const str as *const u8, buf_len: 1 /* FIXME */ };
+    unsafe {
+        fd_write(2, &ciovec, 1, &mut 0);
+    }
+    intrinsics::abort();
+}
+
+#[lang = "panic_location"]
+struct Location<'a> {
+    file: &'a str,
+    line: u32,
+    column: u32,
+}
+
 #[no_mangle]
 fn main(foo: u32) -> u32 {
     let ciovec = Ciovec { buf: "foo\n" as *const str as *const u8, buf_len: 4 };
@@ -281,6 +310,11 @@ fn main(foo: u32) -> u32 {
     let mut argv_size = 0;
     unsafe {
         args_sizes_get(&mut argc, &mut argv_size);
+    }
+
+    #[allow(arithmetic_overflow)]
+    {
+        0xffffffffu32 + 1u32;
     }
 
     if argc != 2 {

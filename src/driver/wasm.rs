@@ -7,7 +7,7 @@ use std::mem;
 use cranelift_codegen::binemit::Reloc;
 use cranelift_codegen::ir::{ExternalName, InstructionData, Opcode};
 use cranelift_codegen::isa::{self, CallConv, TargetFrontendConfig};
-use cranelift_module::{DataId, ModuleDeclarations};
+use cranelift_module::{DataId, ModuleDeclarations, ModuleReloc, ModuleRelocTarget};
 use rustc_codegen_ssa::{CodegenResults, CompiledModule, CrateInfo, ModuleKind};
 use rustc_metadata::EncodedMetadata;
 use rustc_middle::dep_graph::{WorkProduct, WorkProductId};
@@ -154,6 +154,7 @@ struct WasmModule {
     next_data_offset: u64,
     main_memory: waffle::Memory,
     stack_pointer: waffle::Global,
+    data_relocs: Vec<(DataId, ModuleReloc)>,
 }
 
 impl WasmModule {
@@ -177,6 +178,7 @@ impl WasmModule {
             next_data_offset: 0x1_000_000, // Globals are stored after 1MiB of stack space
             main_memory,
             stack_pointer,
+            data_relocs: vec![],
         }
     }
 
@@ -292,6 +294,32 @@ impl WasmModule {
         // FIXME remap imports
         // FIXME remap exports
         // FIXME remap globals
+
+        for (data_id, reloc) in self.data_relocs.drain(..) {
+            assert_eq!(reloc.kind, Reloc::Abs4);
+
+            let reloc_loc = self.waffle_module.globals[self.data_ids[&data_id]].value.unwrap()
+                as u32
+                + reloc.offset;
+
+            let reloc_target = (self.waffle_module.globals[self.data_ids[&match reloc.name {
+                ModuleRelocTarget::User { namespace, index } => {
+                    assert_eq!(namespace, 1); // FIXME support function targets
+                    DataId::from_u32(index)
+                }
+                ModuleRelocTarget::FunctionOffset(_, _) => todo!(),
+                ModuleRelocTarget::LibCall(_libcall) => todo!(),
+                ModuleRelocTarget::KnownSymbol(_ks) => todo!(),
+            }]]
+                .value
+                .unwrap() as i32
+                + reloc.addend as i32) as u32;
+
+            self.waffle_module.memories[self.main_memory].segments.push(waffle::MemorySegment {
+                offset: reloc_loc as usize,
+                data: u32::to_le_bytes(reloc_target).to_vec(),
+            });
+        }
 
         println!("{}", self.waffle_module.display());
 
@@ -533,6 +561,70 @@ impl Module for WasmModule {
                             &[FunctionBuilder::translate_ty(ty)],
                         );
                     }
+                    Opcode::Load => {
+                        let (arg, offset): (_, i32) = match ctx.func.dfg.insts[inst] {
+                            InstructionData::Load { opcode: _, arg, offset, flags: _ } => {
+                                (arg, offset.into())
+                            }
+                            _ => unreachable!(),
+                        };
+
+                        let ty = b.clif_func.dfg.ctrl_typevar(inst);
+                        let arg = b.get_value(arg);
+                        let memory = waffle::MemoryArg {
+                            align: 1,
+                            offset: offset as u32,
+                            memory: self.main_memory,
+                        };
+                        let ret = b.get_value(b.clif_func.dfg.inst_results(inst)[0]);
+                        b.assign_multivalue(
+                            block,
+                            match ty {
+                                types::I8 => waffle::Operator::I32Load8U { memory },
+                                types::I16 => waffle::Operator::I32Load16U { memory },
+                                types::I32 => waffle::Operator::I32Load { memory },
+                                types::I64 => waffle::Operator::I64Load { memory },
+                                types::F32 => waffle::Operator::F32Load { memory },
+                                types::F64 => waffle::Operator::F64Load { memory },
+                                _ => unreachable!(),
+                            },
+                            &[arg],
+                            &[ret],
+                            &[FunctionBuilder::translate_ty(ty)],
+                        );
+                    }
+                    Opcode::Icmp => {
+                        let cond = match ctx.func.dfg.insts[inst] {
+                            InstructionData::IntCompare { opcode: _, args: _, cond } => cond,
+                            _ => unreachable!(),
+                        };
+
+                        let ty = b.clif_func.dfg.ctrl_typevar(inst);
+                        match ty {
+                            types::I8 | types::I16 => unimplemented!(),
+                            types::I32 => {
+                                b.emit(
+                                    inst,
+                                    match cond {
+                                        IntCC::Equal => waffle::Operator::I32Eq,
+                                        IntCC::NotEqual => waffle::Operator::I32Ne,
+                                        IntCC::SignedLessThan => waffle::Operator::I32LtS,
+                                        IntCC::SignedGreaterThanOrEqual => waffle::Operator::I32GeS,
+                                        IntCC::SignedGreaterThan => waffle::Operator::I32GtS,
+                                        IntCC::SignedLessThanOrEqual => waffle::Operator::I32LeS,
+                                        IntCC::UnsignedLessThan => waffle::Operator::I32LtU,
+                                        IntCC::UnsignedGreaterThanOrEqual => {
+                                            waffle::Operator::I32GeU
+                                        }
+                                        IntCC::UnsignedGreaterThan => waffle::Operator::I32GtU,
+                                        IntCC::UnsignedLessThanOrEqual => waffle::Operator::I32LeU,
+                                    },
+                                );
+                            }
+                            types::I64 => todo!(),
+                            _ => unreachable!(),
+                        }
+                    }
                     Opcode::IcmpImm => {
                         let (arg, cond, imm) = match ctx.func.dfg.insts[inst] {
                             InstructionData::IntCompareImm { opcode: _, arg, cond, imm } => {
@@ -701,8 +793,7 @@ impl Module for WasmModule {
         self.waffle_module.globals[global].value = Some(self.next_data_offset);
         self.next_data_offset += data.init.size() as u64;
 
-        // FIXME
-        assert!(data.all_relocs(Reloc::Abs4).collect::<Vec<_>>().is_empty());
+        self.data_relocs.extend(data.all_relocs(Reloc::Abs4).map(|reloc| (data_id, reloc)));
 
         Ok(())
     }
