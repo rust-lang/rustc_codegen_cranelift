@@ -224,9 +224,20 @@ pub trait Receiver {}
 impl<T: ?Sized> Receiver for &T {}
 impl<T: ?Sized> Receiver for &mut T {}
 
+#[link(wasm_import_module = "wasi_snapshot_preview1")]
+extern "C" {
+    pub fn args_get(argv: *mut *mut u8, argv_buf: *mut u8) -> i32;
+    pub fn args_sizes_get(argc: *mut u32, argv_size: *mut u32) -> i32;
+}
+
 #[no_mangle]
 fn main(foo: u32) -> u32 {
-    add_1(foo) + add_1_and_2(foo).1 + "foo" as *const str as *const u8 as u32
+    let mut argc = 0;
+    let mut argv_size = 0;
+    unsafe {
+        args_sizes_get(&mut argc, &mut argv_size);
+    }
+    add_1(foo) + add_1_and_2(foo).1 + argc + "foo" as *const str as *const u8 as u32
 }
 
 fn add_1(foo: u32) -> u32 {

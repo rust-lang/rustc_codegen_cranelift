@@ -90,9 +90,22 @@ pub(crate) fn import_function<'tcx>(
     module: &mut dyn Module,
     inst: Instance<'tcx>,
 ) -> FuncId {
-    let name = tcx.symbol_name(inst).name;
+    let name = if tcx.sess.target.is_like_wasm {
+        if let Some(module) = tcx.wasm_import_module_map(inst.def_id().krate).get(&inst.def_id()) {
+            let name = tcx
+                .codegen_fn_attrs(inst.def_id())
+                .link_name
+                .unwrap_or_else(|| tcx.item_name(inst.def_id()));
+
+            format!("{module}$${name}")
+        } else {
+            tcx.symbol_name(inst).name.to_owned()
+        }
+    } else {
+        tcx.symbol_name(inst).name.to_owned()
+    };
     let sig = get_function_sig(tcx, module.target_config().default_call_conv, inst);
-    match module.declare_function(name, Linkage::Import, &sig) {
+    match module.declare_function(&name, Linkage::Import, &sig) {
         Ok(func_id) => func_id,
         Err(ModuleError::IncompatibleDeclaration(_)) => tcx.dcx().fatal(format!(
             "attempt to declare `{name}` as function, but it was already declared as static"

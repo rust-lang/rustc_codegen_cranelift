@@ -2,6 +2,7 @@
 //! standalone executable.
 
 use std::fs::File;
+use std::mem;
 
 use cranelift_codegen::binemit::Reloc;
 use cranelift_codegen::ir::{ExternalName, InstructionData, Opcode};
@@ -185,11 +186,32 @@ impl WasmModule {
     ) -> Result<(), Box<dyn std::error::Error>> {
         for (func_id, func_decl) in self.declarations.get_functions() {
             if func_decl.linkage == Linkage::Import {
-                self.waffle_module.imports.push(waffle::Import {
-                    module: "env".to_owned(),
-                    name: func_decl.linkage_name(func_id).into_owned(),
-                    kind: waffle::ImportKind::Func(self.func_ids[&func_id]),
-                });
+                let func = self.func_ids[&func_id];
+                if let waffle::FuncDecl::None = self.waffle_module.funcs[func] {
+                    self.waffle_module.funcs[func] = waffle::FuncDecl::Import(
+                        FunctionBuilder::translate_signature(
+                            &mut self.waffle_module,
+                            &func_decl.signature,
+                        ),
+                        func_decl.linkage_name(func_id).into_owned(),
+                    );
+                } else {
+                    panic!("defined function with import linkage");
+                }
+                let name = func_decl.linkage_name(func_id).into_owned();
+                if let Some((module, name)) = name.split_once("$$") {
+                    self.waffle_module.imports.push(waffle::Import {
+                        module: module.to_owned(),
+                        name: name.to_owned(),
+                        kind: waffle::ImportKind::Func(func),
+                    });
+                } else {
+                    self.waffle_module.imports.push(waffle::Import {
+                        module: "env".to_owned(),
+                        name,
+                        kind: waffle::ImportKind::Func(func),
+                    });
+                }
             } else if func_decl.linkage == Linkage::Export
                 || func_decl.linkage == Linkage::Preemptible
             {
@@ -199,6 +221,77 @@ impl WasmModule {
                 });
             }
         }
+
+        self.waffle_module.exports.push(waffle::Export {
+            name: "memory".to_owned(),
+            kind: waffle::ExportKind::Memory(self.main_memory),
+        });
+
+        let (imports, definitions) = mem::take(&mut self.waffle_module.funcs)
+            .into_vec()
+            .into_iter()
+            .enumerate()
+            .map(|(func, func_decl)| (waffle::Func::from(func as u32), func_decl))
+            .partition::<Vec<_>, _>(|(_func, func_decl)| {
+                matches!(func_decl, waffle::FuncDecl::Import(_, _))
+            });
+
+        let mut func_remap =
+            waffle::entity::PerEntity::<waffle::Func, Option<waffle::Func>>::default();
+        for (func, func_decl) in imports {
+            func_remap[func] = Some(self.waffle_module.funcs.push(func_decl));
+        }
+        for (func, func_decl) in definitions {
+            func_remap[func] = Some(self.waffle_module.funcs.push(func_decl));
+        }
+
+        for func_decl in self.waffle_module.funcs.values_mut() {
+            let func_decl = match func_decl {
+                waffle::FuncDecl::Import(_, _) => continue,
+                waffle::FuncDecl::Body(_, _, func_decl) => func_decl,
+                waffle::FuncDecl::Lazy(_, _, _)
+                | waffle::FuncDecl::Compiled(_, _, _)
+                | waffle::FuncDecl::None => unreachable!(),
+            };
+            for value in func_decl.values.values_mut() {
+                match value {
+                    waffle::ValueDef::Operator(op, _, _) => match op {
+                        waffle::Operator::Call { function_index } => {
+                            *function_index = func_remap[*function_index].unwrap();
+                        }
+                        _ => {}
+                    },
+                    waffle::ValueDef::BlockParam(_, _, _)
+                    | waffle::ValueDef::PickOutput(_, _, _)
+                    | waffle::ValueDef::Alias(_)
+                    | waffle::ValueDef::Placeholder(_)
+                    | waffle::ValueDef::Trace(_, _)
+                    | waffle::ValueDef::None => {}
+                }
+            }
+        }
+
+        for import in &mut self.waffle_module.imports {
+            match &mut import.kind {
+                waffle::ImportKind::Table(_) => {}
+                waffle::ImportKind::Func(func) => *func = func_remap[*func].unwrap(),
+                waffle::ImportKind::Global(_) => {}
+                waffle::ImportKind::Memory(_) => {}
+            }
+        }
+
+        for export in &mut self.waffle_module.exports {
+            match &mut export.kind {
+                waffle::ExportKind::Table(_) => {}
+                waffle::ExportKind::Func(func) => *func = func_remap[*func].unwrap(),
+                waffle::ExportKind::Global(_) => {}
+                waffle::ExportKind::Memory(_) => {}
+            }
+        }
+
+        // FIXME remap imports
+        // FIXME remap exports
+        // FIXME remap globals
 
         println!("{}", self.waffle_module.display());
 
@@ -339,8 +432,8 @@ impl Module for WasmModule {
                                         DataId::from_u32(name.index)
                                     }
                                     ExternalName::TestCase(_) => todo!(),
-                                    ExternalName::LibCall(libcall) => todo!(),
-                                    ExternalName::KnownSymbol(ks) => todo!(),
+                                    ExternalName::LibCall(_libcall) => todo!(),
+                                    ExternalName::KnownSymbol(_ks) => todo!(),
                                 }
                             }
                             _ => unreachable!(),
@@ -349,6 +442,33 @@ impl Module for WasmModule {
                         b.emit(inst, waffle::Operator::GlobalGet {
                             global_index: self.data_ids[&data_id],
                         });
+                    }
+                    Opcode::StackAddr => {
+                        let (stack_slot, offset): (_, i32) = match ctx.func.dfg.insts[inst] {
+                            InstructionData::StackLoad { opcode: _, stack_slot, offset } => {
+                                (stack_slot, offset.into())
+                            }
+                            _ => unreachable!(),
+                        };
+
+                        let stack_offset = waffle::ValueDef::Operator(
+                            waffle::Operator::I32Const {
+                                value: (b.stack_map[&stack_slot] as i32 + offset) as u32,
+                            },
+                            b.waffle_func.arg_pool.from_iter([].into_iter()),
+                            b.waffle_func.single_type_list(waffle::Type::I32),
+                        );
+                        let stack_offset = b.waffle_func.add_value(stack_offset);
+                        b.waffle_func.append_to_block(b.block_map[&block], stack_offset);
+
+                        let ret = b.get_value(b.clif_func.dfg.inst_results(inst)[0]);
+                        b.assign_multivalue(
+                            block,
+                            waffle::Operator::I32Add,
+                            &[b.stack_value, stack_offset],
+                            &[ret],
+                            &[waffle::Type::I32],
+                        );
                     }
                     Opcode::StackStore => {
                         let (arg, stack_slot, offset): (_, _, i32) = match ctx.func.dfg.insts[inst]
@@ -423,8 +543,8 @@ impl Module for WasmModule {
                                         FuncId::from_u32(name.index)
                                     }
                                     ExternalName::TestCase(_) => todo!(),
-                                    ExternalName::LibCall(libcall) => todo!(),
-                                    ExternalName::KnownSymbol(ks) => todo!(),
+                                    ExternalName::LibCall(_libcall) => todo!(),
+                                    ExternalName::KnownSymbol(_ks) => todo!(),
                                 }
                             }
                             _ => unreachable!(),
@@ -544,20 +664,7 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
         waffle_module: &'b mut waffle::Module<'static>,
         stack_pointer: waffle::Global,
     ) -> Self {
-        let waffle_sig = waffle_module.signatures.push(waffle::SignatureData {
-            params: clif_func
-                .signature
-                .params
-                .iter()
-                .map(|param| FunctionBuilder::translate_ty(param.value_type))
-                .collect(),
-            returns: clif_func
-                .signature
-                .returns
-                .iter()
-                .map(|param| FunctionBuilder::translate_ty(param.value_type))
-                .collect(),
-        });
+        let waffle_sig = Self::translate_signature(waffle_module, &clif_func.signature);
 
         let mut waffle_func = waffle::FunctionBody::new(waffle_module, waffle_sig);
 
@@ -678,13 +785,30 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
         }
     }
 
+    fn translate_signature(
+        waffle_module: &mut waffle::Module<'static>,
+        signature: &Signature,
+    ) -> waffle::Signature {
+        waffle_module.signatures.push(waffle::SignatureData {
+            params: signature
+                .params
+                .iter()
+                .map(|param| FunctionBuilder::translate_ty(param.value_type))
+                .collect(),
+            returns: signature
+                .returns
+                .iter()
+                .map(|param| FunctionBuilder::translate_ty(param.value_type))
+                .collect(),
+        })
+    }
+
     fn get_value(&mut self, value: Value) -> waffle::Value {
         let value = self.clif_func.dfg.resolve_aliases(value);
 
-        *self
-            .value_map
-            .entry(value)
-            .or_insert_with(|| self.waffle_func.add_value(waffle::ValueDef::None))
+        *self.value_map.entry(value).or_insert_with(|| {
+            self.waffle_func.add_value(waffle::ValueDef::None /* FIXME use Placeholder */)
+        })
     }
 
     fn assign_multivalue(
