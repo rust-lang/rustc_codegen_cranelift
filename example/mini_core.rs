@@ -701,6 +701,7 @@ pub mod libc {
         #[cfg(not(target_os = "wasi"))]
         pub fn puts(s: *const i8) -> i32;
         pub fn malloc(size: usize) -> *mut u8;
+        #[cfg(not(target_os = "wasi"))]
         pub fn free(ptr: *mut u8);
         pub fn memcpy(dst: *mut u8, src: *const u8, size: usize);
         pub fn memmove(dst: *mut u8, src: *const u8, size: usize);
@@ -724,14 +725,19 @@ pub mod libc {
     #[cfg(target_os = "wasi")]
     pub extern "C" fn puts(mut s: *const i8) -> i32 {
         while unsafe { *s != 0 } {
-            let ciovec = Ciovec { buf: s as *const u8, buf_len: 1 };
             unsafe {
-                fd_write(1, &ciovec, 1, &mut 0);
+                fd_write(1, &Ciovec { buf: s as *const u8, buf_len: 1 }, 1, &mut 0);
             }
             s = (s as usize + 1) as *const i8;
         }
+        unsafe {
+            fd_write(1, &Ciovec { buf: "\n" as *const str as *const u8, buf_len: 1 }, 1, &mut 0);
+        }
         0
     }
+
+    #[cfg(target_os = "wasi")]
+    pub fn free(_ptr: *mut u8) {}
 }
 
 #[lang = "index"]

@@ -5,7 +5,7 @@ use std::fs::File;
 use std::mem;
 
 use cranelift_codegen::binemit::Reloc;
-use cranelift_codegen::ir::{BlockCall, ExternalName, InstructionData, Opcode};
+use cranelift_codegen::ir::{BlockCall, ExternalName, InstructionData, LibCall, Opcode};
 use cranelift_codegen::isa::{self, CallConv, TargetFrontendConfig};
 use cranelift_module::{DataId, ModuleDeclarations, ModuleReloc, ModuleRelocTarget};
 use rustc_codegen_ssa::{CodegenResults, CompiledModule, CrateInfo, ModuleKind};
@@ -186,6 +186,66 @@ impl WasmModule {
         mut self,
         mut writer: W,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        {
+            let signature = &Signature {
+                params: vec![AbiParam::new(types::I32)],
+                returns: vec![AbiParam::new(types::I32)],
+                call_conv: CallConv::SystemV,
+            };
+            let (malloc_id, _linkage) =
+                self.declarations.declare_function("malloc", Linkage::Local, signature)?;
+
+            self.func_ids
+                .entry(malloc_id)
+                .or_insert_with(|| self.waffle_module.funcs.push(waffle::FuncDecl::None));
+
+            let waffle_sig =
+                FunctionBuilder::translate_signature(&mut self.waffle_module, &signature);
+
+            let mut waffle_func = waffle::FunctionBody::new(&mut self.waffle_module, waffle_sig);
+
+            let alloc_size = waffle_func.blocks[waffle_func.entry].params[0].1;
+
+            let page_size = waffle::ValueDef::Operator(
+                waffle::Operator::I32Const { value: 65536 },
+                waffle_func.arg_pool.from_iter([].into_iter()),
+                waffle_func.single_type_list(waffle::Type::I32),
+            );
+            let page_size = waffle_func.add_value(page_size);
+            waffle_func.append_to_block(waffle_func.entry, page_size);
+
+            let alloc_size = waffle::ValueDef::Operator(
+                waffle::Operator::I32Add,
+                waffle_func.arg_pool.from_iter([alloc_size, page_size].into_iter()),
+                waffle_func.single_type_list(waffle::Type::I32),
+            );
+            let alloc_size = waffle_func.add_value(alloc_size);
+            waffle_func.append_to_block(waffle_func.entry, alloc_size);
+
+            let page_count = waffle::ValueDef::Operator(
+                waffle::Operator::I32DivU,
+                waffle_func.arg_pool.from_iter([alloc_size, page_size].into_iter()),
+                waffle_func.single_type_list(waffle::Type::I32),
+            );
+            let page_count = waffle_func.add_value(page_count);
+            waffle_func.append_to_block(waffle_func.entry, page_count);
+
+            let allocated = waffle::ValueDef::Operator(
+                waffle::Operator::MemoryGrow { mem: self.main_memory },
+                waffle_func.arg_pool.from_iter([page_count].into_iter()),
+                waffle_func.single_type_list(waffle::Type::I32),
+            );
+            let allocated = waffle_func.add_value(allocated);
+            waffle_func.append_to_block(waffle_func.entry, allocated);
+
+            waffle_func.set_terminator(waffle_func.entry, waffle::Terminator::Return {
+                values: vec![allocated],
+            });
+
+            self.waffle_module.funcs[self.func_ids[&malloc_id]] =
+                waffle::FuncDecl::Body(waffle_sig, "malloc".to_owned(), waffle_func);
+        }
+
         for (func_id, func_decl) in self.declarations.get_functions() {
             if func_decl.linkage == Linkage::Import {
                 let func = self.func_ids[&func_id];
@@ -467,6 +527,14 @@ impl Module for WasmModule {
                         b.emit(inst, match b.clif_func.dfg.ctrl_typevar(inst) {
                             types::I8 | types::I16 | types::I32 => waffle::Operator::I32Mul,
                             types::I64 => waffle::Operator::I64Mul,
+                            _ => unreachable!(),
+                        });
+                    }
+                    Opcode::Urem => {
+                        b.emit(inst, match b.clif_func.dfg.ctrl_typevar(inst) {
+                            types::I8 | types::I16 => todo!(),
+                            types::I32 => waffle::Operator::I32RemU,
+                            types::I64 => waffle::Operator::I64RemU,
                             _ => unreachable!(),
                         });
                     }
@@ -768,27 +836,77 @@ impl Module for WasmModule {
                             _ => unreachable!(),
                         }
                     }
-                    Opcode::Call => {
-                        let func_id = match ctx.func.dfg.insts[inst] {
-                            InstructionData::Call { opcode: _, args: _, func_ref } => {
-                                match ctx.func.dfg.ext_funcs[func_ref].name {
-                                    ExternalName::User(user) => {
-                                        let name = &ctx.func.params.user_named_funcs()[user];
-                                        assert_eq!(name.namespace, 0);
-                                        FuncId::from_u32(name.index)
-                                    }
-                                    ExternalName::TestCase(_) => todo!(),
-                                    ExternalName::LibCall(_libcall) => todo!(),
-                                    ExternalName::KnownSymbol(_ks) => todo!(),
+                    Opcode::Call => match ctx.func.dfg.insts[inst] {
+                        InstructionData::Call { opcode: _, args: _, func_ref } => {
+                            match ctx.func.dfg.ext_funcs[func_ref].name {
+                                ExternalName::User(user) => {
+                                    let name = &ctx.func.params.user_named_funcs()[user];
+                                    assert_eq!(name.namespace, 0);
+                                    let func_id = FuncId::from_u32(name.index);
+                                    b.emit(inst, waffle::Operator::Call {
+                                        function_index: self.func_ids[&func_id],
+                                    });
                                 }
-                            }
-                            _ => unreachable!(),
-                        };
+                                ExternalName::TestCase(_) => todo!(),
+                                ExternalName::LibCall(LibCall::Memcpy | LibCall::Memmove) => {
+                                    let block = b.clif_func.layout.inst_block(inst).unwrap();
 
-                        b.emit(inst, waffle::Operator::Call {
-                            function_index: self.func_ids[&func_id],
-                        });
-                    }
+                                    let args = b
+                                        .clif_func
+                                        .dfg
+                                        .inst_args(inst)
+                                        .into_iter()
+                                        .map(|&arg| b.get_value(arg))
+                                        .collect::<Vec<_>>();
+
+                                    let ret_val =
+                                        b.get_value(b.clif_func.dfg.inst_results(inst)[0]);
+
+                                    let copy = waffle::ValueDef::Operator(
+                                        waffle::Operator::MemoryCopy {
+                                            dst_mem: self.main_memory,
+                                            src_mem: self.main_memory,
+                                        },
+                                        b.waffle_func.arg_pool.from_iter(args.iter().copied()),
+                                        b.waffle_func.type_pool.from_iter([].into_iter()),
+                                    );
+                                    let copy = b.waffle_func.add_value(copy);
+                                    b.waffle_func.append_to_block(b.block_map[&block], copy);
+
+                                    b.waffle_func.values[ret_val] =
+                                        waffle::ValueDef::Alias(args[0]);
+                                }
+                                ExternalName::LibCall(LibCall::Memset) => {
+                                    let block = b.clif_func.layout.inst_block(inst).unwrap();
+
+                                    let args = b
+                                        .clif_func
+                                        .dfg
+                                        .inst_args(inst)
+                                        .into_iter()
+                                        .map(|&arg| b.get_value(arg))
+                                        .collect::<Vec<_>>();
+
+                                    let ret_val =
+                                        b.get_value(b.clif_func.dfg.inst_results(inst)[0]);
+
+                                    let copy = waffle::ValueDef::Operator(
+                                        waffle::Operator::MemoryFill { mem: self.main_memory },
+                                        b.waffle_func.arg_pool.from_iter(args.iter().copied()),
+                                        b.waffle_func.type_pool.from_iter([].into_iter()),
+                                    );
+                                    let copy = b.waffle_func.add_value(copy);
+                                    b.waffle_func.append_to_block(b.block_map[&block], copy);
+
+                                    b.waffle_func.values[ret_val] =
+                                        waffle::ValueDef::Alias(args[0]);
+                                }
+                                ExternalName::LibCall(_libcall) => todo!(),
+                                ExternalName::KnownSymbol(_ks) => todo!(),
+                            }
+                        }
+                        _ => unreachable!(),
+                    },
                     Opcode::Jump => {
                         let target_block = ctx.func.dfg.insts[inst]
                             .branch_destination(&ctx.func.dfg.jump_tables)[0];
@@ -861,6 +979,9 @@ impl Module for WasmModule {
         data: &DataDescription,
     ) -> cranelift_module::ModuleResult<()> {
         let global = self.data_ids[&data_id];
+
+        let align = data.align.unwrap_or(1);
+        self.next_data_offset = (self.next_data_offset + align - 1) & !(align - 1);
 
         match &data.init {
             cranelift_module::Init::Uninitialized => unreachable!(),
