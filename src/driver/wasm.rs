@@ -533,6 +533,53 @@ impl Module for WasmModule {
                             &[FunctionBuilder::translate_ty(ty)],
                         );
                     }
+                    Opcode::IcmpImm => {
+                        let (arg, cond, imm) = match ctx.func.dfg.insts[inst] {
+                            InstructionData::IntCompareImm { opcode: _, arg, cond, imm } => {
+                                (arg, cond, imm)
+                            }
+                            _ => unreachable!(),
+                        };
+
+                        let ty = b.clif_func.dfg.ctrl_typevar(inst);
+                        let arg = b.get_value(arg);
+                        let ret = b.get_value(b.clif_func.dfg.inst_results(inst)[0]);
+                        match ty {
+                            types::I8 | types::I16 => unimplemented!(),
+                            types::I32 => {
+                                let imm = waffle::ValueDef::Operator(
+                                    waffle::Operator::I32Const { value: imm.bits() as u32 },
+                                    b.waffle_func.arg_pool.from_iter([].into_iter()),
+                                    b.waffle_func.single_type_list(waffle::Type::I32),
+                                );
+                                let imm = b.waffle_func.add_value(imm);
+                                b.waffle_func.append_to_block(b.block_map[&block], imm);
+
+                                b.assign_multivalue(
+                                    block,
+                                    match cond {
+                                        IntCC::Equal => waffle::Operator::I32Eq,
+                                        IntCC::NotEqual => waffle::Operator::I32Ne,
+                                        IntCC::SignedLessThan => waffle::Operator::I32LtS,
+                                        IntCC::SignedGreaterThanOrEqual => waffle::Operator::I32GeS,
+                                        IntCC::SignedGreaterThan => waffle::Operator::I32GtS,
+                                        IntCC::SignedLessThanOrEqual => waffle::Operator::I32LeS,
+                                        IntCC::UnsignedLessThan => waffle::Operator::I32LtU,
+                                        IntCC::UnsignedGreaterThanOrEqual => {
+                                            waffle::Operator::I32GeU
+                                        }
+                                        IntCC::UnsignedGreaterThan => waffle::Operator::I32GtU,
+                                        IntCC::UnsignedLessThanOrEqual => waffle::Operator::I32LeU,
+                                    },
+                                    &[arg, imm],
+                                    &[ret],
+                                    &[FunctionBuilder::translate_ty(ty)],
+                                );
+                            }
+                            types::I64 => todo!(),
+                            _ => unreachable!(),
+                        }
+                    }
                     Opcode::Call => {
                         let func_id = match ctx.func.dfg.insts[inst] {
                             InstructionData::Call { opcode: _, args: _, func_ref } => {
@@ -564,12 +611,35 @@ impl Module for WasmModule {
                             },
                         });
                     }
+                    Opcode::Brif => {
+                        let target_blocks =
+                            ctx.func.dfg.insts[inst].branch_destination(&ctx.func.dfg.jump_tables);
+                        let cond = b.get_value(b.clif_func.dfg.inst_args(inst)[0]);
+                        b.waffle_func.set_terminator(
+                            b.block_map[&block],
+                            waffle::Terminator::CondBr {
+                                cond,
+                                if_true: waffle::BlockTarget {
+                                    block: b.block_map
+                                        [&target_blocks[0].block(&ctx.func.dfg.value_lists)],
+                                    args: vec![/* TODO */],
+                                },
+                                if_false: waffle::BlockTarget {
+                                    block: b.block_map
+                                        [&target_blocks[1].block(&ctx.func.dfg.value_lists)],
+                                    args: vec![/* TODO */],
+                                },
+                            },
+                        );
+                    }
+                    Opcode::Trap => {
+                        b.waffle_func
+                            .set_terminator(b.block_map[&block], waffle::Terminator::Unreachable);
+                    }
                     Opcode::Return => {
                         let returns = ctx.func.dfg.insts[inst].arguments(&ctx.func.dfg.value_lists);
-                        let returns = returns
-                            .into_iter()
-                            .map(|&arg| b.value_map[&ctx.func.dfg.resolve_aliases(arg)])
-                            .collect::<Vec<_>>();
+                        let returns =
+                            returns.into_iter().map(|&arg| b.get_value(arg)).collect::<Vec<_>>();
 
                         b.restore_stack(b.block_map[&block]);
 
@@ -852,7 +922,7 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
             .dfg
             .inst_args(inst)
             .into_iter()
-            .map(|&arg| self.get_value(self.clif_func.dfg.resolve_aliases(arg)))
+            .map(|&arg| self.get_value(arg))
             .collect::<Vec<_>>();
 
         let mut ret_vals = vec![];

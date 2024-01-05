@@ -224,20 +224,70 @@ pub trait Receiver {}
 impl<T: ?Sized> Receiver for &T {}
 impl<T: ?Sized> Receiver for &mut T {}
 
+#[lang = "eq"]
+pub trait PartialEq<Rhs: ?Sized = Self> {
+    fn eq(&self, other: &Rhs) -> bool;
+    fn ne(&self, other: &Rhs) -> bool;
+}
+
+impl PartialEq for u8 {
+    fn eq(&self, other: &u8) -> bool {
+        (*self) == (*other)
+    }
+    fn ne(&self, other: &u8) -> bool {
+        (*self) != (*other)
+    }
+}
+
+impl PartialEq for u16 {
+    fn eq(&self, other: &u16) -> bool {
+        (*self) == (*other)
+    }
+    fn ne(&self, other: &u16) -> bool {
+        (*self) != (*other)
+    }
+}
+
+impl PartialEq for u32 {
+    fn eq(&self, other: &u32) -> bool {
+        (*self) == (*other)
+    }
+    fn ne(&self, other: &u32) -> bool {
+        (*self) != (*other)
+    }
+}
+
+#[repr(C)]
+struct Ciovec {
+    buf: *const u8,
+    buf_len: u32,
+}
+
 #[link(wasm_import_module = "wasi_snapshot_preview1")]
 extern "C" {
-    pub fn args_get(argv: *mut *mut u8, argv_buf: *mut u8) -> i32;
-    pub fn args_sizes_get(argc: *mut u32, argv_size: *mut u32) -> i32;
+    fn args_get(argv: *mut *mut u8, argv_buf: *mut u8) -> i32;
+    fn args_sizes_get(argc: *mut u32, argv_size: *mut u32) -> i32;
+    fn fd_write(fd: i32, iovs_ptr: *const Ciovec, iovs_len: i32, rp0: *mut u32) -> i32;
 }
 
 #[no_mangle]
 fn main(foo: u32) -> u32 {
+    let ciovec = Ciovec { buf: "foo\n" as *const str as *const u8, buf_len: 4 };
+    unsafe {
+        fd_write(2, &ciovec, 1, &mut 0);
+    }
+
     let mut argc = 0;
     let mut argv_size = 0;
     unsafe {
         args_sizes_get(&mut argc, &mut argv_size);
     }
-    add_1(foo) + add_1_and_2(foo).1 + argc + "foo" as *const str as *const u8 as u32
+
+    if argc != 2 {
+        intrinsics::abort();
+    }
+
+    add_1(foo) + add_1_and_2(foo).1 + argc
 }
 
 fn add_1(foo: u32) -> u32 {
