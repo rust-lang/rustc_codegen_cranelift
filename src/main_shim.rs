@@ -6,6 +6,8 @@ use rustc_span::{DUMMY_SP, Ident};
 
 use crate::prelude::*;
 
+// FIXME handle wasi __main_void
+
 /// Create the `main` function which will initialize the rust runtime and call
 /// users main function.
 pub(crate) fn maybe_create_entry_wrapper(

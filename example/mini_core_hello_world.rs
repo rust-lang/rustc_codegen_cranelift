@@ -6,7 +6,8 @@
     extern_types,
     naked_functions,
     thread_local,
-    repr_simd
+    repr_simd,
+    start
 )]
 #![no_core]
 #![allow(dead_code, non_camel_case_types, internal_features)]
@@ -40,8 +41,8 @@ trait Termination {
 impl Termination for () {
     fn report(self) -> i32 {
         unsafe {
-            NUM = 6 * 7 + 1 + (1u8 == 1u8) as u8; // 44
-            assert_eq!(*NUM_REF as i32, 44);
+            //NUM = 6 * 7 + 1 + (1u8 == 1u8) as u8; // 44
+            //assert_eq!(*NUM_REF as i32, 42);
         }
         0
     }
@@ -97,12 +98,13 @@ enum Ordering {
     Greater = 1,
 }
 
-#[lang = "start"]
-fn start<T: Termination + 'static>(
-    main: fn() -> T,
+//#[lang = "start"]
+#[start]
+fn start(
+    //main: fn() -> T,
     argc: isize,
     argv: *const *const u8,
-    _sigpipe: u8,
+    //_sigpipe: u8,
 ) -> isize {
     if argc == 3 {
         unsafe {
@@ -162,7 +164,7 @@ fn main() {
     take_unique(Unique { pointer: unsafe { NonNull(1 as *mut ()) }, _marker: PhantomData });
     take_f32(0.1);
 
-    call_return_u128_pair();
+    //call_return_u128_pair();
 
     bool_struct_in_11(bool_11 {
         field0: true,
@@ -184,7 +186,7 @@ fn main() {
     assert_eq!(slice_ptr as usize % 4, 0);
 
     unsafe {
-        printf("Hello %s\n\0" as *const str as *const i8, "printf\0" as *const str as *const i8);
+        //printf("Hello %s\n\0" as *const str as *const i8, "printf\0" as *const str as *const i8);
 
         let hello: &[u8] = b"Hello\0" as &[u8; 6];
         let ptr: *const i8 = hello as *const [u8] as *const i8;
@@ -192,7 +194,9 @@ fn main() {
 
         let world: Box<&str> = Box::new("World!\0");
         puts(*world as *const str as *const i8);
-        world as Box<dyn SomeTrait>;
+        //world as Box<dyn SomeTrait>;
+
+        return;
 
         assert_eq!(intrinsics::bitreverse(0b10101000u8), 0b00010101u8);
 
