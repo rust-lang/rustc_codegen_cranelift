@@ -5,6 +5,8 @@ mod line_info;
 mod object;
 mod unwind;
 
+use std::collections::BTreeSet;
+
 use cranelift_codegen::ir::Endianness;
 use cranelift_codegen::isa::TargetIsa;
 use gimli::write::{
@@ -13,6 +15,8 @@ use gimli::write::{
 };
 use gimli::{Encoding, Format, LineEncoding, RunTimeEndian};
 use indexmap::IndexSet;
+use rustc_codegen_ssa::base::collect_debugger_visualizers_transitive;
+use rustc_middle::middle::debugger_visualizer::{DebuggerVisualizerFile, DebuggerVisualizerType};
 use rustc_session::Session;
 
 pub(crate) use self::emit::{DebugReloc, DebugRelocName};
@@ -30,6 +34,8 @@ pub(crate) struct DebugContext {
     unit_range_list: RangeList,
 
     should_remap_filepaths: bool,
+    gdb_visualizers: BTreeSet<DebuggerVisualizerFile>,
+    crate_name: String,
 }
 
 pub(crate) struct FunctionDebugContext {
@@ -60,6 +66,10 @@ impl DebugContext {
             Endianness::Big => RunTimeEndian::Big,
         };
 
+        let crate_name = tcx.crate_name(LOCAL_CRATE).to_string();
+        let gdb_visualizers =
+            collect_debugger_visualizers_transitive(tcx, DebuggerVisualizerType::GdbPrettyPrinter);
+
         let mut dwarf = DwarfUnit::new(encoding);
 
         let should_remap_filepaths = tcx.sess.should_prefer_remapped_for_codegen();
@@ -80,7 +90,7 @@ impl DebugContext {
                 let name = path.to_string_lossy().into_owned();
                 (name, None)
             }
-            None => (tcx.crate_name(LOCAL_CRATE).to_string(), None),
+            None => (crate_name.clone(), None),
         };
 
         let mut line_program = LineProgram::new(
@@ -112,6 +122,8 @@ impl DebugContext {
             dwarf,
             unit_range_list: RangeList(Vec::new()),
             should_remap_filepaths,
+            gdb_visualizers,
+            crate_name
         }
     }
 

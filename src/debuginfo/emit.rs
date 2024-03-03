@@ -35,6 +35,23 @@ impl DebugContext {
             }
             Ok(())
         });
+
+        self.add_gdb_debugger_visualizers(product);
+    }
+
+    fn add_gdb_debugger_visualizers(&mut self, product: &mut ObjectProduct) {
+        let mut section = WriterRelocate::new(self.endian);
+        section.write(b"\x01gdb_load_rust_pretty_printers.py\0").unwrap();
+
+        for (index, visualizer) in self.gdb_visualizers.iter().enumerate() {
+            let vis_name = format!("\x04pretty-printer-{}-{index}\n", self.crate_name);
+
+            section.write(vis_name.as_bytes()).unwrap();
+            section.write(&visualizer.src).unwrap();
+
+            section.write(b"\0").unwrap();
+        }
+        product.add_gdb_visualizers_section(section.writer.take());
     }
 }
 
