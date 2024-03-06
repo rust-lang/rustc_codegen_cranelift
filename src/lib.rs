@@ -62,6 +62,7 @@ mod config;
 mod constant;
 mod debuginfo;
 mod discriminant;
+mod dll_import_lib;
 mod driver;
 mod global_asm;
 mod inline_asm;
