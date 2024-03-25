@@ -11,6 +11,7 @@ pub(super) trait WriteDebugInfo {
     type SectionId: Copy;
 
     fn add_debug_section(&mut self, name: SectionId, data: Vec<u8>) -> Self::SectionId;
+    fn add_gdb_visualizers_section(&mut self, data: Vec<u8>) -> Self::SectionId;
     fn add_debug_reloc(
         &mut self,
         section_map: &FxHashMap<SectionId, Self::SectionId>,
@@ -21,6 +22,18 @@ pub(super) trait WriteDebugInfo {
 
 impl WriteDebugInfo for ObjectProduct {
     type SectionId = (object::write::SectionId, object::write::SymbolId);
+
+    fn add_gdb_visualizers_section(
+        &mut self,
+        data: Vec<u8>,
+    ) -> (object::write::SectionId, object::write::SymbolId) {
+        let segment = self.object.segment_name(StandardSegment::Debug).to_vec();
+        let section_id =
+            self.object.add_section(segment, b".debug_gdb_scripts".to_vec(), SectionKind::Debug);
+        self.object.section_mut(section_id).set_data(data, 1);
+        let symbol_id = self.object.section_symbol(section_id);
+        (section_id, symbol_id)
+    }
 
     fn add_debug_section(
         &mut self,
