@@ -3,6 +3,7 @@
 mod emit;
 mod line_info;
 mod object;
+mod placeholder_types;
 mod types;
 mod unwind;
 
@@ -23,6 +24,7 @@ use rustc_span::{FileNameDisplayPreference, SourceFileHash, StableSourceFileId};
 use rustc_target::callconv::FnAbi;
 
 pub(crate) use self::emit::{DebugReloc, DebugRelocName};
+use self::placeholder_types::PlaceholderTypeDebugContext;
 pub(crate) use self::types::TypeDebugContext;
 pub(crate) use self::unwind::UnwindContext;
 use crate::debuginfo::emit::{address_for_data, address_for_func};
@@ -41,6 +43,7 @@ pub(crate) struct DebugContext {
     stack_pointer_register: Register,
     namespace_map: DefIdMap<UnitEntryId>,
     array_size_type: UnitEntryId,
+    placeholder_types: PlaceholderTypeDebugContext,
 
     filename_display_preference: FileNameDisplayPreference,
 }
@@ -145,6 +148,8 @@ impl DebugContext {
             AttributeValue::Udata(isa.frontend_config().pointer_bytes().into()),
         );
 
+        let placeholder_types = PlaceholderTypeDebugContext::new(&mut dwarf);
+
         DebugContext {
             endian,
             dwarf,
@@ -153,6 +158,7 @@ impl DebugContext {
             stack_pointer_register,
             namespace_map: DefIdMap::default(),
             array_size_type,
+            placeholder_types,
             filename_display_preference,
         }
     }
@@ -317,6 +323,22 @@ impl DebugContext {
 }
 
 impl FunctionDebugContext {
+    fn define_raw_local(
+        &mut self,
+        debug_context: &mut DebugContext,
+        scope: UnitEntryId,
+        name: String,
+        dw_ty: UnitEntryId,
+    ) -> UnitEntryId {
+        let var_id = debug_context.dwarf.unit.add(scope, gimli::DW_TAG_variable);
+        let var_entry = debug_context.dwarf.unit.get_mut(var_id);
+
+        var_entry.set(gimli::DW_AT_name, AttributeValue::String(name.into_bytes()));
+        var_entry.set(gimli::DW_AT_type, AttributeValue::UnitRef(dw_ty));
+
+        var_id
+    }
+
     pub(crate) fn finalize(
         mut self,
         debug_context: &mut DebugContext,
@@ -335,5 +357,23 @@ impl FunctionDebugContext {
         func_entry.set(gimli::DW_AT_low_pc, AttributeValue::Address(address_for_func(func_id)));
         // Using Udata for DW_AT_high_pc requires at least DWARF4
         func_entry.set(gimli::DW_AT_high_pc, AttributeValue::Udata(u64::from(end)));
+
+        for (stack_slot, &offset) in &context.compiled_code().unwrap().sized_stackslot_offsets {
+            let size = context.func.sized_stack_slots[stack_slot].size;
+
+            let array_type_id = debug_context.placeholder_type(size.into());
+
+            let var_id = self.define_raw_local(
+                debug_context,
+                self.entry_id,
+                stack_slot.to_string(),
+                array_type_id,
+            );
+            let var_entry = debug_context.dwarf.unit.get_mut(var_id);
+
+            let mut expr = Expression::new();
+            expr.op_fbreg(offset.into());
+            var_entry.set(gimli::DW_AT_location, AttributeValue::Exprloc(expr));
+        }
     }
 }
