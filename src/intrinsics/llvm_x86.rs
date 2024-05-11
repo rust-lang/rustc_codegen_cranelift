@@ -833,7 +833,7 @@ pub(crate) fn codegen_x86_llvm_intrinsic_call<'tcx>(
         }
 
         "llvm.x86.sse42.crc32.32.32" => {
-            // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#ig_expand=939,1419,1419&text=_mm_crc32_u32
+            // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#ig_expand=1419&text=_mm_crc32_u32
             intrinsic_args!(fx, args => (crc, v); intrinsic);
 
             let crc = crc.load_scalar(fx);
