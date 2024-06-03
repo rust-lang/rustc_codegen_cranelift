@@ -1,0 +1,15 @@
+[package]
+name = "gen_intrinsics"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+prettyplease = "0.2.20"
+proc-macro2 = "1.0.84"
+quote = "1.0.36"
+syn = { version = "2.0.66", features = ["full", "visit", "extra-traits"] }
+
+[features]
+unstable-features = [] # for rust-analyzer

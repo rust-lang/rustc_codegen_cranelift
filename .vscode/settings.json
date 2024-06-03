@@ -11,6 +11,7 @@
     "rust-analyzer.linkedProjects": [
         "./Cargo.toml",
         "./build_system/Cargo.toml",
+        "./gen_intrinsics/Cargo.toml",
         {
             "crates": [
                 {
