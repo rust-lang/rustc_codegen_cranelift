@@ -4,6 +4,7 @@
 /dist
 /target
 /build_system/target
+/gen_intrinsics/target
 
 # Downloaded by certain scripts
 /rust
