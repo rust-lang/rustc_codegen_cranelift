@@ -266,6 +266,9 @@ fn build_clif_sysroot_for_triple(
             prefix.to_str().unwrap()
         ));
     }
+    rustflags.push("-Clto=thin".to_owned());
+    rustflags.push("-Zdylib-lto".to_owned());
+    rustflags.push("-Cembed-bitcode=yes".to_owned());
     compiler.rustflags.extend(rustflags);
     let mut build_cmd = STANDARD_LIBRARY.build(&compiler, dirs);
     if channel == "release" {

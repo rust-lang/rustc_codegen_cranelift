@@ -45,6 +45,12 @@ codegen-units = 10000
 debug-assertions = false
 overflow-checks = false
 codegen-units = 10000
+
+[profile.dev]
+lto = "thin"
+
+[profile.release]
+lto = "thin"
 "#,
     )
     .unwrap();
