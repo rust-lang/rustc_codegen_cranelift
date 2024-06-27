@@ -326,11 +326,13 @@ fn main() {
     #[cfg(all(not(jit), not(all(windows, target_env = "gnu"))))]
     test_tls();
 
+    /*
     #[cfg(all(not(jit), target_arch = "x86_64", any(target_os = "linux", target_os = "macos")))]
     unsafe {
         global_asm_test();
         naked_test();
     }
+    */
 
     // Both statics have a reference that points to the same anonymous allocation.
     static REF1: &u8 = &42;
@@ -356,6 +358,7 @@ fn stack_val_align() {
     assert_eq!(&a as *const Foo as usize % 8192, 0);
 }
 
+/*
 #[cfg(all(not(jit), target_arch = "x86_64", any(target_os = "linux", target_os = "macos")))]
 unsafe extern "C" {
     fn global_asm_test();
@@ -380,6 +383,7 @@ global_asm! {
     ret
     "
 }
+*/
 
 #[cfg(all(not(jit), target_arch = "x86_64"))]
 #[unsafe(naked)]

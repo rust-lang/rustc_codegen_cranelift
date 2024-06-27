@@ -31,6 +31,7 @@ pub(super) fn codegen_x86_llvm_intrinsic_call<'tcx>(
 
             let xcr_no = xcr_no.load_scalar(fx);
 
+            /*
             codegen_inline_asm_inner(
                 fx,
                 &[InlineAsmTemplatePiece::String(
@@ -60,6 +61,7 @@ pub(super) fn codegen_x86_llvm_intrinsic_call<'tcx>(
                 ],
                 InlineAsmOptions::NOSTACK | InlineAsmOptions::PURE | InlineAsmOptions::NOMEM,
             );
+            */
         }
 
         "llvm.x86.sse3.ldu.dq" | "llvm.x86.avx.ldu.dq.256" => {

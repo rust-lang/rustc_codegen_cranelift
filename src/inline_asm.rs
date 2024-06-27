@@ -52,6 +52,11 @@ pub(crate) fn codegen_inline_asm_terminator<'tcx>(
         return;
     }
 
+    if fx.tcx.crate_name(LOCAL_CRATE) != sym::compiler_builtins {
+        fx.bcx.ins().trap(TrapCode::user(2).unwrap());
+        return;
+    }
+
     if fx.tcx.sess.target.arch == Arch::S390x
         && template.len() == 3
         && template[0] == InlineAsmTemplatePiece::String("stfle 0(".into())

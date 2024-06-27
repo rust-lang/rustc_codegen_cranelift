@@ -9,7 +9,7 @@ use rustc_codegen_ssa::CrateInfo;
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
 use rustc_middle::mir::mono::MonoItem;
 use rustc_session::Session;
-use rustc_session::config::OutputFilenames;
+use rustc_session::config::{Lto, OutputFilenames};
 use rustc_span::sym;
 
 use crate::debuginfo::TypeDebugContext;
@@ -22,8 +22,13 @@ fn create_jit_module(tcx: TyCtxt<'_>) -> (UnwindModule<JITModule>, Option<DebugC
     let isa = crate::build_isa(tcx.sess, true);
     let mut jit_builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
     crate::compiler_builtins::register_functions_for_jit(&mut jit_builder);
-    jit_builder.symbol_lookup_fn(dep_symbol_lookup_fn(tcx.sess, crate_info));
+    jit_builder.symbol_lookup_fn(dep_symbol_lookup_fn(tcx.sess, &crate_info));
     let mut jit_module = UnwindModule::new(JITModule::new(jit_builder), false);
+
+    #[cfg(feature = "lto")]
+    for (_name, module) in super::lto::load_lto_modules(tcx, &crate_info) {
+        module.apply_to(&mut jit_module);
+    }
 
     let cx = DebugContext::new(tcx, jit_module.isa(), false, "dummy_cgu_name");
 
@@ -168,7 +173,7 @@ fn codegen_and_compile_fn<'tcx>(
 
 fn dep_symbol_lookup_fn(
     sess: &Session,
-    crate_info: CrateInfo,
+    crate_info: &CrateInfo,
 ) -> Box<dyn Fn(&str) -> Option<*const u8> + Send> {
     use rustc_middle::middle::dependency_format::Linkage;
 
@@ -184,10 +189,12 @@ fn dep_symbol_lookup_fn(
         match data[cnum] {
             Linkage::NotLinked | Linkage::IncludedFromDylib => {}
             Linkage::Static => {
-                let name = crate_info.crate_name[&cnum];
-                let mut diag = sess.dcx().struct_err(format!("Can't load static lib {}", name));
-                diag.note("rustc_codegen_cranelift can only load dylibs in JIT mode.");
-                diag.emit();
+                if sess.lto() == Lto::No || sess.lto() == Lto::ThinLocal {
+                    let name = crate_info.crate_name[&cnum];
+                    let mut diag = sess.dcx().struct_err(format!("Can't load static lib {}", name));
+                    diag.note("rustc_codegen_cranelift can only load dylibs in JIT mode.");
+                    diag.emit();
+                }
             }
             Linkage::Dynamic => {
                 dylib_paths.push(src.dylib.as_ref().unwrap().0.clone());

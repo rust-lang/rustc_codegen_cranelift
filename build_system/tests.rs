@@ -56,7 +56,7 @@ impl TestCase {
 }
 
 const NO_SYSROOT_SUITE: &[TestCase] = &[
-    TestCase::build_lib("build.mini_core", "example/mini_core.rs", "lib,dylib"),
+    TestCase::build_lib("build.mini_core", "example/mini_core.rs", "lib"),
     TestCase::build_lib("build.example", "example/example.rs", "lib"),
     TestCase::jit_bin("jit.mini_core_hello_world", "example/mini_core_hello_world.rs", "abc bcd"),
     TestCase::build_bin_and_run(
@@ -411,6 +411,7 @@ impl<'a> TestRunner<'a> {
         cmd.arg("--out-dir");
         cmd.arg(BUILD_EXAMPLE_OUT_DIR.to_path(&self.dirs));
         cmd.arg("-Cdebuginfo=2");
+        cmd.arg("-Clto=thin");
         cmd.arg("--target");
         cmd.arg(&self.target_compiler.triple);
         if !self.panic_unwind_support {
