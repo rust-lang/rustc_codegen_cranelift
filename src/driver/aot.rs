@@ -660,10 +660,29 @@ pub(crate) fn run_aot(
         modules
     });
 
+    let allocator_module = emit_allocator_module(tcx, &backend_config);
+
+    let metadata_module =
+        if need_metadata_module { Some(emit_metadata_module(tcx, &metadata)) } else { None };
+
+    Box::new(OngoingCodegen {
+        modules,
+        allocator_module,
+        metadata_module,
+        metadata,
+        crate_info: CrateInfo::new(tcx, target_cpu),
+        concurrency_limiter: concurrency_limiter.0,
+    })
+}
+
+fn emit_allocator_module(
+    tcx: TyCtxt<'_>,
+    backend_config: &BackendConfig,
+) -> Option<CompiledModule> {
     let mut allocator_module = make_module(tcx.sess, &backend_config, "allocator_shim".to_string());
     let created_alloc_shim = crate::allocator::codegen(tcx, &mut allocator_module);
 
-    let allocator_module = if created_alloc_shim {
+    if created_alloc_shim {
         let product = allocator_module.finish();
 
         match emit_module(
@@ -679,19 +698,7 @@ pub(crate) fn run_aot(
         }
     } else {
         None
-    };
-
-    let metadata_module =
-        if need_metadata_module { Some(emit_metadata_module(tcx, &metadata)) } else { None };
-
-    Box::new(OngoingCodegen {
-        modules,
-        allocator_module,
-        metadata_module,
-        metadata,
-        crate_info: CrateInfo::new(tcx, target_cpu),
-        concurrency_limiter: concurrency_limiter.0,
-    })
+    }
 }
 
 fn emit_metadata_module(tcx: TyCtxt<'_>, metadata: &EncodedMetadata) -> CompiledModule {
