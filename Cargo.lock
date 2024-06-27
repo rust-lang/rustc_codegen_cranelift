@@ -42,6 +42,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "cobs"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67ba02a97a2bd10f4b59b25c7973101c79642302776489e030cd13cdab09ed15"
+
+[[package]]
 name = "cranelift-assembler-x64"
 version = "0.132.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -75,6 +81,8 @@ version = "0.132.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d5c3cf7ba29fa56e56040848e34835d4e45988b2760ef212413409af95ffd8c1"
 dependencies = [
+ "serde",
+ "serde_derive",
  "wasmtime-internal-core",
 ]
 
@@ -100,6 +108,7 @@ dependencies = [
  "regalloc2",
  "rustc-hash",
  "serde",
+ "serde_derive",
  "smallvec",
  "target-lexicon",
  "wasmtime-internal-core",
@@ -139,6 +148,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a55309b47e6633ab05821304206cb1e92952e845b1224985562bb7ac1e92323"
 dependencies = [
  "cranelift-bitset",
+ "serde",
+ "serde_derive",
  "wasmtime-internal-core",
 ]
 
@@ -190,6 +201,8 @@ dependencies = [
  "anyhow",
  "cranelift-codegen",
  "cranelift-control",
+ "serde",
+ "serde_derive",
 ]
 
 [[package]]
@@ -232,6 +245,18 @@ checksum = "9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511"
 dependencies = [
  "cfg-if",
 ]
+
+[[package]]
+name = "embedded-io"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef1a6892d9eef45c8fa6b9e0086428a2cca8491aca8f787c534a3d6d0bcb3ced"
+
+[[package]]
+name = "embedded-io"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
 name = "equivalent"
@@ -359,6 +384,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "postcard"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "170a2601f67cc9dba8edd8c4870b15f71a6a2dc196daec8c83f72b59dff628a8"
+dependencies = [
+ "cobs",
+ "embedded-io 0.4.0",
+ "embedded-io 0.6.1",
+ "serde",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -387,6 +424,7 @@ dependencies = [
  "hashbrown 0.17.0",
  "log",
  "rustc-hash",
+ "serde",
  "smallvec",
 ]
 
@@ -422,6 +460,8 @@ dependencies = [
  "indexmap",
  "libloading",
  "object",
+ "postcard",
+ "serde",
  "smallvec",
  "target-lexicon",
 ]
@@ -433,6 +473,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]
@@ -460,6 +501,9 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "stable_deref_trait"

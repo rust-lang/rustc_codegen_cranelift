@@ -247,6 +247,7 @@ pub(crate) fn compile_fn(
         }
     }
 
+    /*
     // Define debuginfo for function
     profiler.generic_activity("generate debug info").run(|| {
         if let Some(debug_context) = debug_context {
@@ -257,6 +258,7 @@ pub(crate) fn compile_fn(
             );
         }
     });
+    */
 }
 
 fn verify_func(tcx: TyCtxt<'_>, writer: &crate::pretty_clif::CommentWriter, func: &Function) {

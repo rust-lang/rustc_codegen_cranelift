@@ -121,7 +121,7 @@ impl OngoingCodegen {
     }
 }
 
-fn make_module(sess: &Session, name: String) -> UnwindModule<ObjectModule> {
+pub(super) fn make_module(sess: &Session, name: String) -> UnwindModule<ObjectModule> {
     let isa = crate::build_isa(sess, false);
 
     let mut builder =
@@ -168,7 +168,7 @@ fn emit_cgu(
     Ok(ModuleCodegenResult { module, existing_work_product: None })
 }
 
-fn emit_module(
+pub(super) fn emit_module(
     output_filenames: &OutputFilenames,
     prof: &SelfProfilerRef,
     mut object: cranelift_object::object::write::Object<'_>,
@@ -284,7 +284,7 @@ fn reuse_workproduct_for_cgu(
     })
 }
 
-fn codegen_cgu_content(
+pub(super) fn codegen_cgu_content(
     tcx: TyCtxt<'_>,
     module: &mut dyn Module,
     cgu_name: rustc_span::Symbol,
@@ -411,7 +411,7 @@ fn module_codegen(
     }))
 }
 
-fn emit_allocator_module(tcx: TyCtxt<'_>) -> Option<CompiledModule> {
+pub(crate) fn emit_allocator_module(tcx: TyCtxt<'_>) -> Option<CompiledModule> {
     let mut allocator_module = make_module(tcx.sess, "allocator_shim".to_string());
     let created_alloc_shim = crate::allocator::codegen(tcx, &mut allocator_module);
 
