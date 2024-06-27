@@ -133,7 +133,7 @@ impl OngoingCodegen {
 }
 
 // Adapted from https://github.com/rust-lang/rust/blob/73476d49904751f8d90ce904e16dfbc278083d2c/compiler/rustc_codegen_ssa/src/back/write.rs#L547C1-L706C2
-fn produce_final_output_artifacts(
+pub(super) fn produce_final_output_artifacts(
     sess: &Session,
     codegen_results: &CodegenResults,
     crate_output: &OutputFilenames,
@@ -320,7 +320,7 @@ fn produce_final_output_artifacts(
     // These are used in linking steps and will be cleaned up afterward.
 }
 
-fn make_module(
+pub(super) fn make_module(
     sess: &Session,
     backend_config: &BackendConfig,
     name: String,
@@ -375,7 +375,7 @@ fn emit_cgu(
     })
 }
 
-fn emit_module(
+pub(super) fn emit_module(
     output_filenames: &OutputFilenames,
     prof: &SelfProfilerRef,
     mut object: cranelift_object::object::write::Object<'_>,
@@ -479,7 +479,7 @@ fn reuse_workproduct_for_cgu(
     })
 }
 
-fn codegen_cgu_content(
+pub(super) fn codegen_cgu_content(
     tcx: TyCtxt<'_>,
     module: &mut dyn Module,
     cgu_name: rustc_span::Symbol,
@@ -677,7 +677,7 @@ pub(crate) fn run_aot(
     })
 }
 
-fn emit_allocator_module(
+pub(super) fn emit_allocator_module(
     tcx: TyCtxt<'_>,
     backend_config: &BackendConfig,
 ) -> Option<CompiledModule> {
@@ -703,7 +703,7 @@ fn emit_allocator_module(
     }
 }
 
-fn emit_metadata_module(tcx: TyCtxt<'_>, metadata: &EncodedMetadata) -> CompiledModule {
+pub(super) fn emit_metadata_module(tcx: TyCtxt<'_>, metadata: &EncodedMetadata) -> CompiledModule {
     tcx.sess.time("write compressed metadata", || {
         use rustc_middle::mir::mono::CodegenUnitNameBuilder;
 

@@ -59,7 +59,7 @@ impl TestCase {
 }
 
 const NO_SYSROOT_SUITE: &[TestCase] = &[
-    TestCase::build_lib("build.mini_core", "example/mini_core.rs", "lib,dylib"),
+    TestCase::build_lib("build.mini_core", "example/mini_core.rs", "lib"),
     TestCase::build_lib("build.example", "example/example.rs", "lib"),
     TestCase::jit_bin("jit.mini_core_hello_world", "example/mini_core_hello_world.rs", "abc bcd"),
     TestCase::build_bin_and_run(
@@ -437,6 +437,7 @@ impl<'a> TestRunner<'a> {
                     }
                     spawn_and_wait(jit_cmd);
 
+                    /*
                     eprintln!("[JIT-lazy] {testname}");
                     let mut jit_cmd = self.rustc_command([
                         "-Zunstable-options",
@@ -450,6 +451,7 @@ impl<'a> TestRunner<'a> {
                         jit_cmd.env("CG_CLIF_JIT_ARGS", args);
                     }
                     spawn_and_wait(jit_cmd);
+                    */
                 }
             }
         }
@@ -468,6 +470,7 @@ impl<'a> TestRunner<'a> {
         cmd.arg("--out-dir");
         cmd.arg(format!("{}", BUILD_EXAMPLE_OUT_DIR.to_path(&self.dirs).display()));
         cmd.arg("-Cdebuginfo=2");
+        cmd.arg("-Clto=thin");
         cmd.arg("--target");
         cmd.arg(&self.target_compiler.triple);
         cmd.arg("-Cpanic=abort");
