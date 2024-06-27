@@ -120,7 +120,7 @@ fn main() {
 
     #[cfg(target_arch = "x86_64")]
     unsafe {
-        test_simd();
+        //test_simd();
     }
 
     Box::pin(

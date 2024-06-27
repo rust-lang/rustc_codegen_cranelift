@@ -79,6 +79,8 @@ mod num;
 mod optimize;
 mod pointer;
 mod pretty_clif;
+#[cfg(feature = "lto")]
+mod serializable_module;
 mod toolchain;
 mod unsize;
 mod unwind_module;
@@ -161,10 +163,12 @@ impl CodegenBackend for CraneliftCodegenBackend {
     fn init(&self, sess: &Session) {
         use rustc_session::config::{InstrumentCoverage, Lto};
         match sess.lto() {
-            Lto::No | Lto::ThinLocal => {}
-            Lto::Thin | Lto::Fat => {
-                sess.dcx().warn("LTO is not supported. You may get a linker error.")
+            Lto::No | Lto::ThinLocal => {
+                if sess.opts.crate_name.as_deref() != Some("___") {
+                    sess.dcx().fatal("No LTO");
+                }
             }
+            Lto::Thin | Lto::Fat => {}
         }
 
         if sess.opts.cg.instrument_coverage() != InstrumentCoverage::No {
@@ -231,6 +235,8 @@ impl CodegenBackend for CraneliftCodegenBackend {
     }
 
     fn codegen_crate(&self, tcx: TyCtxt<'_>) -> Box<dyn Any> {
+        use rustc_session::config::Lto;
+
         info!("codegen crate {}", tcx.crate_name(LOCAL_CRATE));
         let config = self.config.clone().unwrap_or_else(|| {
             BackendConfig::from_opts(&tcx.sess.opts.cg.llvm_args)
@@ -243,7 +249,23 @@ impl CodegenBackend for CraneliftCodegenBackend {
             #[cfg(not(feature = "jit"))]
             tcx.dcx().fatal("jit support was disabled when compiling rustc_codegen_cranelift");
         } else {
-            driver::aot::run_aot(tcx)
+            match tcx.sess.lto() {
+                Lto::No | Lto::ThinLocal => driver::aot::run_aot(tcx),
+                Lto::Thin | Lto::Fat => {
+                    if tcx.crate_name(LOCAL_CRATE).as_str() == "compiler_builtins" {
+                        // FIXME remove special case once inline asm is supported in LTO mode
+                        driver::aot::run_aot(tcx)
+                    } else {
+                        #[cfg(feature = "lto")]
+                        return driver::lto::run_aot(tcx);
+
+                        #[cfg(not(feature = "lto"))]
+                        tcx.dcx().fatal(
+                            "LTO support was disabled when compiling rustc_codegen_cranelift",
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -253,7 +275,19 @@ impl CodegenBackend for CraneliftCodegenBackend {
         sess: &Session,
         outputs: &OutputFilenames,
     ) -> (CodegenResults, FxIndexMap<WorkProductId, WorkProduct>) {
-        ongoing_codegen.downcast::<driver::aot::OngoingCodegen>().unwrap().join(sess, outputs)
+        match ongoing_codegen.downcast::<driver::aot::OngoingCodegen>() {
+            Ok(ongoing_codegen) => ongoing_codegen.join(sess, outputs),
+            Err(ongoing_codegen) => {
+                #[cfg(feature = "lto")]
+                return ongoing_codegen
+                    .downcast::<driver::lto::OngoingCodegen>()
+                    .unwrap()
+                    .join(sess, outputs);
+
+                #[cfg(not(feature = "lto"))]
+                unreachable!();
+            }
+        }
     }
 }
 
