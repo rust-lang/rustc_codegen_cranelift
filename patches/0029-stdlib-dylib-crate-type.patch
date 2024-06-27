@@ -1,0 +1,25 @@
+From 0910cbe862990b0c3a17c67bca199ebb4452b0ec Mon Sep 17 00:00:00 2001
+From: bjorn3 <17426603+bjorn3@users.noreply.github.com>
+Date: Tue, 28 Mar 2023 17:09:01 +0000
+Subject: [PATCH] Disable dylib crate type
+
+---
+ library/std/Cargo.toml  | 2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/library/std/Cargo.toml b/library/std/Cargo.toml
+index 598a4bf..3e68680 100644
+--- a/library/std/Cargo.toml
++++ b/library/std/Cargo.toml
+@@ -7,7 +7,7 @@ description = "The Rust Standard Library"
+ autobenches = false
+ 
+ [lib]
+-crate-type = ["dylib", "rlib"]
++crate-type = ["rlib"]
+ 
+ [dependencies]
+ alloc = { path = "../alloc", public = true }
+-- 
+2.34.1
+
