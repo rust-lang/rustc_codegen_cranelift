@@ -64,16 +64,8 @@ unsafe impl Sync for [u8; 16] {}
 #[lang = "freeze"]
 unsafe auto trait Freeze {}
 
-unsafe impl<T: ?Sized> Freeze for *const T {}
-unsafe impl<T: ?Sized> Freeze for *mut T {}
-unsafe impl<T: ?Sized> Freeze for &T {}
-unsafe impl<T: ?Sized> Freeze for &mut T {}
-
 #[lang = "structural_peq"]
 pub trait StructuralPartialEq {}
-
-#[lang = "structural_teq"]
-pub trait StructuralEq {}
 
 #[lang = "not"]
 pub trait Not {
@@ -185,7 +177,7 @@ pub mod intrinsics {
         pub fn min_align_of_val<T: ?::Sized>(val: *const T) -> usize;
         pub fn copy<T>(src: *const T, dst: *mut T, count: usize);
         pub fn transmute<T, U>(e: T) -> U;
-        pub fn ctlz_nonzero<T>(x: T) -> T;
+        pub fn ctlz_nonzero<T>(x: T) -> u32;
         #[rustc_safe_intrinsic]
         pub fn needs_drop<T: ?::Sized>() -> bool;
         #[rustc_safe_intrinsic]
@@ -274,22 +266,65 @@ extern "C" {
 
 #[lang = "panic"]
 #[track_caller]
-pub fn panic(_msg: &'static str) -> ! {
-    let ciovec = Ciovec { buf: "Panicking\n" as *const str as *const u8, buf_len: 10 };
+pub fn panic(msg: &'static str) -> ! {
+    let ciovec = Ciovec { buf: "Panicking at " as *const str as *const u8, buf_len: 13 };
     unsafe {
         fd_write(2, &ciovec, 1, &mut 0);
     }
     let caller = intrinsics::caller_location();
     let ciovec =
-        Ciovec { buf: caller.file as *const str as *const u8, buf_len: 22 /* FIXME */ };
+        Ciovec { buf: caller.file as *const str as *const u8, buf_len: 24 /* FIXME */ };
     unsafe {
         fd_write(2, &ciovec, 1, &mut 0);
     }
-    let ciovec = Ciovec { buf: "\n" as *const str as *const u8, buf_len: 1 /* FIXME */ };
+    let ciovec = Ciovec { buf: ": \n" as *const str as *const u8, buf_len: 3 };
+    unsafe {
+        fd_write(2, &ciovec, 1, &mut 0);
+    }
+    let ciovec = Ciovec { buf: msg as *const str as *const u8, buf_len: 4 /* FIXME */ };
+    unsafe {
+        fd_write(2, &ciovec, 1, &mut 0);
+    }
+    let ciovec = Ciovec { buf: "\n" as *const str as *const u8, buf_len: 1 };
     unsafe {
         fd_write(2, &ciovec, 1, &mut 0);
     }
     intrinsics::abort();
+}
+
+macro_rules! panic_const {
+    ($($lang:ident = $message:expr,)+) => {
+        pub mod panic_const {
+            use super::*;
+
+            $(
+                #[track_caller]
+                #[lang = stringify!($lang)]
+                pub fn $lang() -> ! {
+                    panic($message);
+                }
+            )+
+        }
+    }
+}
+
+panic_const! {
+    panic_const_add_overflow = "attempt to add with overflow",
+    panic_const_sub_overflow = "attempt to subtract with overflow",
+    panic_const_mul_overflow = "attempt to multiply with overflow",
+    panic_const_div_overflow = "attempt to divide with overflow",
+    panic_const_rem_overflow = "attempt to calculate the remainder with overflow",
+    panic_const_neg_overflow = "attempt to negate with overflow",
+    panic_const_shr_overflow = "attempt to shift right with overflow",
+    panic_const_shl_overflow = "attempt to shift left with overflow",
+    panic_const_div_by_zero = "attempt to divide by zero",
+    panic_const_rem_by_zero = "attempt to calculate the remainder with a divisor of zero",
+}
+
+#[rustc_builtin_macro]
+#[rustc_macro_transparency = "semitransparent"]
+pub macro stringify($($t:tt)*) {
+    /* compiler built-in */
 }
 
 #[lang = "panic_location"]
@@ -300,7 +335,7 @@ struct Location<'a> {
 }
 
 #[no_mangle]
-fn main(foo: u32) -> u32 {
+fn _start() {
     let ciovec = Ciovec { buf: "foo\n" as *const str as *const u8, buf_len: 4 };
     unsafe {
         fd_write(2, &ciovec, 1, &mut 0);
@@ -318,10 +353,12 @@ fn main(foo: u32) -> u32 {
     }
 
     if argc != 2 {
-        intrinsics::abort();
+        //intrinsics::abort();
     }
 
-    add_1(foo) + add_1_and_2(foo).1 + argc
+    if add_1(argc) + add_1_and_2(argc).1 + argc != 9 {
+        panic("oops");
+    }
 }
 
 fn add_1(foo: u32) -> u32 {

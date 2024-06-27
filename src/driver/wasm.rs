@@ -170,6 +170,10 @@ impl WasmModule {
             value: Some(0x1_000_000),
             mutable: true,
         });
+        waffle_module.exports.push(waffle::Export {
+            name: "__stack_pointer".to_owned(),
+            kind: waffle::ExportKind::Global(stack_pointer),
+        });
         WasmModule {
             waffle_module,
             declarations: ModuleDeclarations::default(),
