@@ -7,8 +7,8 @@ use crate::{CodegenBackend, SysrootKind};
 static ABI_CAFE_REPO: GitRepo = GitRepo::github(
     "Gankra",
     "abi-cafe",
-    "4c6dc8c9c687e2b3a760ff2176ce236872b37212",
-    "588df6d66abbe105",
+    "dd3747097ad3b15b19869f24db6102d0baf4d2bd",
+    "163bdaa82c859661",
     "abi-cafe",
 );
 
@@ -39,17 +39,18 @@ pub(crate) fn run(
     eprintln!("Running abi-cafe");
 
     let pairs = ["rustc_calls_cgclif", "cgclif_calls_rustc", "cgclif_calls_cc", "cc_calls_cgclif"];
-
-    let mut cmd = ABI_CAFE.run(bootstrap_host_compiler, dirs);
-    cmd.arg("--");
-    cmd.arg("--pairs");
-    cmd.args(
+    let pairs =
         if cfg!(not(any(target_os = "macos", all(target_os = "windows", target_env = "msvc")))) {
             &pairs[..]
         } else {
             &pairs[..2]
-        },
-    );
+        };
+
+    let mut cmd = ABI_CAFE.run(bootstrap_host_compiler, dirs);
+    cmd.arg("--");
+    for pair in pairs {
+        cmd.arg("--pairs").arg(pair);
+    }
     cmd.arg("--add-rustc-codegen-backend");
     match cg_clif_dylib {
         CodegenBackend::Local(path) => {
