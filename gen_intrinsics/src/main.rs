@@ -4,50 +4,30 @@ use std::io::Write;
 use std::process::Stdio;
 
 use object::{Object, ObjectSection, ObjectSymbol};
-use syn::visit::Visit;
 use syn::Ident;
 
 use crate::def_visitor::{DefVisitor, LlvmIntrinsicDef};
 
-fn compile_object() {
-    println!("Running rustc -Zunpretty=expanded --edition=2021 core_arch/src/lib.rs ...");
-    let expanded_file = std::process::Command::new("rustc")
-        .arg("-Zunpretty=expanded")
-        .arg("--edition=2021")
-        //.arg("--target=x86_64-unknown-linux-gnu")
-        .arg("../build/stdlib/library/stdarch/crates/core_arch/src/lib.rs")
-        .output()
-        .unwrap()
-        .stdout;
-
-    println!("Parsing expanded source");
-    let file = syn::parse_str::<syn::File>(std::str::from_utf8(&expanded_file).unwrap()).unwrap();
-
-    println!("Visting all LLVM intrinsics");
-    let mut visitor = DefVisitor { llvm_intrinsics: vec![], structs: vec![], aliases: vec![] };
-    visitor.visit_file(&file);
-
-    println!();
-
+fn compile_object(visitor: &DefVisitor) {
     let mut ts = proc_macro2::TokenStream::new();
     ts.extend(quote::quote! {
         #![feature(abi_unadjusted, link_llvm_intrinsics, repr_simd, simd_ffi)]
         #![allow(dead_code, improper_ctypes, improper_ctypes_definitions, internal_features, non_camel_case_types)]
     });
 
-    let structs = visitor.structs;
+    let structs = &visitor.structs;
     ts.extend(quote::quote! {
         #(#structs)*
     });
 
-    let aliases = visitor.aliases;
+    let aliases = &visitor.aliases;
     ts.extend(quote::quote! {
         #(#aliases)*
     });
 
-    visitor.llvm_intrinsics.sort_by_key(|func| func.link_name.clone());
-    visitor.llvm_intrinsics.dedup_by_key(|func| func.link_name.clone());
-    for LlvmIntrinsicDef { abi, link_name, mut sig } in visitor.llvm_intrinsics {
+    for LlvmIntrinsicDef { abi, link_name, sig } in &visitor.llvm_intrinsics {
+        let mut sig = sig.clone();
+
         let mangled_name = Ident::new(&link_name.replace('.', "__"), sig.ident.span());
         sig.ident = mangled_name.clone();
 
@@ -109,11 +89,9 @@ fn compile_object() {
 }
 
 fn main() {
-    if
-    /*true || // */
-    false {
-        compile_object();
-    }
+    let visitor = def_visitor::parse("aarch64-unknown-linux-gnu");
+
+    compile_object(&visitor);
 
     let obj = std::fs::read("target/rust_out.o").unwrap();
     let obj = object::File::parse(&*obj).unwrap();
