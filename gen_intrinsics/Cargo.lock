@@ -6,10 +6,26 @@ version = 3
 name = "gen_intrinsics"
 version = "0.1.0"
 dependencies = [
+ "object",
  "prettyplease",
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "memchr"
+version = "2.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c8640c5d730cb13ebd907d8d04b52f55ac9a2eec55b440c8892f40d56c76c1d"
+
+[[package]]
+name = "object"
+version = "0.36.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "576dfe1fc8f9df304abb159d767a29d0476f7750fbf8aa7ad07816004a207434"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]

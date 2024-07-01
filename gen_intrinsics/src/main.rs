@@ -3,12 +3,13 @@ mod def_visitor;
 use std::io::Write;
 use std::process::Stdio;
 
+use object::{Object, ObjectSection, ObjectSymbol};
 use syn::visit::Visit;
 use syn::Ident;
 
 use crate::def_visitor::{DefVisitor, LlvmIntrinsicDef};
 
-fn main() {
+fn compile_object() {
     println!("Running rustc -Zunpretty=expanded --edition=2021 core_arch/src/lib.rs ...");
     let expanded_file = std::process::Command::new("rustc")
         .arg("-Zunpretty=expanded")
@@ -89,12 +90,13 @@ fn main() {
     println!("Compiling blob");
     let mut child = std::process::Command::new("rustc")
         .arg("-Copt-level=3")
+        .arg("-Cpanic=abort")
         .arg("--crate-type")
         .arg("cdylib")
         .arg("--emit=obj")
         //.arg("--target=x86_64-unknown-linux-gnu")
-        .arg("--out-dir")
-        .arg("target")
+        .arg("-o")
+        .arg("target/rust_out.o")
         .arg("-")
         .stdin(Stdio::piped())
         .spawn()
@@ -104,4 +106,47 @@ fn main() {
     child.stdin.as_ref().unwrap().flush().unwrap();
     let status = child.wait().unwrap();
     assert!(status.success(), "{status}");
+}
+
+fn main() {
+    if
+    /*true || // */
+    false {
+        compile_object();
+    }
+
+    let obj = std::fs::read("target/rust_out.o").unwrap();
+    let obj = object::File::parse(&*obj).unwrap();
+
+    let imports = obj.symbols().filter(|sym| sym.is_undefined()).collect::<Vec<_>>();
+    assert!(imports.is_empty(), "{imports:?}");
+
+    for section in obj.sections() {
+        let section_name = section.name().unwrap();
+        if !section_name.starts_with(".text") {
+            continue;
+        }
+
+        if section_name == ".text" {
+            assert_eq!(section.size(), 0);
+            continue;
+        }
+
+        let name = section_name.strip_prefix(".text.__rust_cranelift_").unwrap().replace("__", ".");
+
+        // Sanity checks
+        assert!(section.relocations().next().is_none(), "function {name} has relocations");
+        assert!(
+            section.size() <= 0x14,
+            "function {name} is too big. it is {} bytes",
+            section.size(),
+        );
+
+        let data = section.data().unwrap();
+        let (code, ret) = data.split_at(data.len() - 4);
+        assert_eq!(ret, [0xc0_u8, 0x03, 0x5f, 0xd6]); // arm64 ret instruction
+        println!("        \"{name}\" => {{");
+        println!("            {:x?}", code);
+        println!("        }}");
+    }
 }
