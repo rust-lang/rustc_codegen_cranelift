@@ -99,32 +99,44 @@ fn main() {
     let imports = obj.symbols().filter(|sym| sym.is_undefined()).collect::<Vec<_>>();
     assert!(imports.is_empty(), "{imports:?}");
 
-    for section in obj.sections() {
-        let section_name = section.name().unwrap();
-        if !section_name.starts_with(".text") {
-            continue;
-        }
+    for LlvmIntrinsicDef { abi: _, link_name, sig } in &visitor.llvm_intrinsics {
+        let section_name = format!(".text.__rust_cranelift_{}", link_name.replace('.', "__"));
+        let section = obj.section_by_name(&section_name).unwrap();
 
-        if section_name == ".text" {
-            assert_eq!(section.size(), 0);
-            continue;
-        }
-
-        let name = section_name.strip_prefix(".text.__rust_cranelift_").unwrap().replace("__", ".");
+        assert_ne!(section.size(), 0);
 
         // Sanity checks
-        assert!(section.relocations().next().is_none(), "function {name} has relocations");
+        assert!(section.relocations().next().is_none(), "function {link_name} has relocations");
         assert!(
             section.size() <= 0x14,
-            "function {name} is too big. it is {} bytes",
+            "function {link_name} is too big. it is {} bytes",
             section.size(),
         );
 
         let data = section.data().unwrap();
         let (code, ret) = data.split_at(data.len() - 4);
         assert_eq!(ret, [0xc0_u8, 0x03, 0x5f, 0xd6]); // arm64 ret instruction
-        println!("        \"{name}\" => {{");
-        println!("            {:x?}", code);
+
+        let args = sig
+            .inputs
+            .iter()
+            .map(|arg| match arg {
+                syn::FnArg::Typed(syn::PatType { pat, .. }) => match &**pat {
+                    syn::Pat::Ident(ident) => ident.ident.to_string(),
+                    _ => unreachable!("{pat:?}"),
+                },
+                _ => unreachable!(),
+            })
+            .collect::<Vec<_>>();
+
+        println!("        \"{link_name}\" => {{");
+        println!("            intrinsic_args!(fx, args => ({}); intrinsic);", args.join(", "));
+        println!(
+            "            call_asm(fx, \"{}\", &[{}], ret, &{:?});",
+            link_name.replace('.', "__"),
+            args.join(", "),
+            code
+        );
         println!("        }}");
     }
 }
