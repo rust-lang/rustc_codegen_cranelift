@@ -2,6 +2,33 @@ use syn::parse::Parser;
 use syn::visit::Visit;
 use syn::Ident;
 
+pub fn parse(target: &str) -> DefVisitor {
+    println!("Running rustc -Zunpretty=expanded --edition=2021 core_arch/src/lib.rs ...");
+    let expanded_file = std::process::Command::new("rustc")
+        .arg("-Zunpretty=expanded")
+        .arg("--edition=2021")
+        .arg("--target")
+        .arg(target)
+        .arg("../build/stdlib/library/stdarch/crates/core_arch/src/lib.rs")
+        .output()
+        .unwrap()
+        .stdout;
+
+    println!("Parsing expanded source");
+    let file = syn::parse_str::<syn::File>(std::str::from_utf8(&expanded_file).unwrap()).unwrap();
+
+    println!("Visting all LLVM intrinsics");
+    let mut visitor = DefVisitor { llvm_intrinsics: vec![], structs: vec![], aliases: vec![] };
+    visitor.visit_file(&file);
+
+    println!();
+
+    visitor.llvm_intrinsics.sort_by_key(|func| func.link_name.clone());
+    visitor.llvm_intrinsics.dedup_by_key(|func| func.link_name.clone());
+
+    visitor
+}
+
 pub struct DefVisitor {
     pub llvm_intrinsics: Vec<LlvmIntrinsicDef>,
     pub structs: Vec<syn::ItemStruct>,
