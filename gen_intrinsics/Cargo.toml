@@ -11,5 +11,7 @@ proc-macro2 = "1.0.84"
 quote = "1.0.36"
 syn = { version = "2.0.66", features = ["full", "visit", "extra-traits"] }
 
+object = { version = "0.36", default-features = false, features = ["read", "std"] }
+
 [features]
 unstable-features = [] # for rust-analyzer
