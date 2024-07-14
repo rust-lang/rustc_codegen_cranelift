@@ -112,7 +112,9 @@ jobs:
         sudo apt-get install -y ${{ matrix.apt_deps }}
 
     - name: Prepare dependencies
-      run: ./y.sh prepare
+      run: |
+        echo 'profile = "minimal"' >> rust-toolchain
+        ./y.sh prepare
 
     # The Wine version shipped with Ubuntu 22.04 doesn't implement bcryptprimitives.dll
     - name: Build bcryptprimitives.dll shim for Wine
@@ -156,7 +158,9 @@ jobs:
       run: cat /proc/cpuinfo
 
     - name: Prepare dependencies
-      run: ./y.sh prepare
+      run: |
+        echo 'profile = "minimal"' >> rust-toolchain
+        ./y.sh prepare
 
     - name: Disable JIT tests
       run: |
@@ -189,7 +193,9 @@ jobs:
         sudo apt install -y hyperfine
 
     - name: Prepare dependencies
-      run: ./y.sh prepare
+      run: |
+        echo 'profile = "minimal"' >> rust-toolchain
+        ./y.sh prepare
 
     - name: Build
       run: ./y.sh build --sysroot none
@@ -251,7 +257,9 @@ jobs:
         sudo apt-get install -y gcc-mingw-w64-x86-64
 
     - name: Prepare dependencies
-      run: ./y.sh prepare
+      run: |
+        echo 'profile = "minimal"' >> rust-toolchain
+        ./y.sh prepare
 
     - name: Build backend
       run: ./y.sh build --sysroot none
