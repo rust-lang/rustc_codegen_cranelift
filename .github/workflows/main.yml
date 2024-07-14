@@ -113,7 +113,7 @@ jobs:
 
     - name: Prepare dependencies
       run: |
-        echo 'profile = "minimal"' >> rust-toolchain
+        rustup set profile minimal
         ./y.sh prepare
 
     # The Wine version shipped with Ubuntu 22.04 doesn't implement bcryptprimitives.dll
@@ -159,7 +159,7 @@ jobs:
 
     - name: Prepare dependencies
       run: |
-        echo 'profile = "minimal"' >> rust-toolchain
+        rustup set profile minimal
         ./y.sh prepare
 
     - name: Disable JIT tests
@@ -194,7 +194,7 @@ jobs:
 
     - name: Prepare dependencies
       run: |
-        echo 'profile = "minimal"' >> rust-toolchain
+        rustup set profile minimal
         ./y.sh prepare
 
     - name: Build
@@ -258,7 +258,7 @@ jobs:
 
     - name: Prepare dependencies
       run: |
-        echo 'profile = "minimal"' >> rust-toolchain
+        rustup set profile minimal
         ./y.sh prepare
 
     - name: Build backend
