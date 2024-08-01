@@ -22,11 +22,11 @@ checksum = "b3d1d046238990b9cf5bcde22a3fb3584ee5cf65fb2765f454ed428c7a0063da"
 
 [[package]]
 name = "ar_archive_writer"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4720d7b4fce81771199e72507e6fb2107c94d5029386abea953b5d4c2b1aab8"
+checksum = "9c39fa49fe538a6966c7b05c2ef464b92138e717d73812053be1c643ae6f9d1f"
 dependencies = [
- "object 0.35.0",
+ "object",
 ]
 
 [[package]]
@@ -195,7 +195,7 @@ dependencies = [
  "cranelift-control",
  "cranelift-module",
  "log",
- "object 0.36.1",
+ "object",
  "target-lexicon",
 ]
 
@@ -298,18 +298,9 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 
 [[package]]
 name = "object"
-version = "0.35.0"
+version = "0.36.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8ec7ab813848ba4522158d5517a6093db1ded27575b070f4177b8d12b41db5e"
-dependencies = [
- "memchr",
-]
-
-[[package]]
-name = "object"
-version = "0.36.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "081b846d1d56ddfc18fdf1a922e4f6e07a11768ea1b92dec44e42b72712ccfce"
+checksum = "3f203fa8daa7bb185f760ae12bd8e097f63d17041dcdcaf675ac54cdf863170e"
 dependencies = [
  "crc32fast",
  "hashbrown 0.14.5",
@@ -386,7 +377,7 @@ dependencies = [
  "gimli",
  "indexmap",
  "libloading",
- "object 0.36.1",
+ "object",
  "smallvec",
  "target-lexicon",
 ]
