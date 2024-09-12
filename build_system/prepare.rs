@@ -79,7 +79,7 @@ impl GitRepo {
 
     fn download_dir(&self, dirs: &Dirs) -> PathBuf {
         match self.url {
-            GitRepoUrl::Github { user: _, repo } => RelPath::download(repo).to_path(dirs),
+            GitRepoUrl::Github { user: _, repo } => dirs.download_dir.join(repo),
         }
     }
 
