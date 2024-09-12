@@ -1,7 +1,4 @@
-use std::fs;
 use std::path::PathBuf;
-
-use crate::utils::remove_dir_if_exists;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dirs {
@@ -45,11 +42,5 @@ impl RelPath {
 
     pub(crate) fn to_path(&self, dirs: &Dirs) -> PathBuf {
         self.base.to_path(dirs).join(self.suffix)
-    }
-
-    pub(crate) fn ensure_fresh(&self, dirs: &Dirs) {
-        let path = self.to_path(dirs);
-        remove_dir_if_exists(&path);
-        fs::create_dir_all(path).unwrap();
     }
 }

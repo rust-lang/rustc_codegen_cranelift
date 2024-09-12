@@ -7,7 +7,7 @@ use crate::path::{Dirs, RelPath};
 use crate::prepare::{apply_patches, GitRepo};
 use crate::rustc_info::get_default_sysroot;
 use crate::shared_utils::rustflags_from_env;
-use crate::utils::{spawn_and_wait, CargoProject, Compiler, LogGroup};
+use crate::utils::{remove_dir_if_exists, spawn_and_wait, CargoProject, Compiler, LogGroup};
 use crate::{build_sysroot, config, CodegenBackend, SysrootKind};
 
 static BUILD_EXAMPLE_OUT_DIR: RelPath = RelPath::build("example");
@@ -267,7 +267,10 @@ pub(crate) fn run_tests(
             stdlib_source.clone(),
         );
 
-        BUILD_EXAMPLE_OUT_DIR.ensure_fresh(dirs);
+        let path = BUILD_EXAMPLE_OUT_DIR.to_path(dirs);
+        remove_dir_if_exists(&path);
+        fs::create_dir_all(path).unwrap();
+
         runner.run_testsuite(NO_SYSROOT_SUITE);
     } else {
         eprintln!("[SKIP] no_sysroot tests");
