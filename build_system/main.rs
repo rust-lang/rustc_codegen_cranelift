@@ -12,6 +12,7 @@ mod bench;
 mod build_backend;
 mod build_sysroot;
 mod config;
+#[cfg(target_os = "linux")]
 mod landlock;
 mod path;
 mod prepare;
@@ -143,6 +144,7 @@ fn main() {
 
         path::RelPath::DOWNLOAD.ensure_exists(&dirs);
 
+        #[cfg(target_os = "linux")]
         landlock::lock_fetch();
 
         prepare::prepare(&dirs);
@@ -195,6 +197,7 @@ fn main() {
     path::RelPath::BUILD.ensure_exists(&dirs);
     path::RelPath::DIST.ensure_exists(&dirs);
 
+    #[cfg(target_os = "linux")]
     landlock::lock_build(&bootstrap_host_compiler.cargo, frozen);
 
     {

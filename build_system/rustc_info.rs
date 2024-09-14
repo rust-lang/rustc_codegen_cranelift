@@ -27,6 +27,7 @@ pub(crate) fn get_toolchain_name() -> String {
     String::from_utf8(active_toolchain).unwrap().trim().split_once(' ').unwrap().0.to_owned()
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn get_cargo_home(cargo: &Path) -> PathBuf {
     let cargo_home = Command::new(cargo)
         .stderr(Stdio::inherit())
