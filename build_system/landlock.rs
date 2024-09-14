@@ -49,6 +49,15 @@ pub(super) fn lock_build(cargo: &Path, frozen: bool) {
             &[env::current_dir().unwrap().join("build"), env::current_dir().unwrap().join("dist")],
             access_all,
         ))
+        .unwrap()
+        .add_rules(path_beneath_rules(
+            &[
+                #[allow(deprecated)]
+                &std::env::home_dir().unwrap().join(".wine"),
+                Path::new("/run/user/"),
+            ],
+            access_all,
+        ))
         .unwrap();
 
     let ruleset = if frozen {

@@ -121,6 +121,7 @@ jobs:
         mkdir wine_shims
         rustc patches/bcryptprimitives.rs -Copt-level=3 -Clto=fat --out-dir wine_shims --target x86_64-pc-windows-gnu
         echo "WINEPATH=$(pwd)/wine_shims" >> $GITHUB_ENV
+        wine echo || true # create ~/.wine to ensure wine works even when the build system is restricted using landlock
 
     - name: Build
       run: ./y.sh build --sysroot none
