@@ -231,6 +231,10 @@ unsafe fn test_vaddvq_f32() {
     assert_eq!(r, e);
 }
 
+<<<<<<< HEAD
+=======
+#[cfg(target_arch = "aarch64")]
+>>>>>>> 211aa542 (support aarch64 neon intrinsics: vmaxq_f32, vminq_f32, vaddvq_f32, vrndnq_f32)
 unsafe fn test_vrndnq_f32() {
     // AArch64 llvm intrinsic: llvm.aarch64.neon.frintn.v4f32
     let a = f32x4::from([0.1, -1.9, 4.5, 5.5]);
