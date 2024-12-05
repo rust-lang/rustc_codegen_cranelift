@@ -221,7 +221,8 @@ fn build_clif_sysroot_for_triple(
     }
 
     // Build sysroot
-    let mut rustflags = vec!["-Zforce-unstable-if-unmarked".to_owned()];
+    let mut rustflags =
+        vec!["-Zforce-unstable-if-unmarked".to_owned(), "-Cembed-bitcode=yes".to_owned()];
     if !config.panic_unwind_support {
         rustflags.push("-Cpanic=abort".to_owned());
     }
@@ -246,8 +247,6 @@ fn build_clif_sysroot_for_triple(
         rustflags.push("--remap-path-prefix".to_owned());
         rustflags.push(format!("library/={}/library", prefix.to_str().unwrap()));
     }
-    rustflags.push("-Clto=fat".to_owned());
-    rustflags.push("-Zdylib-lto".to_owned());
     rustflags.push("-Cembed-bitcode=yes".to_owned());
     compiler.rustflags.extend(rustflags);
     let mut build_cmd = STANDARD_LIBRARY.build(&compiler, dirs);
@@ -265,7 +264,6 @@ fn build_clif_sysroot_for_triple(
     if env::var_os("CARGO_BUILD_INCREMENTAL").is_none() {
         build_cmd.env("CARGO_BUILD_INCREMENTAL", "true");
     }
-    build_cmd.env("CARGO_PROFILE_RELEASE_LTO", "thin");
     spawn_and_wait(build_cmd);
 
     for entry in fs::read_dir(build_dir.join("build"))
