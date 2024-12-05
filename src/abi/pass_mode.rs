@@ -3,7 +3,7 @@
 use cranelift_codegen::ir::{ArgumentExtension, ArgumentPurpose};
 use rustc_abi::{Reg, RegKind};
 use rustc_target::callconv::{
-    ArgAbi, ArgAttributes, ArgExtension as RustcArgExtension, CastTarget, PassMode,
+    ArgAbi, ArgAttributes, ArgExtension as RustcArgExtension, CastTarget, Conv, FnAbi, PassMode,
 };
 use smallvec::{SmallVec, smallvec};
 
@@ -301,4 +301,34 @@ pub(super) fn cvalue_for_param<'tcx>(
             ))
         }
     }
+}
+
+pub(crate) fn adjust_fn_abi_for_rust_abi_mistakes<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    fn_abi: &'tcx FnAbi<'tcx, Ty<'tcx>>,
+) -> &'tcx FnAbi<'tcx, Ty<'tcx>> {
+    if fn_abi.conv != Conv::Rust {
+        // Non-Rust ABI's should be correctly implemented.
+        return fn_abi;
+    }
+
+    if !tcx.sess.target.is_like_windows && tcx.sess.target.arch != "s390x" {
+        // Out of the targets cg_clif supports, only Windows and s390x don't have two return
+        // registers.
+        return fn_abi;
+    }
+
+    match fn_abi.ret.mode {
+        PassMode::Ignore | PassMode::Cast { .. } | PassMode::Indirect { .. } => return fn_abi,
+        PassMode::Direct(_) => {
+            if fn_abi.ret.layout.size <= tcx.data_layout.pointer_size {
+                return fn_abi;
+            }
+        }
+        PassMode::Pair(..) => {}
+    }
+
+    let mut fn_abi = fn_abi.clone();
+    fn_abi.ret.make_indirect();
+    tcx.arena.alloc(fn_abi)
 }
