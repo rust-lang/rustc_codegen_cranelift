@@ -216,7 +216,8 @@ fn build_clif_sysroot_for_triple(
     }
 
     // Build sysroot
-    let mut rustflags = vec!["-Zforce-unstable-if-unmarked".to_owned()];
+    let mut rustflags =
+        vec!["-Zforce-unstable-if-unmarked".to_owned(), "-Cembed-bitcode=yes".to_owned()];
     if !panic_unwind_support {
         rustflags.push("-Cpanic=abort".to_owned());
     }
@@ -245,8 +246,6 @@ fn build_clif_sysroot_for_triple(
             prefix.to_str().unwrap()
         ));
     }
-    rustflags.push("-Clto=thin".to_owned());
-    rustflags.push("-Zdylib-lto".to_owned());
     rustflags.push("-Cembed-bitcode=yes".to_owned());
     compiler.rustflags.extend(rustflags);
     let mut build_cmd = STANDARD_LIBRARY.build(&compiler, dirs);
@@ -258,7 +257,6 @@ fn build_clif_sysroot_for_triple(
     if compiler.triple.contains("apple") {
         build_cmd.env("CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO", "packed");
     }
-    build_cmd.env("CARGO_PROFILE_RELEASE_LTO", "thin");
     spawn_and_wait(build_cmd);
 
     for entry in fs::read_dir(build_dir.join("deps")).unwrap() {
