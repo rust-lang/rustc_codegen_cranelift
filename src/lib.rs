@@ -301,16 +301,6 @@ fn build_isa(sess: &Session, jit: bool) -> Arc<dyn TargetIsa + 'static> {
         }
     }
 
-    if let target_lexicon::OperatingSystem::Windows = target_triple.operating_system {
-        // FIXME remove dependency on this from the Rust ABI. cc bytecodealliance/wasmtime#9510
-        flags_builder.enable("enable_multi_ret_implicit_sret").unwrap();
-    }
-
-    if let target_lexicon::Architecture::S390x = target_triple.architecture {
-        // FIXME remove dependency on this from the Rust ABI. cc bytecodealliance/wasmtime#9510
-        flags_builder.enable("enable_multi_ret_implicit_sret").unwrap();
-    }
-
     if let target_lexicon::Architecture::Aarch64(_)
     | target_lexicon::Architecture::Riscv64(_)
     | target_lexicon::Architecture::X86_64 = target_triple.architecture

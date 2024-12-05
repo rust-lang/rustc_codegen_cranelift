@@ -75,7 +75,10 @@ pub(crate) fn codegen_fn<'tcx>(
     let block_map: IndexVec<BasicBlock, Block> =
         (0..mir.basic_blocks.len()).map(|_| bcx.create_block()).collect();
 
-    let fn_abi = FullyMonomorphizedLayoutCx(tcx).fn_abi_of_instance(instance, ty::List::empty());
+    let fn_abi = adjust_fn_abi_for_rust_abi_mistakes(
+        tcx,
+        FullyMonomorphizedLayoutCx(tcx).fn_abi_of_instance(instance, ty::List::empty()),
+    );
 
     // Make FunctionCx
     let target_config = module.target_config();
@@ -167,6 +170,7 @@ pub(crate) fn compile_fn(
     context.clear();
     context.func = codegened_func.func;
 
+    // FIXME run this code when define_function returns an error
     #[cfg(any())] // This is never true
     let _clif_guard = {
         use std::fmt::Write;
