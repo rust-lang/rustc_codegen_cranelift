@@ -209,6 +209,8 @@ pub(crate) fn run_aot(
     metadata: EncodedMetadata,
     need_metadata_module: bool,
 ) -> Box<OngoingCodegen> {
+    tcx.dcx().note(format!("Using LTO for {}", tcx.crate_name(LOCAL_CRATE)));
+
     // FIXME handle `-Ctarget-cpu=native`
     let target_cpu = match tcx.sess.opts.cg.target_cpu {
         Some(ref name) => name,

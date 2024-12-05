@@ -163,16 +163,7 @@ impl CodegenBackend for CraneliftCodegenBackend {
     }
 
     fn init(&self, sess: &Session) {
-        use rustc_session::config::{InstrumentCoverage, Lto};
-        match sess.lto() {
-            Lto::No | Lto::ThinLocal => {
-                if sess.opts.crate_name.as_deref() != Some("___") {
-                    sess.dcx().fatal("No LTO");
-                }
-            }
-            Lto::Thin | Lto::Fat => {}
-        }
-
+        use rustc_session::config::InstrumentCoverage;
         if sess.opts.cg.instrument_coverage() != InstrumentCoverage::No {
             sess.dcx()
                 .fatal("`-Cinstrument-coverage` is LLVM specific and not supported by Cranelift");
@@ -230,18 +221,16 @@ impl CodegenBackend for CraneliftCodegenBackend {
                     driver::aot::run_aot(tcx, metadata, need_metadata_module)
                 }
                 Lto::Thin | Lto::Fat => {
-                    if tcx.crate_name(LOCAL_CRATE).as_str() == "compiler_builtins" {
-                        // FIXME remove special case once inline asm is supported in LTO mode
-                        driver::aot::run_aot(tcx, metadata, need_metadata_module)
-                    } else {
-                        #[cfg(feature = "lto")]
-                        return driver::lto::run_aot(tcx, metadata, need_metadata_module);
-
-                        #[cfg(not(feature = "lto"))]
-                        tcx.dcx().fatal(
-                            "LTO support was disabled when compiling rustc_codegen_cranelift",
-                        );
+                    if tcx.crate_name(LOCAL_CRATE) == sym::compiler_builtins {
+                        return driver::aot::run_aot(tcx, metadata, need_metadata_module);
                     }
+
+                    #[cfg(feature = "lto")]
+                    return driver::lto::run_aot(tcx, metadata, need_metadata_module);
+
+                    #[cfg(not(feature = "lto"))]
+                    tcx.dcx()
+                        .fatal("LTO support was disabled when compiling rustc_codegen_cranelift");
                 }
             }
         }
