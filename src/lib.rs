@@ -211,13 +211,17 @@ impl CodegenBackend for CraneliftCodegenBackend {
             #[cfg(not(feature = "jit"))]
             tcx.dcx().fatal("jit support was disabled when compiling rustc_codegen_cranelift");
         } else {
+            if tcx.sess.opts.cg.linker_plugin_lto.enabled() {
+                #[cfg(feature = "lto")]
+                return driver::lto::run_lto(tcx);
+
+                #[cfg(not(feature = "lto"))]
+                tcx.dcx().fatal("LTO support was disabled when compiling rustc_codegen_cranelift");
+            }
+
             match tcx.sess.lto() {
                 Lto::No | Lto::ThinLocal => driver::aot::run_aot(tcx),
                 Lto::Thin | Lto::Fat => {
-                    if tcx.crate_name(LOCAL_CRATE) == sym::compiler_builtins {
-                        return driver::aot::run_aot(tcx);
-                    }
-
                     #[cfg(feature = "lto")]
                     return driver::lto::run_lto(tcx);
 
