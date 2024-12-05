@@ -24,6 +24,7 @@ use rustc_span::source_map::Spanned;
 use rustc_target::callconv::{FnAbi, PassMode};
 use smallvec::{SmallVec, smallvec};
 
+pub(crate) use self::pass_mode::adjust_fn_abi_for_rust_abi_mistakes;
 use self::pass_mode::*;
 pub(crate) use self::returning::codegen_return;
 use crate::base::codegen_unwind_terminate;
@@ -85,7 +86,10 @@ pub(crate) fn get_function_sig<'tcx>(
     clif_sig_from_fn_abi(
         tcx,
         default_call_conv,
-        &FullyMonomorphizedLayoutCx(tcx).fn_abi_of_instance(inst, ty::List::empty()),
+        &adjust_fn_abi_for_rust_abi_mistakes(
+            tcx,
+            FullyMonomorphizedLayoutCx(tcx).fn_abi_of_instance(inst, ty::List::empty()),
+        ),
     )
 }
 
@@ -461,11 +465,14 @@ pub(crate) fn codegen_terminator_call<'tcx>(
     let extra_args = fx.tcx.mk_type_list_from_iter(
         extra_args.iter().map(|op_arg| fx.monomorphize(op_arg.node.ty(fx.mir, fx.tcx))),
     );
-    let fn_abi = if let Some(instance) = instance {
-        FullyMonomorphizedLayoutCx(fx.tcx).fn_abi_of_instance(instance, extra_args)
-    } else {
-        FullyMonomorphizedLayoutCx(fx.tcx).fn_abi_of_fn_ptr(fn_sig, extra_args)
-    };
+    let fn_abi = adjust_fn_abi_for_rust_abi_mistakes(
+        fx.tcx,
+        if let Some(instance) = instance {
+            FullyMonomorphizedLayoutCx(fx.tcx).fn_abi_of_instance(instance, extra_args)
+        } else {
+            FullyMonomorphizedLayoutCx(fx.tcx).fn_abi_of_fn_ptr(fn_sig, extra_args)
+        },
+    );
 
     let is_cold = if fn_sig.abi() == ExternAbi::RustCold {
         true
@@ -736,8 +743,11 @@ pub(crate) fn codegen_drop<'tcx>(
                     def: ty::InstanceKind::Virtual(drop_instance.def_id(), 0),
                     args: drop_instance.args,
                 };
-                let fn_abi = FullyMonomorphizedLayoutCx(fx.tcx)
-                    .fn_abi_of_instance(virtual_drop, ty::List::empty());
+                let fn_abi = adjust_fn_abi_for_rust_abi_mistakes(
+                    fx.tcx,
+                    FullyMonomorphizedLayoutCx(fx.tcx)
+                        .fn_abi_of_instance(virtual_drop, ty::List::empty()),
+                );
 
                 let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config.default_call_conv, &fn_abi);
                 let sig = fx.bcx.import_signature(sig);
@@ -753,8 +763,11 @@ pub(crate) fn codegen_drop<'tcx>(
             _ => {
                 assert!(!matches!(drop_instance.def, InstanceKind::Virtual(_, _)));
 
-                let fn_abi = FullyMonomorphizedLayoutCx(fx.tcx)
-                    .fn_abi_of_instance(drop_instance, ty::List::empty());
+                let fn_abi = adjust_fn_abi_for_rust_abi_mistakes(
+                    fx.tcx,
+                    FullyMonomorphizedLayoutCx(fx.tcx)
+                        .fn_abi_of_instance(drop_instance, ty::List::empty()),
+                );
 
                 let arg_value = drop_place.place_ref(
                     fx,
