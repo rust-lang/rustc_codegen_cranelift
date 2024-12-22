@@ -27,7 +27,7 @@ use rustc_session::Session;
 use rustc_session::config::{DebugInfo, OutFileName, OutputFilenames, OutputType};
 
 use crate::CodegenCx;
-use crate::base::CodegenedFunction;
+use crate::base::{CodegenedFunction, MeasuremeProfiler, predefine_mono_items};
 use crate::concurrency_limiter::{ConcurrencyLimiter, ConcurrencyLimiterToken};
 use crate::debuginfo::TypeDebugContext;
 use crate::global_asm::GlobalAsmConfig;
@@ -511,7 +511,7 @@ fn codegen_cgu_content(
         cgu_name,
     );
     let mut type_dbg = TypeDebugContext::default();
-    super::predefine_mono_items(tcx, module, &mono_items);
+    predefine_mono_items(tcx, module, &mono_items);
     let mut codegened_functions = vec![];
     for (mono_item, _) in mono_items {
         match mono_item {
@@ -563,7 +563,7 @@ fn module_codegen(
 
     OngoingModuleCodegen::Async(std::thread::spawn(move || {
         profiler.clone().generic_activity_with_arg("compile functions", &*cgu_name).run(|| {
-            cranelift_codegen::timing::set_thread_profiler(Box::new(super::MeasuremeProfiler(
+            cranelift_codegen::timing::set_thread_profiler(Box::new(MeasuremeProfiler(
                 profiler.clone(),
             )));
 

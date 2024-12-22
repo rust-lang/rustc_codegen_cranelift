@@ -82,6 +82,9 @@ mod unwind_module;
 mod value_and_place;
 mod vtable;
 
+#[cfg(feature = "jit")]
+pub mod jit;
+
 mod prelude {
     pub(crate) use cranelift_codegen::Context;
     pub(crate) use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
