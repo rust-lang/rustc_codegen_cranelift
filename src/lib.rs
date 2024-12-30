@@ -259,7 +259,13 @@ impl CodegenBackend for CraneliftCodegenBackend {
     fn link(&self, sess: &Session, codegen_results: CodegenResults, outputs: &OutputFilenames) {
         use rustc_codegen_ssa::back::link::link_binary;
 
-        if sess.target.arch == "wasm32" {
+        if sess.target.arch == "wasm32"
+            && codegen_results
+                .crate_info
+                .crate_types
+                .iter()
+                .any(|&crate_type| crate_type == CrateType::Executable)
+        {
             let output = out_filename(
                 sess,
                 CrateType::Executable,

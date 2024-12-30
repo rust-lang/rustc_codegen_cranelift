@@ -51,6 +51,9 @@ impl Compiler {
                     "/usr/riscv64-linux-gnu".to_owned(),
                 ];
             }
+            "wasm32-wasip1" => {
+                self.runner = vec!["wasmtime".to_owned(), "run".to_owned()];
+            }
             "x86_64-pc-windows-gnu" => {
                 // We are cross-compiling for Windows. Run tests in wine.
                 self.runner = vec!["wine".to_owned()];
