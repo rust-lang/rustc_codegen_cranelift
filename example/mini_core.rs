@@ -527,7 +527,9 @@ fn eh_personality() -> ! {
 pub unsafe fn drop_in_place<T: ?Sized>(to_drop: *mut T) {
     // Code here does not matter - this is replaced by the
     // real drop glue by the compiler.
-    drop_in_place(to_drop);
+    unsafe {
+        drop_in_place(to_drop);
+    }
 }
 
 #[lang = "unpin"]
@@ -594,7 +596,7 @@ impl<T: ?Sized> Deref for Box<T> {
 
 #[lang = "exchange_malloc"]
 unsafe fn allocate(size: usize, _align: usize) -> *mut u8 {
-    libc::malloc(size)
+    unsafe { libc::malloc(size) }
 }
 
 #[lang = "drop"]
@@ -616,6 +618,8 @@ pub union MaybeUninit<T> {
 }
 
 pub mod intrinsics {
+    use super::*;
+
     #[rustc_intrinsic]
     #[rustc_intrinsic_must_be_overridden]
     pub fn abort() -> ! {
@@ -628,7 +632,7 @@ pub mod intrinsics {
     }
     #[rustc_intrinsic]
     #[rustc_intrinsic_must_be_overridden]
-    pub unsafe fn size_of_val<T: ?::Sized>(_val: *const T) -> usize {
+    pub unsafe fn size_of_val<T: ?Sized>(_val: *const T) -> usize {
         loop {}
     }
     #[rustc_intrinsic]
@@ -638,7 +642,7 @@ pub mod intrinsics {
     }
     #[rustc_intrinsic]
     #[rustc_intrinsic_must_be_overridden]
-    pub unsafe fn min_align_of_val<T: ?::Sized>(_val: *const T) -> usize {
+    pub unsafe fn min_align_of_val<T: ?Sized>(_val: *const T) -> usize {
         loop {}
     }
     #[rustc_intrinsic]
@@ -658,7 +662,7 @@ pub mod intrinsics {
     }
     #[rustc_intrinsic]
     #[rustc_intrinsic_must_be_overridden]
-    pub fn needs_drop<T: ?::Sized>() -> bool {
+    pub fn needs_drop<T: ?Sized>() -> bool {
         loop {}
     }
     #[rustc_intrinsic]
@@ -689,13 +693,13 @@ pub mod libc {
     // symbols to link against.
     #[cfg_attr(unix, link(name = "c"))]
     #[cfg_attr(target_env = "msvc", link(name = "legacy_stdio_definitions"))]
-    extern "C" {
+    unsafe extern "C" {
         pub fn printf(format: *const i8, ...) -> i32;
     }
 
     #[cfg_attr(unix, link(name = "c"))]
     #[cfg_attr(target_env = "msvc", link(name = "msvcrt"))]
-    extern "C" {
+    unsafe extern "C" {
         pub fn puts(s: *const i8) -> i32;
         pub fn malloc(size: usize) -> *mut u8;
         pub fn free(ptr: *mut u8);
@@ -727,7 +731,7 @@ impl<T> Index<usize> for [T] {
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     type VaListImpl;
 }
 
@@ -786,7 +790,7 @@ struct PanicLocation {
     column: u32,
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[cfg(not(all(windows, target_env = "gnu")))]
 pub fn get_tls() -> u8 {
     #[thread_local]

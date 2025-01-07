@@ -15,19 +15,19 @@
             "crates": [
                 {
                     "root_module": "./example/mini_core.rs",
-                    "edition": "2018",
+                    "edition": "2024",
                     "deps": [],
                     "cfg": [],
                 },
                 {
                     "root_module": "./example/mini_core_hello_world.rs",
-                    "edition": "2018",
+                    "edition": "2024",
                     "deps": [{ "crate": 0, "name": "mini_core" }],
                     "cfg": [],
                 },
                 {
                     "root_module": "./example/mod_bench.rs",
-                    "edition": "2018",
+                    "edition": "2024",
                     "deps": [],
                     "cfg": [],
                 },
@@ -38,7 +38,7 @@
             "crates": [
                 {
                     "root_module": "./example/std_example.rs",
-                    "edition": "2015",
+                    "edition": "2024",
                     "deps": [],
                     "cfg": [],
                 },
