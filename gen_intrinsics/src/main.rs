@@ -11,7 +11,7 @@ use crate::def_visitor::{DefVisitor, LlvmIntrinsicDef};
 fn compile_object(visitor: &DefVisitor) {
     let mut ts = proc_macro2::TokenStream::new();
     ts.extend(quote::quote! {
-        #![feature(abi_unadjusted, link_llvm_intrinsics, repr_simd, simd_ffi)]
+        #![feature(abi_unadjusted, f16, f128, link_llvm_intrinsics, repr_simd, simd_ffi)]
         #![allow(dead_code, improper_ctypes, improper_ctypes_definitions, internal_features, non_camel_case_types)]
     });
 

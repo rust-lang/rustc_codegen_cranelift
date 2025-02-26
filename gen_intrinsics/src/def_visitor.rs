@@ -1,6 +1,6 @@
+use syn::Ident;
 use syn::parse::Parser;
 use syn::visit::Visit;
-use syn::Ident;
 
 pub fn parse(target: &str) -> DefVisitor {
     println!("Running rustc -Zunpretty=expanded --edition=2021 core_arch/src/lib.rs ...");
@@ -119,6 +119,18 @@ impl<'ast> Visit<'ast> for DefVisitor {
                             }
                         }
                         _ => {}
+                    }
+
+                    if sig.inputs.iter().any(|arg| {
+                        let syn::FnArg::Typed(syn::PatType { ref ty, .. }) = arg else {
+                            return false;
+                        };
+                        let syn::Type::Path(ref ty_path) = **ty else {
+                            return false;
+                        };
+                        ty_path.path.is_ident("f16") || ty_path.path.is_ident("f128")
+                    }) {
+                        continue 'items;
                     }
 
                     // FIXME remove this skipping
