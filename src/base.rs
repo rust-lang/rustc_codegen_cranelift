@@ -4,6 +4,7 @@ use cranelift_codegen::CodegenError;
 use cranelift_codegen::ir::UserFuncName;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::ModuleError;
+use rustc_abi::{Float, Primitive};
 use rustc_ast::InlineAsmOptions;
 use rustc_codegen_ssa::base::is_call_from_compiler_builtins_to_upstream_monomorphization;
 use rustc_data_structures::profiling::SelfProfilerRef;
@@ -39,6 +40,51 @@ pub(crate) fn codegen_fn<'tcx>(
     instance: Instance<'tcx>,
 ) -> Option<CodegenedFunction> {
     debug_assert!(!instance.args.has_infer());
+
+    let fn_abi = FullyMonomorphizedLayoutCx(tcx).fn_abi_of_instance(instance, ty::List::empty());
+    let arg_f16_f128 = fn_abi.args.iter().chain(Some(&fn_abi.ret)).any(|arg| {
+        let ty = arg.layout.ty;
+        if matches!(ty.kind(), ty::Float(ty::FloatTy::F16 | ty::FloatTy::F128)) {
+            return true;
+        }
+        match arg.layout.backend_repr {
+            BackendRepr::Scalar(scalar) => match scalar.primitive() {
+                Primitive::Float(float) => match float {
+                    Float::F16 | Float::F128 => return true,
+                    _ => {}
+                },
+                _ => {}
+            },
+            BackendRepr::ScalarPair(a, b) => {
+                match a.primitive() {
+                    Primitive::Float(float) => match float {
+                        Float::F16 | Float::F128 => return true,
+                        _ => {}
+                    },
+                    _ => {}
+                }
+                match b.primitive() {
+                    Primitive::Float(float) => match float {
+                        Float::F16 | Float::F128 => return true,
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+            BackendRepr::Vector { element, count: _ } => match element.primitive() {
+                Primitive::Float(float) => match float {
+                    Float::F16 | Float::F128 => return true,
+                    _ => {}
+                },
+                _ => {}
+            },
+            _ => {}
+        }
+        false
+    });
+    if arg_f16_f128 {
+        return None;
+    }
 
     let symbol_name = tcx.symbol_name(instance).name.to_string();
     let _timer = tcx.prof.generic_activity_with_arg("codegen fn", &*symbol_name);
@@ -300,6 +346,53 @@ fn codegen_fn_body(fx: &mut FunctionCx<'_, '_, '_>, start_block: Block) {
         fx.bcx.ins().trap(TrapCode::user(1 /* unreachable */).unwrap());
         return;
     }
+    let arg_f16_f128 = fx.mir.local_decls().indices().any(|arg| {
+        let ty = fx.monomorphize(fx.mir.local_decls[arg].ty);
+        if matches!(ty.kind(), ty::Float(ty::FloatTy::F16 | ty::FloatTy::F128)) {
+            return true;
+        }
+        match fx.layout_of(ty).backend_repr {
+            BackendRepr::Scalar(scalar) => match scalar.primitive() {
+                Primitive::Float(float) => match float {
+                    Float::F16 | Float::F128 => return true,
+                    _ => {}
+                },
+                _ => {}
+            },
+            BackendRepr::ScalarPair(a, b) => {
+                match a.primitive() {
+                    Primitive::Float(float) => match float {
+                        Float::F16 | Float::F128 => return true,
+                        _ => {}
+                    },
+                    _ => {}
+                }
+                match b.primitive() {
+                    Primitive::Float(float) => match float {
+                        Float::F16 | Float::F128 => return true,
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+            BackendRepr::Vector { element, count: _ } => match element.primitive() {
+                Primitive::Float(float) => match float {
+                    Float::F16 | Float::F128 => return true,
+                    _ => {}
+                },
+                _ => {}
+            },
+            _ => {}
+        }
+        false
+    });
+    if arg_f16_f128 {
+        fx.bcx.append_block_params_for_function_params(fx.block_map[START_BLOCK]);
+        fx.bcx.switch_to_block(fx.block_map[START_BLOCK]);
+        fx.bcx.ins().trap(TrapCode::user(1 /* unreachable */).unwrap());
+        return;
+    }
+
     fx.tcx
         .prof
         .generic_activity("codegen prelude")
@@ -676,7 +769,7 @@ fn codegen_stmt<'tcx>(
                     let to_layout = fx.layout_of(fx.monomorphize(to_ty));
                     match *from_ty.kind() {
                         ty::FnDef(def_id, args) => {
-                            let func_ref = fx.get_function_ref(
+                            let fn_abi = FullyMonomorphizedLayoutCx(fx.tcx).fn_abi_of_instance(
                                 Instance::resolve_for_fn_ptr(
                                     fx.tcx,
                                     ty::TypingEnv::fully_monomorphized(),
@@ -684,9 +777,77 @@ fn codegen_stmt<'tcx>(
                                     args,
                                 )
                                 .unwrap(),
+                                ty::List::empty(),
                             );
-                            let func_addr = fx.bcx.ins().func_addr(fx.pointer_type, func_ref);
-                            lval.write_cvalue(fx, CValue::by_val(func_addr, to_layout));
+                            let arg_f16_f128 =
+                                fn_abi.args.iter().chain(Some(&fn_abi.ret)).any(|arg| {
+                                    let ty = arg.layout.ty;
+                                    if matches!(
+                                        ty.kind(),
+                                        ty::Float(ty::FloatTy::F16 | ty::FloatTy::F128)
+                                    ) {
+                                        return true;
+                                    }
+                                    match arg.layout.backend_repr {
+                                        BackendRepr::Scalar(scalar) => match scalar.primitive() {
+                                            Primitive::Float(float) => match float {
+                                                Float::F16 | Float::F128 => return true,
+                                                _ => {}
+                                            },
+                                            _ => {}
+                                        },
+                                        BackendRepr::ScalarPair(a, b) => {
+                                            match a.primitive() {
+                                                Primitive::Float(float) => match float {
+                                                    Float::F16 | Float::F128 => return true,
+                                                    _ => {}
+                                                },
+                                                _ => {}
+                                            }
+                                            match b.primitive() {
+                                                Primitive::Float(float) => match float {
+                                                    Float::F16 | Float::F128 => return true,
+                                                    _ => {}
+                                                },
+                                                _ => {}
+                                            }
+                                        }
+                                        BackendRepr::Vector { element, count: _ } => {
+                                            match element.primitive() {
+                                                Primitive::Float(float) => match float {
+                                                    Float::F16 | Float::F128 => return true,
+                                                    _ => {}
+                                                },
+                                                _ => {}
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                    false
+                                });
+                            if arg_f16_f128 {
+                                let trap_block = fx.bcx.create_block();
+                                let true_ = fx.bcx.ins().iconst(types::I8, 1);
+                                let next_block = fx.bcx.create_block();
+                                fx.bcx.ins().brif(true_, trap_block, &[], next_block, &[]);
+                                fx.bcx.seal_block(trap_block);
+                                fx.bcx.seal_block(next_block);
+                                fx.bcx.switch_to_block(trap_block);
+                                fx.bcx.ins().trap(TrapCode::user(1).unwrap());
+                                fx.bcx.switch_to_block(next_block);
+                            } else {
+                                let func_ref = fx.get_function_ref(
+                                    Instance::resolve_for_fn_ptr(
+                                        fx.tcx,
+                                        ty::TypingEnv::fully_monomorphized(),
+                                        def_id,
+                                        args,
+                                    )
+                                    .unwrap(),
+                                );
+                                let func_addr = fx.bcx.ins().func_addr(fx.pointer_type, func_ref);
+                                lval.write_cvalue(fx, CValue::by_val(func_addr, to_layout));
+                            }
                         }
                         _ => bug!("Trying to ReifyFnPointer on non FnDef {:?}", from_ty),
                     }
