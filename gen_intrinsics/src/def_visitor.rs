@@ -147,9 +147,12 @@ impl<'ast> Visit<'ast> for DefVisitor {
                         {
                             continue 'items;
                         }
-                        _ if link_name.starts_with("llvm.aarch64.neon.rshrn") => continue 'items,
-                        _ if link_name.starts_with("llvm.aarch64.neon.sq") => continue 'items,
-                        _ if link_name.starts_with("llvm.aarch64.neon.uq") => continue 'items,
+                        _ if link_name.contains("shrn")
+                            || link_name.contains("shrun")
+                            || link_name.contains("shlu") =>
+                        {
+                            continue 'items;
+                        }
                         _ if link_name.starts_with("llvm.aarch64.neon.vcvt") => continue 'items,
                         _ if link_name.starts_with("llvm.aarch64.neon.vsli") => continue 'items,
                         _ if link_name.starts_with("llvm.aarch64.neon.vsri") => continue 'items,
