@@ -125,26 +125,11 @@ fn main() {
 
         let code = section.data().unwrap();
 
-        let args = sig
-            .inputs
-            .iter()
-            .map(|arg| match arg {
-                syn::FnArg::Typed(syn::PatType { pat, .. }) => match &**pat {
-                    syn::Pat::Ident(ident) => ident.ident.to_string(),
-                    _ => unreachable!("{pat:?}"),
-                },
-                _ => unreachable!(),
-            })
-            .collect::<Vec<_>>();
+        let arg_count = sig.inputs.len();
 
         println!("        \"{link_name}\" => {{");
-        println!("            intrinsic_args!(fx, args => ({}); intrinsic);", args.join(", "));
-        println!(
-            "            call_asm(fx, \"{}\", &[{}], ret, &{:?});",
-            link_name.replace('.', "__"),
-            args.join(", "),
-            code
-        );
+        println!("            assert_eq!(args.len(), {arg_count});");
+        println!("            call_asm(fx, \"{link_name}\", args, ret, &{code:?});");
         println!("        }}");
     }
 }
