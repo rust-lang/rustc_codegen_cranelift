@@ -1,10 +1,7 @@
 //! Emulate AArch64 LLVM intrinsics
 
 use cranelift_codegen::isa::CallConv;
-use rustc_ast::ast::{InlineAsmOptions, InlineAsmTemplatePiece};
-use rustc_target::asm::*;
 
-use crate::inline_asm::{CInlineAsmOperand, codegen_inline_asm_inner};
 use crate::intrinsics::*;
 use crate::prelude::*;
 
@@ -67,145 +64,6 @@ pub(crate) fn codegen_aarch64_llvm_intrinsic_call<'tcx>(
             ret.write_cvalue(fx, val);
         }
 
-        _ if intrinsic.starts_with("llvm.aarch64.neon.abs.v") => {
-            intrinsic_args!(fx, args => (a); intrinsic);
-
-            simd_for_each_lane(fx, a, ret, &|fx, _lane_ty, _res_lane_ty, lane| {
-                fx.bcx.ins().iabs(lane)
-            });
-        }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.cls.v") => {
-            intrinsic_args!(fx, args => (a); intrinsic);
-
-            simd_for_each_lane(fx, a, ret, &|fx, _lane_ty, _res_lane_ty, lane| {
-                fx.bcx.ins().cls(lane)
-            });
-        }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.rbit.v") => {
-            intrinsic_args!(fx, args => (a); intrinsic);
-
-            simd_for_each_lane(fx, a, ret, &|fx, _lane_ty, _res_lane_ty, lane| {
-                fx.bcx.ins().bitrev(lane)
-            });
-        }
-
-        "llvm.aarch64.neon.fcvtns.v4i32.v4f32" => {
-            intrinsic_args!(fx, args => (a); intrinsic);
-
-            // Note: Using inline asm instead of fcvt_to_sint as the latter rounds to zero rather than to nearest
-
-            let a_ptr = a.force_stack(fx).0.get_addr(fx);
-            let res_place = CPlace::new_stack_slot(fx, ret.layout());
-            let res_ptr = res_place.to_ptr().get_addr(fx);
-
-            codegen_inline_asm_inner(
-                fx,
-                &[InlineAsmTemplatePiece::String(
-                    "ldr     q0, [x0]
-                     fcvtns  v0.4s, v0.4s
-                     str     q0, [x1]"
-                        .into(),
-                )],
-                &[
-                    CInlineAsmOperand::In {
-                        reg: InlineAsmRegOrRegClass::Reg(InlineAsmReg::AArch64(
-                            AArch64InlineAsmReg::x0,
-                        )),
-                        value: a_ptr,
-                    },
-                    CInlineAsmOperand::In {
-                        reg: InlineAsmRegOrRegClass::Reg(InlineAsmReg::AArch64(
-                            AArch64InlineAsmReg::x1,
-                        )),
-                        value: res_ptr,
-                    },
-                ],
-                InlineAsmOptions::NOSTACK,
-            );
-            let res = res_place.to_cvalue(fx);
-            ret.write_cvalue_transmute(fx, res);
-        }
-
-        "llvm.aarch64.neon.frecpe.v4f32" => {
-            intrinsic_args!(fx, args => (a); intrinsic);
-
-            let a_ptr = a.force_stack(fx).0.get_addr(fx);
-            let res_place = CPlace::new_stack_slot(fx, ret.layout());
-            let res_ptr = res_place.to_ptr().get_addr(fx);
-
-            codegen_inline_asm_inner(
-                fx,
-                &[InlineAsmTemplatePiece::String(
-                    "ldr     q0, [x0]
-                     frecpe  v0.4s, v0.4s
-                     str     q0, [x1]"
-                        .into(),
-                )],
-                &[
-                    CInlineAsmOperand::In {
-                        reg: InlineAsmRegOrRegClass::Reg(InlineAsmReg::AArch64(
-                            AArch64InlineAsmReg::x0,
-                        )),
-                        value: a_ptr,
-                    },
-                    CInlineAsmOperand::In {
-                        reg: InlineAsmRegOrRegClass::Reg(InlineAsmReg::AArch64(
-                            AArch64InlineAsmReg::x1,
-                        )),
-                        value: res_ptr,
-                    },
-                ],
-                InlineAsmOptions::NOSTACK,
-            );
-            let res = res_place.to_cvalue(fx);
-            ret.write_cvalue_transmute(fx, res);
-        }
-
-        "llvm.aarch64.neon.frecps.v4f32" => {
-            intrinsic_args!(fx, args => (a, b); intrinsic);
-
-            let a_ptr = a.force_stack(fx).0.get_addr(fx);
-            let b_ptr = b.force_stack(fx).0.get_addr(fx);
-            let res_place = CPlace::new_stack_slot(fx, ret.layout());
-            let res_ptr = res_place.to_ptr().get_addr(fx);
-
-            codegen_inline_asm_inner(
-                fx,
-                &[InlineAsmTemplatePiece::String(
-                    "ldr     q0, [x0]
-                     ldr     q1, [x1]
-                     frecps  v0.4s, v0.4s, v1.4s
-                     str     q0, [x2]"
-                        .into(),
-                )],
-                &[
-                    CInlineAsmOperand::In {
-                        reg: InlineAsmRegOrRegClass::Reg(InlineAsmReg::AArch64(
-                            AArch64InlineAsmReg::x0,
-                        )),
-                        value: a_ptr,
-                    },
-                    CInlineAsmOperand::In {
-                        reg: InlineAsmRegOrRegClass::Reg(InlineAsmReg::AArch64(
-                            AArch64InlineAsmReg::x1,
-                        )),
-                        value: b_ptr,
-                    },
-                    CInlineAsmOperand::In {
-                        reg: InlineAsmRegOrRegClass::Reg(InlineAsmReg::AArch64(
-                            AArch64InlineAsmReg::x2,
-                        )),
-                        value: res_ptr,
-                    },
-                ],
-                InlineAsmOptions::NOSTACK,
-            );
-            let res = res_place.to_cvalue(fx);
-            ret.write_cvalue_transmute(fx, res);
-        }
-
         _ if intrinsic.starts_with("llvm.aarch64.neon.sqadd.v")
             || intrinsic.starts_with("llvm.aarch64.neon.uqadd.v") =>
         {
@@ -226,497 +84,2259 @@ pub(crate) fn codegen_aarch64_llvm_intrinsic_call<'tcx>(
             });
         }
 
-        /*_ if intrinsic.starts_with("llvm.aarch64.neon.smax.v") => {
-            intrinsic_args!(fx, args => (x, y); intrinsic);
-
-            simd_pair_for_each_lane(
-                fx,
-                x,
-                y,
-                ret,
-                &|fx, _lane_ty, _res_lane_ty, x_lane, y_lane| {
-                    let gt = fx.bcx.ins().icmp(IntCC::SignedGreaterThan, x_lane, y_lane);
-                    fx.bcx.ins().select(gt, x_lane, y_lane)
-                },
-            );
-        }*/
+        // ==== begin autogenerated section ====
+        "llvm.aarch64.crc32b" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crc32b", args, ret, &[8, 0, 64, 185, 41, 0, 64, 185, 8, 65, 201, 26, 72, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crc32cb" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crc32cb", args, ret, &[8, 0, 64, 185, 41, 0, 64, 185, 8, 81, 201, 26, 72, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crc32ch" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crc32ch", args, ret, &[8, 0, 64, 185, 41, 0, 64, 185, 8, 85, 201, 26, 72, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crc32cw" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crc32cw", args, ret, &[8, 0, 64, 185, 41, 0, 64, 185, 8, 89, 201, 26, 72, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crc32cx" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crc32cx", args, ret, &[8, 0, 64, 185, 41, 0, 64, 249, 8, 93, 201, 154, 72, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crc32h" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crc32h", args, ret, &[8, 0, 64, 185, 41, 0, 64, 185, 8, 69, 201, 26, 72, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crc32w" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crc32w", args, ret, &[8, 0, 64, 185, 41, 0, 64, 185, 8, 73, 201, 26, 72, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crc32x" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crc32x", args, ret, &[8, 0, 64, 185, 41, 0, 64, 249, 8, 77, 201, 154, 72, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.aesd" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crypto.aesd", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 1, 88, 40, 78, 65, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.aese" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crypto.aese", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 1, 72, 40, 78, 65, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.aesimc" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.crypto.aesimc", args, ret, &[0, 0, 192, 61, 0, 120, 40, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.aesmc" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.crypto.aesmc", args, ret, &[0, 0, 192, 61, 0, 104, 40, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.bcaxs.v16i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.bcaxs.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 33, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.bcaxs.v2i64" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.bcaxs.v2i64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 33, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.bcaxs.v4i32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.bcaxs.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 33, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.bcaxs.v8i16" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.bcaxs.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 33, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.bcaxu.v16i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.bcaxu.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 33, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.bcaxu.v2i64" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.bcaxu.v2i64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 33, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.bcaxu.v4i32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.bcaxu.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 33, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.bcaxu.v8i16" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.bcaxu.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 33, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.eor3s.v16i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.eor3s.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 1, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.eor3s.v2i64" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.eor3s.v2i64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 1, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.eor3s.v4i32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.eor3s.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 1, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.eor3s.v8i16" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.eor3s.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 1, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.eor3u.v16i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.eor3u.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 1, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.eor3u.v2i64" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.eor3u.v2i64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 1, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.eor3u.v4i32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.eor3u.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 1, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.eor3u.v8i16" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.eor3u.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 1, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.rax1" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crypto.rax1", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 140, 97, 206, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sha1c" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.sha1c", args, ret, &[40, 0, 64, 185, 0, 0, 192, 61, 65, 0, 192, 61, 2, 1, 39, 30, 64, 0, 1, 94, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sha1h" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.crypto.sha1h", args, ret, &[8, 0, 64, 185, 0, 1, 39, 30, 0, 8, 40, 94, 8, 0, 38, 30, 40, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sha1m" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.sha1m", args, ret, &[40, 0, 64, 185, 0, 0, 192, 61, 65, 0, 192, 61, 2, 1, 39, 30, 64, 32, 1, 94, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sha1p" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.sha1p", args, ret, &[40, 0, 64, 185, 0, 0, 192, 61, 65, 0, 192, 61, 2, 1, 39, 30, 64, 16, 1, 94, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sha1su0" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.sha1su0", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 48, 2, 94, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sha1su1" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crypto.sha1su1", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 32, 24, 40, 94, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sha256h" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.sha256h", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 64, 2, 94, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sha256h2" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.sha256h2", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 80, 2, 94, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sha256su0" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crypto.sha256su0", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 32, 40, 40, 94, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sha256su1" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.sha256su1", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 96, 2, 94, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sha512h" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.sha512h", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 128, 98, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sha512h2" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.sha512h2", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 132, 98, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sha512su0" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crypto.sha512su0", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 32, 128, 192, 206, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sha512su1" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.sha512su1", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 136, 98, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sm3partw1" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.sm3partw1", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 192, 98, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sm3partw2" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.sm3partw2", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 196, 98, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sm3ss1" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.crypto.sm3ss1", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 0, 8, 65, 206, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sm4e" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crypto.sm4e", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 32, 132, 192, 206, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.crypto.sm4ekey" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.crypto.sm4ekey", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 200, 97, 206, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.frint32x.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.frint32x.f64", args, ret, &[0, 0, 64, 253, 0, 192, 104, 30, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.frint32z.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.frint32z.f64", args, ret, &[0, 0, 64, 253, 0, 64, 104, 30, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.frint64x.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.frint64x.f64", args, ret, &[0, 0, 64, 253, 0, 192, 105, 30, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.frint64z.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.frint64z.f64", args, ret, &[0, 0, 64, 253, 0, 64, 105, 30, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.abs.i64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.abs.i64", args, ret, &[0, 0, 64, 253, 0, 184, 224, 94, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.abs.v16i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.abs.v16i8", args, ret, &[0, 0, 192, 61, 0, 184, 32, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.abs.v1i64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.abs.v1i64", args, ret, &[0, 0, 64, 253, 0, 184, 224, 94, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.abs.v2i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.abs.v2i32", args, ret, &[0, 0, 64, 253, 0, 184, 160, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.abs.v2i64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.abs.v2i64", args, ret, &[0, 0, 192, 61, 0, 184, 224, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.abs.v4i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.abs.v4i16", args, ret, &[0, 0, 64, 253, 0, 184, 96, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.abs.v4i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.abs.v4i32", args, ret, &[0, 0, 192, 61, 0, 184, 160, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.abs.v8i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.abs.v8i16", args, ret, &[0, 0, 192, 61, 0, 184, 96, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.abs.v8i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.abs.v8i8", args, ret, &[0, 0, 64, 253, 0, 184, 32, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.addp.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.addp.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 188, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.addp.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.addp.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 188, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.addp.v2i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.addp.v2i64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 188, 225, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.addp.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.addp.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 188, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.addp.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.addp.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 188, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.addp.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.addp.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 188, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.addp.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.addp.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 188, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.cls.v16i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.cls.v16i8", args, ret, &[0, 0, 192, 61, 0, 72, 32, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.cls.v2i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.cls.v2i32", args, ret, &[0, 0, 64, 253, 0, 72, 160, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.cls.v4i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.cls.v4i16", args, ret, &[0, 0, 64, 253, 0, 72, 96, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.cls.v4i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.cls.v4i32", args, ret, &[0, 0, 192, 61, 0, 72, 160, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.cls.v8i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.cls.v8i16", args, ret, &[0, 0, 192, 61, 0, 72, 96, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.cls.v8i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.cls.v8i8", args, ret, &[0, 0, 64, 253, 0, 72, 32, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fabd.v1f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fabd.v1f64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 212, 225, 126, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fabd.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fabd.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 212, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fabd.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fabd.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 212, 225, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fabd.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fabd.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 212, 161, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.facge.i32.f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.facge.i32.f32", args, ret, &[0, 0, 64, 189, 33, 0, 64, 189, 0, 236, 33, 126, 8, 0, 38, 30, 72, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.facge.i64.f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.facge.i64.f64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 236, 97, 126, 8, 0, 102, 158, 72, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.facge.v1i64.v1f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.facge.v1i64.v1f64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 236, 97, 126, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.facge.v2i32.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.facge.v2i32.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 236, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.facge.v2i64.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.facge.v2i64.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 236, 97, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.facge.v4i32.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.facge.v4i32.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 236, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.facgt.i32.f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.facgt.i32.f32", args, ret, &[0, 0, 64, 189, 33, 0, 64, 189, 0, 236, 161, 126, 8, 0, 38, 30, 72, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.facgt.i64.f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.facgt.i64.f64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 236, 225, 126, 8, 0, 102, 158, 72, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.facgt.v1i64.v1f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.facgt.v1i64.v1f64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 236, 225, 126, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.facgt.v2i32.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.facgt.v2i32.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 236, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.facgt.v2i64.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.facgt.v2i64.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 236, 225, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.facgt.v4i32.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.facgt.v4i32.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 236, 161, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.faddp.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.faddp.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 212, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.faddp.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.faddp.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 212, 97, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.faddp.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.faddp.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 212, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.faddv.f32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.faddv.f32.v2f32", args, ret, &[0, 0, 64, 253, 0, 216, 48, 126, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.faddv.f32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.faddv.f32.v4f32", args, ret, &[0, 0, 192, 61, 0, 212, 32, 110, 0, 216, 48, 126, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.faddv.f64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.faddv.f64.v2f64", args, ret, &[0, 0, 192, 61, 0, 216, 112, 126, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtas.i32.f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtas.i32.f32", args, ret, &[0, 0, 64, 189, 8, 0, 36, 30, 40, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtas.i64.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtas.i64.f64", args, ret, &[0, 0, 64, 253, 8, 0, 100, 158, 40, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtas.v1i64.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtas.v1i64.v1f64", args, ret, &[0, 0, 64, 253, 0, 200, 97, 94, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtas.v2i32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtas.v2i32.v2f32", args, ret, &[0, 0, 64, 253, 0, 200, 33, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtas.v2i64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtas.v2i64.v2f64", args, ret, &[0, 0, 192, 61, 0, 200, 97, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtas.v4i32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtas.v4i32.v4f32", args, ret, &[0, 0, 192, 61, 0, 200, 33, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtau.i32.f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtau.i32.f32", args, ret, &[0, 0, 64, 189, 8, 0, 37, 30, 40, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtau.i64.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtau.i64.f64", args, ret, &[0, 0, 64, 253, 8, 0, 101, 158, 40, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtau.v1i64.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtau.v1i64.v1f64", args, ret, &[0, 0, 64, 253, 0, 200, 97, 126, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtau.v2i32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtau.v2i32.v2f32", args, ret, &[0, 0, 64, 253, 0, 200, 33, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtau.v2i64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtau.v2i64.v2f64", args, ret, &[0, 0, 192, 61, 0, 200, 97, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtau.v4i32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtau.v4i32.v4f32", args, ret, &[0, 0, 192, 61, 0, 200, 33, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtms.i32.f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtms.i32.f32", args, ret, &[0, 0, 64, 189, 8, 0, 48, 30, 40, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtms.i64.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtms.i64.f64", args, ret, &[0, 0, 64, 253, 8, 0, 112, 158, 40, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtms.v1i64.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtms.v1i64.v1f64", args, ret, &[0, 0, 64, 253, 0, 184, 97, 94, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtms.v2i32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtms.v2i32.v2f32", args, ret, &[0, 0, 64, 253, 0, 184, 33, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtms.v2i64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtms.v2i64.v2f64", args, ret, &[0, 0, 192, 61, 0, 184, 97, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtms.v4i32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtms.v4i32.v4f32", args, ret, &[0, 0, 192, 61, 0, 184, 33, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtmu.i32.f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtmu.i32.f32", args, ret, &[0, 0, 64, 189, 8, 0, 49, 30, 40, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtmu.i64.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtmu.i64.f64", args, ret, &[0, 0, 64, 253, 8, 0, 113, 158, 40, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtmu.v1i64.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtmu.v1i64.v1f64", args, ret, &[0, 0, 64, 253, 0, 184, 97, 126, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtmu.v2i32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtmu.v2i32.v2f32", args, ret, &[0, 0, 64, 253, 0, 184, 33, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtmu.v2i64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtmu.v2i64.v2f64", args, ret, &[0, 0, 192, 61, 0, 184, 97, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtmu.v4i32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtmu.v4i32.v4f32", args, ret, &[0, 0, 192, 61, 0, 184, 33, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtns.i32.f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtns.i32.f32", args, ret, &[0, 0, 64, 189, 8, 0, 32, 30, 40, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtns.i64.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtns.i64.f64", args, ret, &[0, 0, 64, 253, 8, 0, 96, 158, 40, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtns.v1i64.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtns.v1i64.v1f64", args, ret, &[0, 0, 64, 253, 0, 168, 97, 94, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtns.v2i32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtns.v2i32.v2f32", args, ret, &[0, 0, 64, 253, 0, 168, 33, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtns.v2i64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtns.v2i64.v2f64", args, ret, &[0, 0, 192, 61, 0, 168, 97, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtns.v4i32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtns.v4i32.v4f32", args, ret, &[0, 0, 192, 61, 0, 168, 33, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtnu.i32.f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtnu.i32.f32", args, ret, &[0, 0, 64, 189, 8, 0, 33, 30, 40, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtnu.i64.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtnu.i64.f64", args, ret, &[0, 0, 64, 253, 8, 0, 97, 158, 40, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtnu.v1i64.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtnu.v1i64.v1f64", args, ret, &[0, 0, 64, 253, 0, 168, 97, 126, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtnu.v2i32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtnu.v2i32.v2f32", args, ret, &[0, 0, 64, 253, 0, 168, 33, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtnu.v2i64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtnu.v2i64.v2f64", args, ret, &[0, 0, 192, 61, 0, 168, 97, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtnu.v4i32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtnu.v4i32.v4f32", args, ret, &[0, 0, 192, 61, 0, 168, 33, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtps.i32.f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtps.i32.f32", args, ret, &[0, 0, 64, 189, 8, 0, 40, 30, 40, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtps.i64.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtps.i64.f64", args, ret, &[0, 0, 64, 253, 8, 0, 104, 158, 40, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtps.v1i64.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtps.v1i64.v1f64", args, ret, &[0, 0, 64, 253, 0, 168, 225, 94, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtps.v2i32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtps.v2i32.v2f32", args, ret, &[0, 0, 64, 253, 0, 168, 161, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtps.v2i64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtps.v2i64.v2f64", args, ret, &[0, 0, 192, 61, 0, 168, 225, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtps.v4i32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtps.v4i32.v4f32", args, ret, &[0, 0, 192, 61, 0, 168, 161, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtpu.i32.f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtpu.i32.f32", args, ret, &[0, 0, 64, 189, 8, 0, 41, 30, 40, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtpu.i64.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtpu.i64.f64", args, ret, &[0, 0, 64, 253, 8, 0, 105, 158, 40, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtpu.v1i64.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtpu.v1i64.v1f64", args, ret, &[0, 0, 64, 253, 0, 168, 225, 126, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtpu.v2i32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtpu.v2i32.v2f32", args, ret, &[0, 0, 64, 253, 0, 168, 161, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtpu.v2i64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtpu.v2i64.v2f64", args, ret, &[0, 0, 192, 61, 0, 168, 225, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtpu.v4i32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtpu.v4i32.v4f32", args, ret, &[0, 0, 192, 61, 0, 168, 161, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fcvtxn.v2f32.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fcvtxn.v2f32.v2f64", args, ret, &[0, 0, 192, 61, 0, 104, 97, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmax.v1f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmax.v1f64", args, ret, &[32, 0, 64, 253, 1, 0, 64, 253, 32, 72, 96, 30, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmax.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmax.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 244, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmax.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmax.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 244, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmax.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmax.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 244, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxnm.v1f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmaxnm.v1f64", args, ret, &[32, 0, 64, 253, 1, 0, 64, 253, 32, 104, 96, 30, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxnm.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmaxnm.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 196, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxnm.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmaxnm.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 196, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxnm.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmaxnm.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 196, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxnmp.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmaxnmp.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 196, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxnmp.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmaxnmp.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 196, 97, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxnmp.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmaxnmp.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 196, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxnmv.f32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fmaxnmv.f32.v2f32", args, ret, &[0, 0, 64, 253, 0, 200, 48, 126, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxnmv.f32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fmaxnmv.f32.v4f32", args, ret, &[0, 0, 192, 61, 0, 200, 48, 110, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxnmv.f64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fmaxnmv.f64.v2f64", args, ret, &[0, 0, 192, 61, 0, 200, 112, 126, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxp.4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmaxp.4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 244, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxp.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmaxp.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 244, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxp.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmaxp.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 244, 97, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxv.f32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fmaxv.f32.v2f32", args, ret, &[0, 0, 64, 253, 0, 248, 48, 126, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxv.f32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fmaxv.f32.v4f32", args, ret, &[0, 0, 192, 61, 0, 248, 48, 110, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmaxv.f64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fmaxv.f64.v2f64", args, ret, &[0, 0, 192, 61, 0, 248, 112, 126, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmin.v1f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmin.v1f64", args, ret, &[32, 0, 64, 253, 1, 0, 64, 253, 32, 88, 96, 30, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmin.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmin.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 244, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmin.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmin.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 244, 225, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmin.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmin.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 244, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminnm.v1f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fminnm.v1f64", args, ret, &[32, 0, 64, 253, 1, 0, 64, 253, 32, 120, 96, 30, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminnm.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fminnm.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 196, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminnm.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fminnm.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 196, 225, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminnm.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fminnm.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 196, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminnmp.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fminnmp.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 196, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminnmp.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fminnmp.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 196, 225, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminnmp.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fminnmp.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 196, 161, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminnmv.f32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fminnmv.f32.v2f32", args, ret, &[0, 0, 64, 253, 0, 200, 176, 126, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminnmv.f32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fminnmv.f32.v4f32", args, ret, &[0, 0, 192, 61, 0, 200, 176, 110, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminnmv.f64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fminnmv.f64.v2f64", args, ret, &[0, 0, 192, 61, 0, 200, 240, 126, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminp.4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fminp.4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 244, 161, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminp.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fminp.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 244, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminp.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fminp.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 244, 225, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminv.f32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fminv.f32.v2f32", args, ret, &[0, 0, 64, 253, 0, 248, 176, 126, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminv.f32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fminv.f32.v4f32", args, ret, &[0, 0, 192, 61, 0, 248, 176, 110, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fminv.f64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.fminv.f64.v2f64", args, ret, &[0, 0, 192, 61, 0, 248, 240, 126, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmulx.f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmulx.f32", args, ret, &[0, 0, 64, 189, 33, 0, 64, 189, 0, 220, 33, 94, 64, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmulx.f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmulx.f64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 220, 97, 94, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmulx.v1f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmulx.v1f64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 220, 97, 94, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmulx.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmulx.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 220, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmulx.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmulx.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 220, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.fmulx.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.fmulx.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 220, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frecpe.f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frecpe.f32", args, ret, &[0, 0, 64, 189, 0, 216, 161, 94, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frecpe.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frecpe.f64", args, ret, &[0, 0, 64, 253, 0, 216, 225, 94, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frecpe.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frecpe.v1f64", args, ret, &[0, 0, 64, 253, 0, 216, 225, 94, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frecpe.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frecpe.v2f32", args, ret, &[0, 0, 64, 253, 0, 216, 161, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frecpe.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frecpe.v2f64", args, ret, &[0, 0, 192, 61, 0, 216, 225, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frecpe.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frecpe.v4f32", args, ret, &[0, 0, 192, 61, 0, 216, 161, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frecps.f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.frecps.f32", args, ret, &[0, 0, 64, 189, 33, 0, 64, 189, 0, 252, 33, 94, 64, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frecps.f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.frecps.f64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 252, 97, 94, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frecps.v1f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.frecps.v1f64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 252, 97, 94, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frecps.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.frecps.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 252, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frecps.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.frecps.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 252, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frecps.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.frecps.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 252, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frecpx.f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frecpx.f32", args, ret, &[0, 0, 64, 189, 0, 248, 161, 94, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frecpx.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frecpx.f64", args, ret, &[0, 0, 64, 253, 0, 248, 225, 94, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frint32x.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frint32x.v2f32", args, ret, &[0, 0, 64, 253, 0, 232, 33, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frint32x.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frint32x.v2f64", args, ret, &[0, 0, 192, 61, 0, 232, 97, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frint32x.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frint32x.v4f32", args, ret, &[0, 0, 192, 61, 0, 232, 33, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frint32z.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frint32z.v2f32", args, ret, &[0, 0, 64, 253, 0, 232, 33, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frint32z.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frint32z.v2f64", args, ret, &[0, 0, 192, 61, 0, 232, 97, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frint32z.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frint32z.v4f32", args, ret, &[0, 0, 192, 61, 0, 232, 33, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frint64x.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frint64x.v2f32", args, ret, &[0, 0, 64, 253, 0, 248, 33, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frint64x.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frint64x.v2f64", args, ret, &[0, 0, 192, 61, 0, 248, 97, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frint64x.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frint64x.v4f32", args, ret, &[0, 0, 192, 61, 0, 248, 33, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frint64z.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frint64z.v2f32", args, ret, &[0, 0, 64, 253, 0, 248, 33, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frint64z.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frint64z.v2f64", args, ret, &[0, 0, 192, 61, 0, 248, 97, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frint64z.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frint64z.v4f32", args, ret, &[0, 0, 192, 61, 0, 248, 33, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frintn.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frintn.v1f64", args, ret, &[0, 0, 64, 253, 0, 64, 100, 30, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frintn.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frintn.v2f32", args, ret, &[0, 0, 64, 253, 0, 136, 33, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frintn.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frintn.v2f64", args, ret, &[0, 0, 192, 61, 0, 136, 97, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frintn.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frintn.v4f32", args, ret, &[0, 0, 192, 61, 0, 136, 33, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frsqrte.f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frsqrte.f32", args, ret, &[0, 0, 64, 189, 0, 216, 161, 126, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frsqrte.f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frsqrte.f64", args, ret, &[0, 0, 64, 253, 0, 216, 225, 126, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frsqrte.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frsqrte.v1f64", args, ret, &[0, 0, 64, 253, 0, 216, 225, 126, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frsqrte.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frsqrte.v2f32", args, ret, &[0, 0, 64, 253, 0, 216, 161, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frsqrte.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frsqrte.v2f64", args, ret, &[0, 0, 192, 61, 0, 216, 225, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frsqrte.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.frsqrte.v4f32", args, ret, &[0, 0, 192, 61, 0, 216, 161, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frsqrts.f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.frsqrts.f32", args, ret, &[0, 0, 64, 189, 33, 0, 64, 189, 0, 252, 161, 94, 64, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frsqrts.f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.frsqrts.f64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 252, 225, 94, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frsqrts.v1f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.frsqrts.v1f64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 252, 225, 94, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frsqrts.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.frsqrts.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 252, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frsqrts.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.frsqrts.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 252, 225, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.frsqrts.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.frsqrts.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 252, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.pmul.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.pmul.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 156, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.pmul.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.pmul.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 156, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.pmull.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.pmull.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 224, 33, 14, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.pmull64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.pmull64", args, ret, &[32, 0, 64, 253, 1, 0, 64, 253, 32, 224, 224, 14, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.raddhn.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.raddhn.v2i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 64, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.raddhn.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.raddhn.v4i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 64, 97, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.raddhn.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.raddhn.v8i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 64, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.rbit.v16i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.rbit.v16i8", args, ret, &[0, 0, 192, 61, 0, 88, 96, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.rbit.v8i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.rbit.v8i8", args, ret, &[0, 0, 64, 253, 0, 88, 96, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.rsubhn.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.rsubhn.v2i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 96, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.rsubhn.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.rsubhn.v4i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 96, 97, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.rsubhn.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.rsubhn.v8i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 96, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sabd.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sabd.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 116, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sabd.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sabd.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 116, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sabd.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sabd.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 116, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sabd.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sabd.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 116, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sabd.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sabd.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 116, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sabd.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sabd.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 116, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddlp.v1i64.v2i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddlp.v1i64.v2i32", args, ret, &[0, 0, 64, 253, 0, 40, 160, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddlp.v2i32.v4i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddlp.v2i32.v4i16", args, ret, &[0, 0, 64, 253, 0, 40, 96, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddlp.v2i64.v4i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddlp.v2i64.v4i32", args, ret, &[0, 0, 192, 61, 0, 40, 160, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddlp.v4i16.v8i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddlp.v4i16.v8i8", args, ret, &[0, 0, 64, 253, 0, 40, 32, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddlp.v4i32.v8i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddlp.v4i32.v8i16", args, ret, &[0, 0, 192, 61, 0, 40, 96, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddlp.v8i16.v16i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddlp.v8i16.v16i8", args, ret, &[0, 0, 192, 61, 0, 40, 32, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddlv.i32.v16i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddlv.i32.v16i8", args, ret, &[0, 0, 192, 61, 0, 56, 48, 78, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddlv.i32.v4i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddlv.i32.v4i16", args, ret, &[0, 0, 64, 253, 0, 56, 112, 14, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddlv.i32.v8i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddlv.i32.v8i16", args, ret, &[0, 0, 192, 61, 0, 56, 112, 78, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddlv.i32.v8i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddlv.i32.v8i8", args, ret, &[0, 0, 64, 253, 0, 56, 48, 14, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddlv.i64.v2i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddlv.i64.v2i32", args, ret, &[0, 0, 64, 253, 0, 40, 160, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddlv.i64.v4i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddlv.i64.v4i32", args, ret, &[0, 0, 192, 61, 0, 56, 176, 78, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddv.i32.v16i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddv.i32.v16i8", args, ret, &[0, 0, 192, 61, 0, 184, 49, 78, 32, 0, 0, 13, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddv.i32.v2i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddv.i32.v2i32", args, ret, &[0, 0, 64, 253, 0, 188, 160, 14, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddv.i32.v4i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddv.i32.v4i16", args, ret, &[0, 0, 64, 253, 0, 184, 113, 14, 32, 0, 0, 125, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddv.i32.v4i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddv.i32.v4i32", args, ret, &[0, 0, 192, 61, 0, 184, 177, 78, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddv.i32.v8i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddv.i32.v8i16", args, ret, &[0, 0, 192, 61, 0, 184, 113, 78, 32, 0, 0, 125, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddv.i32.v8i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddv.i32.v8i8", args, ret, &[0, 0, 64, 253, 0, 184, 49, 14, 32, 0, 0, 13, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.saddv.i64.v2i64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.saddv.i64.v2i64", args, ret, &[0, 0, 192, 61, 0, 184, 241, 94, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.scalar.sqxtn.i32.i64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.scalar.sqxtn.i32.i64", args, ret, &[0, 0, 64, 253, 0, 72, 161, 94, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.scalar.uqxtn.i32.i64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.scalar.uqxtn.i32.i64", args, ret, &[0, 0, 64, 253, 0, 72, 161, 126, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sdot.v2i32.v8i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.sdot.v2i32.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 66, 0, 64, 253, 32, 148, 130, 14, 96, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sdot.v4i32.v16i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.sdot.v4i32.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 148, 130, 78, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.shadd.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.shadd.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 4, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.shadd.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.shadd.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 4, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.shadd.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.shadd.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 4, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.shadd.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.shadd.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 4, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.shadd.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.shadd.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 4, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.shadd.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.shadd.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 4, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.shsub.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.shsub.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 36, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.shsub.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.shsub.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 36, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.shsub.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.shsub.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 36, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.shsub.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.shsub.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 36, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.shsub.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.shsub.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 36, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.shsub.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.shsub.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 36, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
         "llvm.aarch64.neon.smax.v16i8" => {
             assert_eq!(args.len(), 2);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smax.v16i8",
-                args,
-                ret,
-                &[0, 0, 192, 61, 33, 0, 192, 61, 0, 100, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smax.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 100, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smax.v2i32" => {
             assert_eq!(args.len(), 2);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smax.v2i32",
-                args,
-                ret,
-                &[0, 0, 64, 253, 33, 0, 64, 253, 0, 100, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smax.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 100, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smax.v4i16" => {
             assert_eq!(args.len(), 2);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smax.v4i16",
-                args,
-                ret,
-                &[0, 0, 64, 253, 33, 0, 64, 253, 0, 100, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smax.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 100, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smax.v4i32" => {
             assert_eq!(args.len(), 2);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smax.v4i32",
-                args,
-                ret,
-                &[0, 0, 192, 61, 33, 0, 192, 61, 0, 100, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smax.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 100, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smax.v8i16" => {
             assert_eq!(args.len(), 2);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smax.v8i16",
-                args,
-                ret,
-                &[0, 0, 192, 61, 33, 0, 192, 61, 0, 100, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smax.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 100, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smax.v8i8" => {
             assert_eq!(args.len(), 2);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smax.v8i8",
-                args,
-                ret,
-                &[0, 0, 64, 253, 33, 0, 64, 253, 0, 100, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smax.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 100, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smaxp.v16i8" => {
             assert_eq!(args.len(), 2);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smaxp.v16i8",
-                args,
-                ret,
-                &[0, 0, 192, 61, 33, 0, 192, 61, 0, 164, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smaxp.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 164, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smaxp.v2i32" => {
             assert_eq!(args.len(), 2);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smaxp.v2i32",
-                args,
-                ret,
-                &[0, 0, 64, 253, 33, 0, 64, 253, 0, 164, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smaxp.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 164, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smaxp.v4i16" => {
             assert_eq!(args.len(), 2);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smaxp.v4i16",
-                args,
-                ret,
-                &[0, 0, 64, 253, 33, 0, 64, 253, 0, 164, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smaxp.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 164, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smaxp.v4i32" => {
             assert_eq!(args.len(), 2);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smaxp.v4i32",
-                args,
-                ret,
-                &[0, 0, 192, 61, 33, 0, 192, 61, 0, 164, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smaxp.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 164, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smaxp.v8i16" => {
             assert_eq!(args.len(), 2);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smaxp.v8i16",
-                args,
-                ret,
-                &[0, 0, 192, 61, 33, 0, 192, 61, 0, 164, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smaxp.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 164, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smaxp.v8i8" => {
             assert_eq!(args.len(), 2);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smaxp.v8i8",
-                args,
-                ret,
-                &[0, 0, 64, 253, 33, 0, 64, 253, 0, 164, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smaxp.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 164, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smaxv.i16.v4i16" => {
             assert_eq!(args.len(), 1);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smaxv.i16.v4i16",
-                args,
-                ret,
-                &[0, 0, 64, 253, 0, 168, 112, 14, 32, 0, 0, 125, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smaxv.i16.v4i16", args, ret, &[0, 0, 64, 253, 0, 168, 112, 14, 32, 0, 0, 125, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smaxv.i16.v8i16" => {
             assert_eq!(args.len(), 1);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smaxv.i16.v8i16",
-                args,
-                ret,
-                &[0, 0, 192, 61, 0, 168, 112, 78, 32, 0, 0, 125, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smaxv.i16.v8i16", args, ret, &[0, 0, 192, 61, 0, 168, 112, 78, 32, 0, 0, 125, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smaxv.i32.v2i32" => {
             assert_eq!(args.len(), 1);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smaxv.i32.v2i32",
-                args,
-                ret,
-                &[0, 0, 64, 253, 0, 164, 160, 14, 32, 0, 0, 189, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smaxv.i32.v2i32", args, ret, &[0, 0, 64, 253, 0, 164, 160, 14, 32, 0, 0, 189, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smaxv.i32.v4i32" => {
             assert_eq!(args.len(), 1);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smaxv.i32.v4i32",
-                args,
-                ret,
-                &[0, 0, 192, 61, 0, 168, 176, 78, 32, 0, 0, 189, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smaxv.i32.v4i32", args, ret, &[0, 0, 192, 61, 0, 168, 176, 78, 32, 0, 0, 189, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smaxv.i8.v16i8" => {
             assert_eq!(args.len(), 1);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smaxv.i8.v16i8",
-                args,
-                ret,
-                &[0, 0, 192, 61, 0, 168, 48, 78, 32, 0, 0, 13, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smaxv.i8.v16i8", args, ret, &[0, 0, 192, 61, 0, 168, 48, 78, 32, 0, 0, 13, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.smaxv.i8.v8i8" => {
             assert_eq!(args.len(), 1);
-            call_asm(
-                fx,
-                "llvm.aarch64.neon.smaxv.i8.v8i8",
-                args,
-                ret,
-                &[0, 0, 64, 253, 0, 168, 48, 14, 32, 0, 0, 13, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.aarch64.neon.smaxv.i8.v8i8", args, ret, &[0, 0, 64, 253, 0, 168, 48, 14, 32, 0, 0, 13, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.umax.v") => {
-            intrinsic_args!(fx, args => (x, y); intrinsic);
-
-            simd_pair_for_each_lane(
-                fx,
-                x,
-                y,
-                ret,
-                &|fx, _lane_ty, _res_lane_ty, x_lane, y_lane| {
-                    let gt = fx.bcx.ins().icmp(IntCC::UnsignedGreaterThan, x_lane, y_lane);
-                    fx.bcx.ins().select(gt, x_lane, y_lane)
-                },
-            );
+        "llvm.aarch64.neon.smin.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.smin.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 108, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.fmax.v") => {
-            intrinsic_args!(fx, args => (x, y); intrinsic);
-
-            simd_pair_for_each_lane(
-                fx,
-                x,
-                y,
-                ret,
-                &|fx, _lane_ty, _res_lane_ty, x_lane, y_lane| fx.bcx.ins().fmax(x_lane, y_lane),
-            );
+        "llvm.aarch64.neon.smin.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.smin.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 108, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.fmin.v") => {
-            intrinsic_args!(fx, args => (x, y); intrinsic);
-
-            simd_pair_for_each_lane(
-                fx,
-                x,
-                y,
-                ret,
-                &|fx, _lane_ty, _res_lane_ty, x_lane, y_lane| fx.bcx.ins().fmin(x_lane, y_lane),
-            );
+        "llvm.aarch64.neon.smin.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.smin.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 108, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
         }
-
-        "llvm.aarch64.neon.uaddlv.i32.v16i8" => {
-            intrinsic_args!(fx, args => (v); intrinsic);
-
-            let mut res_val = fx.bcx.ins().iconst(types::I16, 0);
-            for lane_idx in 0..16 {
-                let lane = v.value_lane(fx, lane_idx).load_scalar(fx);
-                let lane = fx.bcx.ins().uextend(types::I16, lane);
-                res_val = fx.bcx.ins().iadd(res_val, lane);
-            }
-            let res = CValue::by_val(
-                fx.bcx.ins().uextend(types::I32, res_val),
-                fx.layout_of(fx.tcx.types.u32),
-            );
-            ret.write_cvalue(fx, res);
+        "llvm.aarch64.neon.smin.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.smin.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 108, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.faddv.f32.v") => {
-            intrinsic_args!(fx, args => (v); intrinsic);
-
-            simd_reduce(fx, v, None, ret, &|fx, _ty, a, b| fx.bcx.ins().fadd(a, b));
+        "llvm.aarch64.neon.smin.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.smin.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 108, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.frintn.v") => {
-            intrinsic_args!(fx, args => (v); intrinsic);
-
-            simd_for_each_lane(fx, v, ret, &|fx, _lane_ty, _res_lane_ty, lane| {
-                fx.bcx.ins().nearest(lane)
-            });
+        "llvm.aarch64.neon.smin.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.smin.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 108, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.smaxv.i") => {
-            intrinsic_args!(fx, args => (v); intrinsic);
-
-            simd_reduce(fx, v, None, ret, &|fx, _ty, a, b| {
-                let gt = fx.bcx.ins().icmp(IntCC::SignedGreaterThan, a, b);
-                fx.bcx.ins().select(gt, a, b)
-            });
+        "llvm.aarch64.neon.sminp.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sminp.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 172, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.umaxv.i") => {
-            intrinsic_args!(fx, args => (v); intrinsic);
-
-            simd_reduce(fx, v, None, ret, &|fx, _ty, a, b| {
-                let gt = fx.bcx.ins().icmp(IntCC::UnsignedGreaterThan, a, b);
-                fx.bcx.ins().select(gt, a, b)
-            });
+        "llvm.aarch64.neon.sminp.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sminp.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 172, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.smin.v") => {
-            intrinsic_args!(fx, args => (x, y); intrinsic);
-
-            simd_pair_for_each_lane(
-                fx,
-                x,
-                y,
-                ret,
-                &|fx, _lane_ty, _res_lane_ty, x_lane, y_lane| {
-                    let gt = fx.bcx.ins().icmp(IntCC::SignedLessThan, x_lane, y_lane);
-                    fx.bcx.ins().select(gt, x_lane, y_lane)
-                },
-            );
+        "llvm.aarch64.neon.sminp.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sminp.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 172, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.umin.v") => {
-            intrinsic_args!(fx, args => (x, y); intrinsic);
-
-            simd_pair_for_each_lane(
-                fx,
-                x,
-                y,
-                ret,
-                &|fx, _lane_ty, _res_lane_ty, x_lane, y_lane| {
-                    let gt = fx.bcx.ins().icmp(IntCC::UnsignedLessThan, x_lane, y_lane);
-                    fx.bcx.ins().select(gt, x_lane, y_lane)
-                },
-            );
+        "llvm.aarch64.neon.sminp.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sminp.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 172, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.sminv.i") => {
-            intrinsic_args!(fx, args => (v); intrinsic);
-
-            simd_reduce(fx, v, None, ret, &|fx, _ty, a, b| {
-                let gt = fx.bcx.ins().icmp(IntCC::SignedLessThan, a, b);
-                fx.bcx.ins().select(gt, a, b)
-            });
+        "llvm.aarch64.neon.sminp.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sminp.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 172, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.uminv.i") => {
-            intrinsic_args!(fx, args => (v); intrinsic);
-
-            simd_reduce(fx, v, None, ret, &|fx, _ty, a, b| {
-                let gt = fx.bcx.ins().icmp(IntCC::UnsignedLessThan, a, b);
-                fx.bcx.ins().select(gt, a, b)
-            });
+        "llvm.aarch64.neon.sminp.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sminp.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 172, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.umaxp.v") => {
-            intrinsic_args!(fx, args => (x, y); intrinsic);
-
-            simd_horizontal_pair_for_each_lane(
-                fx,
-                x,
-                y,
-                ret,
-                &|fx, _lane_ty, _res_lane_ty, x_lane, y_lane| fx.bcx.ins().umax(x_lane, y_lane),
-            );
+        "llvm.aarch64.neon.sminv.i16.v4i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.sminv.i16.v4i16", args, ret, &[0, 0, 64, 253, 0, 168, 113, 14, 32, 0, 0, 125, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.smaxp.v") => {
-            intrinsic_args!(fx, args => (x, y); intrinsic);
-
-            simd_horizontal_pair_for_each_lane(
-                fx,
-                x,
-                y,
-                ret,
-                &|fx, _lane_ty, _res_lane_ty, x_lane, y_lane| fx.bcx.ins().smax(x_lane, y_lane),
-            );
+        "llvm.aarch64.neon.sminv.i16.v8i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.sminv.i16.v8i16", args, ret, &[0, 0, 192, 61, 0, 168, 113, 78, 32, 0, 0, 125, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.uminp.v") => {
-            intrinsic_args!(fx, args => (x, y); intrinsic);
-
-            simd_horizontal_pair_for_each_lane(
-                fx,
-                x,
-                y,
-                ret,
-                &|fx, _lane_ty, _res_lane_ty, x_lane, y_lane| fx.bcx.ins().umin(x_lane, y_lane),
-            );
+        "llvm.aarch64.neon.sminv.i32.v2i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.sminv.i32.v2i32", args, ret, &[0, 0, 64, 253, 0, 172, 160, 14, 32, 0, 0, 189, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.sminp.v") => {
-            intrinsic_args!(fx, args => (x, y); intrinsic);
-
-            simd_horizontal_pair_for_each_lane(
-                fx,
-                x,
-                y,
-                ret,
-                &|fx, _lane_ty, _res_lane_ty, x_lane, y_lane| fx.bcx.ins().smin(x_lane, y_lane),
-            );
+        "llvm.aarch64.neon.sminv.i32.v4i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.sminv.i32.v4i32", args, ret, &[0, 0, 192, 61, 0, 168, 177, 78, 32, 0, 0, 189, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.fminp.v") => {
-            intrinsic_args!(fx, args => (x, y); intrinsic);
-
-            simd_horizontal_pair_for_each_lane(
-                fx,
-                x,
-                y,
-                ret,
-                &|fx, _lane_ty, _res_lane_ty, x_lane, y_lane| fx.bcx.ins().fmin(x_lane, y_lane),
-            );
+        "llvm.aarch64.neon.sminv.i8.v16i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.sminv.i8.v16i8", args, ret, &[0, 0, 192, 61, 0, 168, 49, 78, 32, 0, 0, 13, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.fmaxp.v") => {
-            intrinsic_args!(fx, args => (x, y); intrinsic);
-
-            simd_horizontal_pair_for_each_lane(
-                fx,
-                x,
-                y,
-                ret,
-                &|fx, _lane_ty, _res_lane_ty, x_lane, y_lane| fx.bcx.ins().fmax(x_lane, y_lane),
-            );
+        "llvm.aarch64.neon.sminv.i8.v8i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.sminv.i8.v8i8", args, ret, &[0, 0, 64, 253, 0, 168, 49, 14, 32, 0, 0, 13, 192, 3, 95, 214]);
         }
-
-        _ if intrinsic.starts_with("llvm.aarch64.neon.addp.v") => {
-            intrinsic_args!(fx, args => (x, y); intrinsic);
-
-            simd_horizontal_pair_for_each_lane(
-                fx,
-                x,
-                y,
-                ret,
-                &|fx, _lane_ty, _res_lane_ty, x_lane, y_lane| fx.bcx.ins().iadd(x_lane, y_lane),
-            );
+        "llvm.aarch64.neon.smmla.v4i32.v16i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.smmla.v4i32.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 164, 130, 78, 96, 0, 128, 61, 192, 3, 95, 214]);
         }
-
-        // FIXME generalize vector types
-        "llvm.aarch64.neon.tbl1.v8i8" => {
-            intrinsic_args!(fx, args => (t, idx); intrinsic);
-
-            let zero = fx.bcx.ins().iconst(types::I8, 0);
-            for i in 0..8 {
-                let idx_lane = idx.value_lane(fx, i).load_scalar(fx);
-                let is_zero =
-                    fx.bcx.ins().icmp_imm(IntCC::UnsignedGreaterThanOrEqual, idx_lane, 16);
-                let t_idx = fx.bcx.ins().uextend(fx.pointer_type, idx_lane);
-                let t_lane = t.value_lane_dyn(fx, t_idx).load_scalar(fx);
-                let res = fx.bcx.ins().select(is_zero, zero, t_lane);
-                ret.place_lane(fx, i).to_ptr().store(fx, res, MemFlags::trusted());
-            }
+        "llvm.aarch64.neon.smull.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.smull.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 192, 161, 14, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.smull.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.smull.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 192, 97, 14, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.smull.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.smull.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 192, 33, 14, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srhadd.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srhadd.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 20, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srhadd.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srhadd.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 20, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srhadd.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srhadd.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 20, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srhadd.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srhadd.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 20, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srhadd.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srhadd.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 20, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srhadd.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srhadd.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 20, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srshl.i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srshl.i64", args, ret, &[8, 0, 64, 249, 41, 0, 64, 249, 0, 1, 103, 158, 33, 1, 103, 158, 0, 84, 225, 94, 8, 0, 102, 158, 72, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srshl.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srshl.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 84, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srshl.v1i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srshl.v1i64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 84, 225, 94, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srshl.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srshl.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 84, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srshl.v2i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srshl.v2i64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 84, 225, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srshl.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srshl.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 84, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srshl.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srshl.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 84, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srshl.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srshl.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 84, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.srshl.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.srshl.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 84, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sshl.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sshl.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 68, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sshl.v1i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sshl.v1i64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 68, 225, 94, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sshl.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sshl.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 68, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sshl.v2i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sshl.v2i64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 68, 225, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sshl.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sshl.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 68, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sshl.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sshl.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 68, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sshl.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sshl.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 68, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.sshl.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.sshl.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 68, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.suqadd.i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.suqadd.i32", args, ret, &[8, 0, 64, 185, 41, 0, 64, 185, 0, 1, 39, 30, 33, 1, 39, 30, 32, 56, 160, 94, 8, 0, 38, 30, 72, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.suqadd.i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.suqadd.i64", args, ret, &[8, 0, 64, 249, 41, 0, 64, 249, 0, 1, 103, 158, 33, 1, 103, 158, 32, 56, 224, 94, 8, 0, 102, 158, 72, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.suqadd.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.suqadd.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 32, 56, 32, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.suqadd.v1i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.suqadd.v1i64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 32, 56, 224, 94, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.suqadd.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.suqadd.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 32, 56, 160, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.suqadd.v2i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.suqadd.v2i64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 32, 56, 224, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.suqadd.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.suqadd.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 32, 56, 96, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.suqadd.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.suqadd.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 32, 56, 160, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.suqadd.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.suqadd.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 32, 56, 96, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.suqadd.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.suqadd.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 32, 56, 32, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
         }
         "llvm.aarch64.neon.tbl1.v16i8" => {
-            intrinsic_args!(fx, args => (t, idx); intrinsic);
-
-            let zero = fx.bcx.ins().iconst(types::I8, 0);
-            for i in 0..16 {
-                let idx_lane = idx.value_lane(fx, i).load_scalar(fx);
-                let is_zero =
-                    fx.bcx.ins().icmp_imm(IntCC::UnsignedGreaterThanOrEqual, idx_lane, 16);
-                let t_idx = fx.bcx.ins().uextend(fx.pointer_type, idx_lane);
-                let t_lane = t.value_lane_dyn(fx, t_idx).load_scalar(fx);
-                let res = fx.bcx.ins().select(is_zero, zero, t_lane);
-                ret.place_lane(fx, i).to_ptr().store(fx, res, MemFlags::trusted());
-            }
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.tbl1.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 0, 1, 78, 64, 0, 128, 61, 192, 3, 95, 214]);
         }
-
-        // ==== begin autogenerated section ====
+        "llvm.aarch64.neon.tbl1.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.tbl1.v8i8", args, ret, &[0, 0, 192, 61, 33, 0, 64, 253, 0, 0, 1, 14, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.tbl2.v16i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.tbl2.v16i8", args, ret, &[0, 0, 192, 61, 66, 0, 192, 61, 33, 0, 192, 61, 0, 32, 2, 78, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.tbl2.v8i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.tbl2.v8i8", args, ret, &[0, 0, 192, 61, 66, 0, 64, 253, 33, 0, 192, 61, 0, 32, 2, 14, 96, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.tbl3.v16i8" => {
+            assert_eq!(args.len(), 4);
+            call_asm(fx, "llvm.aarch64.neon.tbl3.v16i8", args, ret, &[1, 0, 192, 61, 96, 0, 192, 61, 34, 0, 192, 61, 67, 0, 192, 61, 32, 64, 0, 78, 128, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.tbl3.v8i8" => {
+            assert_eq!(args.len(), 4);
+            call_asm(fx, "llvm.aarch64.neon.tbl3.v8i8", args, ret, &[1, 0, 192, 61, 96, 0, 64, 253, 34, 0, 192, 61, 67, 0, 192, 61, 32, 64, 0, 14, 128, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.tbl4.v16i8" => {
+            assert_eq!(args.len(), 5);
+            call_asm(fx, "llvm.aarch64.neon.tbl4.v16i8", args, ret, &[1, 0, 192, 61, 128, 0, 192, 61, 34, 0, 192, 61, 67, 0, 192, 61, 100, 0, 192, 61, 32, 96, 0, 78, 160, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.tbl4.v8i8" => {
+            assert_eq!(args.len(), 5);
+            call_asm(fx, "llvm.aarch64.neon.tbl4.v8i8", args, ret, &[1, 0, 192, 61, 128, 0, 64, 253, 34, 0, 192, 61, 67, 0, 192, 61, 100, 0, 192, 61, 32, 96, 0, 14, 160, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.tbx1.v16i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.tbx1.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 16, 2, 78, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.tbx1.v8i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.tbx1.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 192, 61, 66, 0, 64, 253, 32, 16, 2, 14, 96, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.tbx2.v16i8" => {
+            assert_eq!(args.len(), 4);
+            call_asm(fx, "llvm.aarch64.neon.tbx2.v16i8", args, ret, &[32, 0, 192, 61, 2, 0, 192, 61, 99, 0, 192, 61, 65, 0, 192, 61, 2, 48, 3, 78, 130, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.tbx2.v8i8" => {
+            assert_eq!(args.len(), 4);
+            call_asm(fx, "llvm.aarch64.neon.tbx2.v8i8", args, ret, &[32, 0, 192, 61, 2, 0, 64, 253, 99, 0, 64, 253, 65, 0, 192, 61, 2, 48, 3, 14, 130, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.tbx3.v16i8" => {
+            assert_eq!(args.len(), 5);
+            call_asm(fx, "llvm.aarch64.neon.tbx3.v16i8", args, ret, &[33, 0, 192, 61, 128, 0, 192, 61, 4, 0, 192, 61, 66, 0, 192, 61, 99, 0, 192, 61, 36, 80, 0, 78, 164, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.tbx3.v8i8" => {
+            assert_eq!(args.len(), 5);
+            call_asm(fx, "llvm.aarch64.neon.tbx3.v8i8", args, ret, &[33, 0, 192, 61, 128, 0, 64, 253, 4, 0, 64, 253, 66, 0, 192, 61, 99, 0, 192, 61, 36, 80, 0, 14, 164, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.tbx4.v16i8" => {
+            assert_eq!(args.len(), 6);
+            call_asm(fx, "llvm.aarch64.neon.tbx4.v16i8", args, ret, &[32, 0, 192, 61, 4, 0, 192, 61, 165, 0, 192, 61, 65, 0, 192, 61, 98, 0, 192, 61, 131, 0, 192, 61, 4, 112, 5, 78, 196, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.tbx4.v8i8" => {
+            assert_eq!(args.len(), 6);
+            call_asm(fx, "llvm.aarch64.neon.tbx4.v8i8", args, ret, &[32, 0, 192, 61, 4, 0, 64, 253, 165, 0, 64, 253, 65, 0, 192, 61, 98, 0, 192, 61, 131, 0, 192, 61, 4, 112, 5, 14, 196, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uabd.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uabd.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 116, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uabd.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uabd.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 116, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uabd.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uabd.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 116, 97, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uabd.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uabd.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 116, 161, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uabd.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uabd.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 116, 97, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uabd.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uabd.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 116, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddlp.v1i64.v2i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddlp.v1i64.v2i32", args, ret, &[0, 0, 64, 253, 0, 40, 160, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddlp.v2i32.v4i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddlp.v2i32.v4i16", args, ret, &[0, 0, 64, 253, 0, 40, 96, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddlp.v2i64.v4i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddlp.v2i64.v4i32", args, ret, &[0, 0, 192, 61, 0, 40, 160, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddlp.v4i16.v8i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddlp.v4i16.v8i8", args, ret, &[0, 0, 64, 253, 0, 40, 32, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddlp.v4i32.v8i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddlp.v4i32.v8i16", args, ret, &[0, 0, 192, 61, 0, 40, 96, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddlp.v8i16.v16i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddlp.v8i16.v16i8", args, ret, &[0, 0, 192, 61, 0, 40, 32, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddlv.i32.v16i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddlv.i32.v16i8", args, ret, &[0, 0, 192, 61, 0, 56, 48, 110, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddlv.i32.v4i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddlv.i32.v4i16", args, ret, &[0, 0, 64, 253, 0, 56, 112, 46, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddlv.i32.v8i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddlv.i32.v8i16", args, ret, &[0, 0, 192, 61, 0, 56, 112, 110, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddlv.i32.v8i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddlv.i32.v8i8", args, ret, &[0, 0, 64, 253, 0, 56, 48, 46, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddlv.i64.v2i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddlv.i64.v2i32", args, ret, &[0, 0, 64, 253, 0, 40, 160, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddlv.i64.v4i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddlv.i64.v4i32", args, ret, &[0, 0, 192, 61, 0, 56, 176, 110, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddv.i32.v16i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddv.i32.v16i8", args, ret, &[0, 0, 192, 61, 0, 184, 49, 78, 32, 0, 0, 13, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddv.i32.v2i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddv.i32.v2i32", args, ret, &[0, 0, 64, 253, 0, 188, 160, 14, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddv.i32.v4i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddv.i32.v4i16", args, ret, &[0, 0, 64, 253, 0, 184, 113, 14, 32, 0, 0, 125, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddv.i32.v4i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddv.i32.v4i32", args, ret, &[0, 0, 192, 61, 0, 184, 177, 78, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddv.i32.v8i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddv.i32.v8i16", args, ret, &[0, 0, 192, 61, 0, 184, 113, 78, 32, 0, 0, 125, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddv.i32.v8i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddv.i32.v8i8", args, ret, &[0, 0, 64, 253, 0, 184, 49, 14, 32, 0, 0, 13, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uaddv.i64.v2i64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uaddv.i64.v2i64", args, ret, &[0, 0, 192, 61, 0, 184, 241, 94, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.udot.v2i32.v8i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.udot.v2i32.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 66, 0, 64, 253, 32, 148, 130, 46, 96, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.udot.v4i32.v16i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.udot.v4i32.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 148, 130, 110, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uhadd.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uhadd.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 4, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uhadd.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uhadd.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 4, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uhadd.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uhadd.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 4, 97, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uhadd.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uhadd.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 4, 161, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uhadd.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uhadd.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 4, 97, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uhadd.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uhadd.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 4, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uhsub.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uhsub.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 36, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uhsub.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uhsub.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 36, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uhsub.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uhsub.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 36, 97, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uhsub.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uhsub.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 36, 161, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uhsub.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uhsub.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 36, 97, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uhsub.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uhsub.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 36, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umax.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umax.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 100, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umax.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umax.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 100, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umax.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umax.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 100, 97, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umax.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umax.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 100, 161, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umax.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umax.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 100, 97, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umax.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umax.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 100, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umaxp.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umaxp.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 164, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umaxp.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umaxp.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 164, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umaxp.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umaxp.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 164, 97, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umaxp.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umaxp.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 164, 161, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umaxp.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umaxp.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 164, 97, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umaxp.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umaxp.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 164, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umaxv.i16.v4i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.umaxv.i16.v4i16", args, ret, &[0, 0, 64, 253, 0, 168, 112, 46, 32, 0, 0, 125, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umaxv.i16.v8i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.umaxv.i16.v8i16", args, ret, &[0, 0, 192, 61, 0, 168, 112, 110, 32, 0, 0, 125, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umaxv.i32.v2i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.umaxv.i32.v2i32", args, ret, &[0, 0, 64, 253, 0, 164, 160, 46, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umaxv.i32.v4i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.umaxv.i32.v4i32", args, ret, &[0, 0, 192, 61, 0, 168, 176, 110, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umaxv.i8.v16i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.umaxv.i8.v16i8", args, ret, &[0, 0, 192, 61, 0, 168, 48, 110, 32, 0, 0, 13, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umaxv.i8.v8i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.umaxv.i8.v8i8", args, ret, &[0, 0, 64, 253, 0, 168, 48, 46, 32, 0, 0, 13, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umin.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umin.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 108, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umin.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umin.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 108, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umin.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umin.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 108, 97, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umin.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umin.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 108, 161, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umin.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umin.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 108, 97, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umin.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umin.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 108, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uminp.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uminp.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 172, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uminp.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uminp.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 172, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uminp.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uminp.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 172, 97, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uminp.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uminp.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 172, 161, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uminp.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uminp.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 172, 97, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uminp.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.uminp.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 172, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uminv.i16.v4i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uminv.i16.v4i16", args, ret, &[0, 0, 64, 253, 0, 168, 113, 46, 32, 0, 0, 125, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uminv.i16.v8i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uminv.i16.v8i16", args, ret, &[0, 0, 192, 61, 0, 168, 113, 110, 32, 0, 0, 125, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uminv.i32.v2i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uminv.i32.v2i32", args, ret, &[0, 0, 64, 253, 0, 172, 160, 46, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uminv.i32.v4i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uminv.i32.v4i32", args, ret, &[0, 0, 192, 61, 0, 168, 177, 110, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uminv.i8.v16i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uminv.i8.v16i8", args, ret, &[0, 0, 192, 61, 0, 168, 49, 110, 32, 0, 0, 13, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.uminv.i8.v8i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.uminv.i8.v8i8", args, ret, &[0, 0, 64, 253, 0, 168, 49, 46, 32, 0, 0, 13, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.ummla.v4i32.v16i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.ummla.v4i32.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 164, 130, 110, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umull.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umull.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 192, 161, 46, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umull.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umull.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 192, 97, 46, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.umull.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.umull.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 192, 33, 46, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urecpe.v2i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.urecpe.v2i32", args, ret, &[0, 0, 64, 253, 0, 200, 161, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urecpe.v4i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.urecpe.v4i32", args, ret, &[0, 0, 192, 61, 0, 200, 161, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urhadd.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urhadd.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 20, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urhadd.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urhadd.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 20, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urhadd.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urhadd.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 20, 97, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urhadd.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urhadd.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 20, 161, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urhadd.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urhadd.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 20, 97, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urhadd.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urhadd.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 20, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urshl.i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urshl.i64", args, ret, &[8, 0, 64, 249, 41, 0, 64, 249, 0, 1, 103, 158, 33, 1, 103, 158, 0, 84, 225, 126, 8, 0, 102, 158, 72, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urshl.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urshl.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 84, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urshl.v1i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urshl.v1i64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 84, 225, 126, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urshl.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urshl.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 84, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urshl.v2i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urshl.v2i64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 84, 225, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urshl.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urshl.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 84, 97, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urshl.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urshl.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 84, 161, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urshl.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urshl.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 84, 97, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.urshl.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.urshl.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 84, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.ursqrte.v2i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.ursqrte.v2i32", args, ret, &[0, 0, 64, 253, 0, 200, 161, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.ursqrte.v4i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.aarch64.neon.ursqrte.v4i32", args, ret, &[0, 0, 192, 61, 0, 200, 161, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.usdot.v2i32.v8i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.usdot.v2i32.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 66, 0, 64, 253, 32, 156, 130, 14, 96, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.usdot.v4i32.v16i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.usdot.v4i32.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 156, 130, 78, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.ushl.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.ushl.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 68, 33, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.ushl.v1i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.ushl.v1i64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 68, 225, 126, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.ushl.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.ushl.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 68, 161, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.ushl.v2i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.ushl.v2i64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 68, 225, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.ushl.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.ushl.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 68, 97, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.ushl.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.ushl.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 68, 161, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.ushl.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.ushl.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 68, 97, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.ushl.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.ushl.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 68, 33, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.usmmla.v4i32.v16i8" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.usmmla.v4i32.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 172, 130, 78, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.usqadd.i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.usqadd.i32", args, ret, &[8, 0, 64, 185, 41, 0, 64, 185, 0, 1, 39, 30, 33, 1, 39, 30, 32, 56, 160, 126, 8, 0, 38, 30, 72, 0, 0, 185, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.usqadd.i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.usqadd.i64", args, ret, &[8, 0, 64, 249, 41, 0, 64, 249, 0, 1, 103, 158, 33, 1, 103, 158, 32, 56, 224, 126, 8, 0, 102, 158, 72, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.usqadd.v16i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.usqadd.v16i8", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 32, 56, 32, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.usqadd.v1i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.usqadd.v1i64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 32, 56, 224, 126, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.usqadd.v2i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.usqadd.v2i32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 32, 56, 160, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.usqadd.v2i64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.usqadd.v2i64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 32, 56, 224, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.usqadd.v4i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.usqadd.v4i16", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 32, 56, 96, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.usqadd.v4i32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.usqadd.v4i32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 32, 56, 160, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.usqadd.v8i16" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.usqadd.v8i16", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 32, 56, 96, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.usqadd.v8i8" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.usqadd.v8i8", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 32, 56, 32, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcadd.rot270.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.vcadd.rot270.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 244, 129, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcadd.rot270.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.vcadd.rot270.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 244, 193, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcadd.rot270.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.vcadd.rot270.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 244, 129, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcadd.rot90.v2f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.vcadd.rot90.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 0, 228, 129, 46, 64, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcadd.rot90.v2f64" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.vcadd.rot90.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 228, 193, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcadd.rot90.v4f32" => {
+            assert_eq!(args.len(), 2);
+            call_asm(fx, "llvm.aarch64.neon.vcadd.rot90.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 0, 228, 129, 110, 64, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcmla.rot0.v2f32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.vcmla.rot0.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 66, 0, 64, 253, 32, 196, 130, 46, 96, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcmla.rot0.v2f64" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.vcmla.rot0.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 196, 194, 110, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcmla.rot0.v4f32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.vcmla.rot0.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 196, 130, 110, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcmla.rot180.v2f32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.vcmla.rot180.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 66, 0, 64, 253, 32, 212, 130, 46, 96, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcmla.rot180.v2f64" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.vcmla.rot180.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 212, 194, 110, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcmla.rot180.v4f32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.vcmla.rot180.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 212, 130, 110, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcmla.rot270.v2f32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.vcmla.rot270.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 66, 0, 64, 253, 32, 220, 130, 46, 96, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcmla.rot270.v2f64" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.vcmla.rot270.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 220, 194, 110, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcmla.rot270.v4f32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.vcmla.rot270.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 220, 130, 110, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcmla.rot90.v2f32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.vcmla.rot90.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 66, 0, 64, 253, 32, 204, 130, 46, 96, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcmla.rot90.v2f64" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.vcmla.rot90.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 204, 194, 110, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.neon.vcmla.rot90.v4f32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.aarch64.neon.vcmla.rot90.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 32, 204, 130, 110, 96, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.tcommit" => {
+            assert_eq!(args.len(), 0);
+            call_asm(fx, "llvm.aarch64.tcommit", args, ret, &[127, 48, 3, 213, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.tstart" => {
+            assert_eq!(args.len(), 0);
+            call_asm(fx, "llvm.aarch64.tstart", args, ret, &[104, 48, 35, 213, 8, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.aarch64.ttest" => {
+            assert_eq!(args.len(), 0);
+            call_asm(fx, "llvm.aarch64.ttest", args, ret, &[104, 49, 35, 213, 8, 0, 0, 249, 192, 3, 95, 214]);
+        }
+        "llvm.ceil.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.ceil.v1f64", args, ret, &[0, 0, 64, 253, 0, 192, 100, 30, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.ceil.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.ceil.v2f32", args, ret, &[0, 0, 64, 253, 0, 136, 161, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.ceil.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.ceil.v2f64", args, ret, &[0, 0, 192, 61, 0, 136, 225, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.ceil.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.ceil.v4f32", args, ret, &[0, 0, 192, 61, 0, 136, 161, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.ctlz.v16i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.ctlz.v16i8", args, ret, &[0, 0, 192, 61, 0, 72, 32, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.ctlz.v2i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.ctlz.v2i32", args, ret, &[0, 0, 64, 253, 0, 72, 160, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.ctlz.v4i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.ctlz.v4i16", args, ret, &[0, 0, 64, 253, 0, 72, 96, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.ctlz.v4i32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.ctlz.v4i32", args, ret, &[0, 0, 192, 61, 0, 72, 160, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.ctlz.v8i16" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.ctlz.v8i16", args, ret, &[0, 0, 192, 61, 0, 72, 96, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.ctlz.v8i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.ctlz.v8i8", args, ret, &[0, 0, 64, 253, 0, 72, 32, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.ctpop.v16i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.ctpop.v16i8", args, ret, &[0, 0, 192, 61, 0, 88, 32, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.ctpop.v8i8" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.ctpop.v8i8", args, ret, &[0, 0, 64, 253, 0, 88, 32, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.floor.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.floor.v1f64", args, ret, &[0, 0, 64, 253, 0, 64, 101, 30, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.floor.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.floor.v2f32", args, ret, &[0, 0, 64, 253, 0, 152, 33, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.floor.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.floor.v2f64", args, ret, &[0, 0, 192, 61, 0, 152, 97, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.floor.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.floor.v4f32", args, ret, &[0, 0, 192, 61, 0, 152, 33, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.fma.f32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.fma.f32", args, ret, &[0, 0, 64, 189, 33, 0, 64, 189, 66, 0, 64, 189, 0, 8, 1, 31, 96, 0, 0, 189, 192, 3, 95, 214]);
+        }
+        "llvm.fma.f64" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.fma.f64", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 66, 0, 64, 253, 0, 8, 65, 31, 96, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.fma.v1f64" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.fma.v1f64", args, ret, &[64, 0, 64, 253, 33, 0, 64, 253, 2, 0, 64, 253, 64, 0, 65, 31, 96, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.fma.v2f32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.fma.v2f32", args, ret, &[0, 0, 64, 253, 33, 0, 64, 253, 66, 0, 64, 253, 34, 204, 32, 14, 98, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.fma.v2f64" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.fma.v2f64", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 34, 204, 96, 78, 98, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.fma.v4f32" => {
+            assert_eq!(args.len(), 3);
+            call_asm(fx, "llvm.fma.v4f32", args, ret, &[0, 0, 192, 61, 33, 0, 192, 61, 66, 0, 192, 61, 34, 204, 32, 78, 98, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.fptosi.sat.v1i64.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.fptosi.sat.v1i64.v1f64", args, ret, &[0, 0, 64, 253, 8, 0, 120, 158, 0, 1, 103, 158, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.fptosi.sat.v2i32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.fptosi.sat.v2i32.v2f32", args, ret, &[0, 0, 64, 253, 0, 184, 161, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.fptosi.sat.v2i64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.fptosi.sat.v2i64.v2f64", args, ret, &[0, 0, 192, 61, 0, 184, 225, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.fptosi.sat.v4i32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.fptosi.sat.v4i32.v4f32", args, ret, &[0, 0, 192, 61, 0, 184, 161, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.fptoui.sat.v1i64.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.fptoui.sat.v1i64.v1f64", args, ret, &[0, 0, 64, 253, 8, 0, 121, 158, 0, 1, 103, 158, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.fptoui.sat.v2i32.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.fptoui.sat.v2i32.v2f32", args, ret, &[0, 0, 64, 253, 0, 184, 161, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.fptoui.sat.v2i64.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.fptoui.sat.v2i64.v2f64", args, ret, &[0, 0, 192, 61, 0, 184, 225, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.fptoui.sat.v4i32.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.fptoui.sat.v4i32.v4f32", args, ret, &[0, 0, 192, 61, 0, 184, 161, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.nearbyint.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.nearbyint.v1f64", args, ret, &[0, 0, 64, 253, 0, 192, 103, 30, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.nearbyint.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.nearbyint.v2f32", args, ret, &[0, 0, 64, 253, 0, 152, 161, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.nearbyint.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.nearbyint.v2f64", args, ret, &[0, 0, 192, 61, 0, 152, 225, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.nearbyint.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.nearbyint.v4f32", args, ret, &[0, 0, 192, 61, 0, 152, 161, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.rint.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.rint.v1f64", args, ret, &[0, 0, 64, 253, 0, 64, 103, 30, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.rint.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.rint.v2f32", args, ret, &[0, 0, 64, 253, 0, 152, 33, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.rint.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.rint.v2f64", args, ret, &[0, 0, 192, 61, 0, 152, 97, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.rint.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.rint.v4f32", args, ret, &[0, 0, 192, 61, 0, 152, 33, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.round.v1f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.round.v1f64", args, ret, &[0, 0, 64, 253, 0, 64, 102, 30, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.round.v2f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.round.v2f32", args, ret, &[0, 0, 64, 253, 0, 136, 33, 46, 32, 0, 0, 253, 192, 3, 95, 214]);
+        }
+        "llvm.round.v2f64" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.round.v2f64", args, ret, &[0, 0, 192, 61, 0, 136, 97, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.round.v4f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.round.v4f32", args, ret, &[0, 0, 192, 61, 0, 136, 33, 110, 32, 0, 128, 61, 192, 3, 95, 214]);
+        }
+        "llvm.roundeven.f32" => {
+            assert_eq!(args.len(), 1);
+            call_asm(fx, "llvm.roundeven.f32", args, ret, &[0, 0, 64, 189, 0, 64, 36, 30, 32, 0, 0, 189, 192, 3, 95, 214]);
+        }
         "llvm.trunc.v1f64" => {
             assert_eq!(args.len(), 1);
-            call_asm(
-                fx,
-                "llvm.trunc.v1f64",
-                args,
-                ret,
-                &[0, 0, 64, 253, 0, 192, 101, 30, 32, 0, 0, 253, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.trunc.v1f64", args, ret, &[0, 0, 64, 253, 0, 192, 101, 30, 32, 0, 0, 253, 192, 3, 95, 214]);
         }
         "llvm.trunc.v2f32" => {
             assert_eq!(args.len(), 1);
-            call_asm(
-                fx,
-                "llvm.trunc.v2f32",
-                args,
-                ret,
-                &[0, 0, 64, 253, 0, 152, 161, 14, 32, 0, 0, 253, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.trunc.v2f32", args, ret, &[0, 0, 64, 253, 0, 152, 161, 14, 32, 0, 0, 253, 192, 3, 95, 214]);
         }
         "llvm.trunc.v2f64" => {
             assert_eq!(args.len(), 1);
-            call_asm(
-                fx,
-                "llvm.trunc.v2f64",
-                args,
-                ret,
-                &[0, 0, 192, 61, 0, 152, 225, 78, 32, 0, 128, 61, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.trunc.v2f64", args, ret, &[0, 0, 192, 61, 0, 152, 225, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
         }
         "llvm.trunc.v4f32" => {
             assert_eq!(args.len(), 1);
-            call_asm(
-                fx,
-                "llvm.trunc.v4f32",
-                args,
-                ret,
-                &[0, 0, 192, 61, 0, 152, 161, 78, 32, 0, 128, 61, 192, 3, 95, 214],
-            );
+            call_asm(fx, "llvm.trunc.v4f32", args, ret, &[0, 0, 192, 61, 0, 152, 161, 78, 32, 0, 128, 61, 192, 3, 95, 214]);
         }
-
         // ==== end autogenerated section
 
         /*
-        _ if intrinsic.starts_with("llvm.aarch64.neon.sshl.v")
-            || intrinsic.starts_with("llvm.aarch64.neon.sqshl.v")
+        _ if intrinsic.starts_with("llvm.aarch64.neon.sqshl.v")
             // FIXME split this one out once saturating is implemented
             || intrinsic.starts_with("llvm.aarch64.neon.sqshlu.v") =>
         {
