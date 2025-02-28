@@ -100,12 +100,20 @@ impl<T: Module> Module for UnwindModule<T> {
 
     fn define_function_bytes(
         &mut self,
-        _func_id: FuncId,
-        _func: &Function,
-        _alignment: u64,
-        _bytes: &[u8],
-        _relocs: &[FinalizedMachReloc],
+        func_id: FuncId,
+        func: &Function,
+        alignment: u64,
+        bytes: &[u8],
+        relocs: &[FinalizedMachReloc],
     ) -> ModuleResult<()> {
+        if self
+            .declarations()
+            .get_function_decl(func_id)
+            .linkage_name(func_id)
+            .starts_with("__rust_cranelift_")
+        {
+            return self.module.define_function_bytes(func_id, func, alignment, bytes, relocs);
+        }
         unimplemented!()
     }
 

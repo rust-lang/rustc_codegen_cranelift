@@ -4,24 +4,25 @@ use std::io::Write;
 use std::process::Stdio;
 
 use object::{Object, ObjectSection, ObjectSymbol};
+use quote::quote;
 use syn::Ident;
 
 use crate::def_visitor::{DefVisitor, LlvmIntrinsicDef};
 
 fn compile_object(visitor: &DefVisitor) {
     let mut ts = proc_macro2::TokenStream::new();
-    ts.extend(quote::quote! {
+    ts.extend(quote! {
         #![feature(abi_unadjusted, f16, f128, link_llvm_intrinsics, repr_simd, simd_ffi)]
         #![allow(dead_code, improper_ctypes, improper_ctypes_definitions, internal_features, non_camel_case_types)]
     });
 
     let structs = &visitor.structs;
-    ts.extend(quote::quote! {
+    ts.extend(quote! {
         #(#structs)*
     });
 
     let aliases = &visitor.aliases;
-    ts.extend(quote::quote! {
+    ts.extend(quote! {
         #(#aliases)*
     });
 
@@ -31,7 +32,7 @@ fn compile_object(visitor: &DefVisitor) {
         let mangled_name = Ident::new(&link_name.replace('.', "__"), sig.ident.span());
         sig.ident = mangled_name.clone();
 
-        ts.extend(quote::quote! {
+        ts.extend(quote! {
             extern #abi {
                 #[link_name = #link_name]
                 #sig;
@@ -39,24 +40,33 @@ fn compile_object(visitor: &DefVisitor) {
         });
 
         sig.ident = Ident::new(&format!("__rust_cranelift_{mangled_name}"), sig.ident.span());
-        let args = sig
-            .inputs
-            .iter()
-            .map(|arg| match arg {
-                syn::FnArg::Typed(syn::PatType { pat, .. }) => match &**pat {
-                    syn::Pat::Ident(ident) => ident.ident.clone(),
+        let mut args = vec![];
+        for arg in &mut sig.inputs {
+            match arg {
+                syn::FnArg::Typed(syn::PatType { pat, ty, .. }) => match &**pat {
+                    syn::Pat::Ident(ident) => {
+                        let ident = ident.ident.clone();
+                        args.push(quote! { *#ident });
+                        *ty = syn::parse_quote! { &#ty };
+                    }
                     syn::Pat::Wild(_) => unreachable!("{sig:?}"),
                     _ => unreachable!("{pat:?}"),
                 },
                 _ => unreachable!(),
-            })
-            .collect::<Vec<_>>();
+            }
+        }
+        let ret_ty = match &sig.output {
+            syn::ReturnType::Default => quote! { () },
+            syn::ReturnType::Type(_, ty) => quote! { #ty },
+        };
+        sig.inputs.push(syn::parse_quote! { ret: &mut #ret_ty });
+        sig.output = syn::ReturnType::Default;
 
-        ts.extend(quote::quote! {
+        ts.extend(quote! {
             #[no_mangle]
             #[target_feature(enable = "neon,aes,sha2,sha3,sm4,crc,frintts,tme,i8mm,fcma,dotprod,rdm")] // FIXME infer from context
             unsafe extern "C" #sig {
-                #mangled_name(#(#args,)*)
+                *ret = #mangled_name(#(#args,)*)
             }
         });
     }
@@ -108,7 +118,7 @@ fn main() {
         // Sanity checks
         assert!(section.relocations().next().is_none(), "function {link_name} has relocations");
         assert!(
-            section.size() <= 0x14,
+            section.size() <= 0x32,
             "function {link_name} is too big. it is {} bytes",
             section.size(),
         );

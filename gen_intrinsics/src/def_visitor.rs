@@ -60,15 +60,13 @@ impl<'ast> Visit<'ast> for DefVisitor {
 
         let mut ty = i.clone();
         ty.attrs = ty.attrs.into_iter().filter(|attr| attr.path().is_ident("repr")).collect();
+        ty.attrs.push(syn::parse_quote! { #[derive(Copy, Clone)] });
 
         self.structs.push(ty);
     }
 
     fn visit_item_type(&mut self, i: &'ast syn::ItemType) {
-        let mut alias = i.clone();
-        alias.attrs = alias.attrs.into_iter().filter(|attr| attr.path().is_ident("repr")).collect();
-
-        self.aliases.push(alias);
+        self.aliases.push(i.clone());
     }
 
     fn visit_item_foreign_mod(&mut self, i: &'ast syn::ItemForeignMod) {

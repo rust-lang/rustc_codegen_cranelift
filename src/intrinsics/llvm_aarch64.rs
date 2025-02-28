@@ -16,25 +16,31 @@ fn call_asm<'tcx>(
     code: &[u8],
 ) {
     let name = format!("__rust_cranelift_{name}");
-    let is_defined = fx.module.declarations().get_name(&name).is_none();
 
     let sig = Signature {
         params: args
             .iter()
-            .map(|arg| AbiParam::new(fx.clif_type(arg.layout().ty).unwrap()))
+            .map(|_| AbiParam::new(fx.pointer_type))
+            .chain(Some(AbiParam::new(fx.pointer_type)))
             .collect(),
-        returns: vec![AbiParam::new(fx.clif_type(ret.layout().ty).unwrap())],
+        returns: vec![],
         call_conv: CallConv::SystemV,
     };
 
     let func = fx.module.declare_function(&name, Linkage::Local, &sig).unwrap();
-    if !is_defined {
-        fx.module.define_function_bytes(func, &Function::new(), 4, &code, &[]).unwrap();
+    match fx.module.define_function_bytes(func, &Function::new(), 4, &code, &[]) {
+        Ok(_) | Err(cranelift_module::ModuleError::DuplicateDefinition(_)) => {}
+        err => err.unwrap(),
     }
 
     let func_ref = fx.module.declare_func_in_func(func, &mut fx.bcx.func);
-    let res = fx.bcx.ins().call(func_ref, &args.into_iter().map(|_| todo!()).collect::<Vec<_>>());
-    todo!("write result")
+    let mut args =
+        args.into_iter().map(|arg| arg.force_stack(fx).0.get_addr(fx)).collect::<Vec<_>>();
+    let res = CPlace::new_stack_slot(fx, ret.layout());
+    args.push(res.to_ptr().get_addr(fx));
+    fx.bcx.ins().call(func_ref, &args);
+    let res = res.to_cvalue(fx);
+    ret.write_cvalue(fx, res);
 }
 
 pub(crate) fn codegen_aarch64_llvm_intrinsic_call<'tcx>(
@@ -218,7 +224,7 @@ pub(crate) fn codegen_aarch64_llvm_intrinsic_call<'tcx>(
             });
         }
 
-        _ if intrinsic.starts_with("llvm.aarch64.neon.smax.v") => {
+        /*_ if intrinsic.starts_with("llvm.aarch64.neon.smax.v") => {
             intrinsic_args!(fx, args => (x, y); intrinsic);
 
             simd_pair_for_each_lane(
@@ -230,6 +236,186 @@ pub(crate) fn codegen_aarch64_llvm_intrinsic_call<'tcx>(
                     let gt = fx.bcx.ins().icmp(IntCC::SignedGreaterThan, x_lane, y_lane);
                     fx.bcx.ins().select(gt, x_lane, y_lane)
                 },
+            );
+        }*/
+        "llvm.aarch64.neon.smax.v16i8" => {
+            intrinsic_args!(fx, args => (a, b); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smax__v16i8",
+                &[a, b],
+                ret,
+                &[0, 0, 192, 61, 33, 0, 192, 61, 0, 100, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smax.v2i32" => {
+            intrinsic_args!(fx, args => (a, b); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smax__v2i32",
+                &[a, b],
+                ret,
+                &[0, 0, 64, 253, 33, 0, 64, 253, 0, 100, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smax.v4i16" => {
+            intrinsic_args!(fx, args => (a, b); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smax__v4i16",
+                &[a, b],
+                ret,
+                &[0, 0, 64, 253, 33, 0, 64, 253, 0, 100, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smax.v4i32" => {
+            intrinsic_args!(fx, args => (a, b); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smax__v4i32",
+                &[a, b],
+                ret,
+                &[0, 0, 192, 61, 33, 0, 192, 61, 0, 100, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smax.v8i16" => {
+            intrinsic_args!(fx, args => (a, b); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smax__v8i16",
+                &[a, b],
+                ret,
+                &[0, 0, 192, 61, 33, 0, 192, 61, 0, 100, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smax.v8i8" => {
+            intrinsic_args!(fx, args => (a, b); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smax__v8i8",
+                &[a, b],
+                ret,
+                &[0, 0, 64, 253, 33, 0, 64, 253, 0, 100, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smaxp.v16i8" => {
+            intrinsic_args!(fx, args => (a, b); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smaxp__v16i8",
+                &[a, b],
+                ret,
+                &[0, 0, 192, 61, 33, 0, 192, 61, 0, 164, 33, 78, 64, 0, 128, 61, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smaxp.v2i32" => {
+            intrinsic_args!(fx, args => (a, b); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smaxp__v2i32",
+                &[a, b],
+                ret,
+                &[0, 0, 64, 253, 33, 0, 64, 253, 0, 164, 161, 14, 64, 0, 0, 253, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smaxp.v4i16" => {
+            intrinsic_args!(fx, args => (a, b); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smaxp__v4i16",
+                &[a, b],
+                ret,
+                &[0, 0, 64, 253, 33, 0, 64, 253, 0, 164, 97, 14, 64, 0, 0, 253, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smaxp.v4i32" => {
+            intrinsic_args!(fx, args => (a, b); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smaxp__v4i32",
+                &[a, b],
+                ret,
+                &[0, 0, 192, 61, 33, 0, 192, 61, 0, 164, 161, 78, 64, 0, 128, 61, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smaxp.v8i16" => {
+            intrinsic_args!(fx, args => (a, b); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smaxp__v8i16",
+                &[a, b],
+                ret,
+                &[0, 0, 192, 61, 33, 0, 192, 61, 0, 164, 97, 78, 64, 0, 128, 61, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smaxp.v8i8" => {
+            intrinsic_args!(fx, args => (a, b); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smaxp__v8i8",
+                &[a, b],
+                ret,
+                &[0, 0, 64, 253, 33, 0, 64, 253, 0, 164, 33, 14, 64, 0, 0, 253, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smaxv.i16.v4i16" => {
+            intrinsic_args!(fx, args => (a); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smaxv__i16__v4i16",
+                &[a],
+                ret,
+                &[0, 0, 64, 253, 0, 168, 112, 14, 32, 0, 0, 125, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smaxv.i16.v8i16" => {
+            intrinsic_args!(fx, args => (a); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smaxv__i16__v8i16",
+                &[a],
+                ret,
+                &[0, 0, 192, 61, 0, 168, 112, 78, 32, 0, 0, 125, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smaxv.i32.v2i32" => {
+            intrinsic_args!(fx, args => (a); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smaxv__i32__v2i32",
+                &[a],
+                ret,
+                &[0, 0, 64, 253, 0, 164, 160, 14, 32, 0, 0, 189, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smaxv.i32.v4i32" => {
+            intrinsic_args!(fx, args => (a); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smaxv__i32__v4i32",
+                &[a],
+                ret,
+                &[0, 0, 192, 61, 0, 168, 176, 78, 32, 0, 0, 189, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smaxv.i8.v16i8" => {
+            intrinsic_args!(fx, args => (a); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smaxv__i8__v16i8",
+                &[a],
+                ret,
+                &[0, 0, 192, 61, 0, 168, 48, 78, 32, 0, 0, 13, 192, 3, 95, 214],
+            );
+        }
+        "llvm.aarch64.neon.smaxv.i8.v8i8" => {
+            intrinsic_args!(fx, args => (a); intrinsic);
+            call_asm(
+                fx,
+                "llvm__aarch64__neon__smaxv__i8__v8i8",
+                &[a],
+                ret,
+                &[0, 0, 64, 253, 0, 168, 48, 14, 32, 0, 0, 13, 192, 3, 95, 214],
             );
         }
 
@@ -485,19 +671,43 @@ pub(crate) fn codegen_aarch64_llvm_intrinsic_call<'tcx>(
         // ==== begin autogenerated section ====
         "llvm.trunc.v1f64" => {
             intrinsic_args!(fx, args => (a); intrinsic);
-            call_asm(fx, "llvm__trunc__v1f64", &[a], ret, &[0, 192, 101, 30, 192, 3, 95, 214]);
+            call_asm(
+                fx,
+                "llvm__trunc__v1f64",
+                &[a],
+                ret,
+                &[0, 0, 64, 253, 0, 192, 101, 30, 32, 0, 0, 253, 192, 3, 95, 214],
+            );
         }
         "llvm.trunc.v2f32" => {
             intrinsic_args!(fx, args => (a); intrinsic);
-            call_asm(fx, "llvm__trunc__v2f32", &[a], ret, &[0, 152, 161, 14, 192, 3, 95, 214]);
+            call_asm(
+                fx,
+                "llvm__trunc__v2f32",
+                &[a],
+                ret,
+                &[0, 0, 64, 253, 0, 152, 161, 14, 32, 0, 0, 253, 192, 3, 95, 214],
+            );
         }
         "llvm.trunc.v2f64" => {
             intrinsic_args!(fx, args => (a); intrinsic);
-            call_asm(fx, "llvm__trunc__v2f64", &[a], ret, &[0, 152, 225, 78, 192, 3, 95, 214]);
+            call_asm(
+                fx,
+                "llvm__trunc__v2f64",
+                &[a],
+                ret,
+                &[0, 0, 192, 61, 0, 152, 225, 78, 32, 0, 128, 61, 192, 3, 95, 214],
+            );
         }
         "llvm.trunc.v4f32" => {
             intrinsic_args!(fx, args => (a); intrinsic);
-            call_asm(fx, "llvm__trunc__v4f32", &[a], ret, &[0, 152, 161, 78, 192, 3, 95, 214]);
+            call_asm(
+                fx,
+                "llvm__trunc__v4f32",
+                &[a],
+                ret,
+                &[0, 0, 192, 61, 0, 152, 161, 78, 32, 0, 128, 61, 192, 3, 95, 214],
+            );
         }
         // ==== end autogenerated section
 
