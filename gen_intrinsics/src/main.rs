@@ -113,9 +113,7 @@ fn main() {
             section.size(),
         );
 
-        let data = section.data().unwrap();
-        let (code, ret) = data.split_at(data.len() - 4);
-        assert_eq!(ret, [0xc0_u8, 0x03, 0x5f, 0xd6]); // arm64 ret instruction
+        let code = section.data().unwrap();
 
         let args = sig
             .inputs

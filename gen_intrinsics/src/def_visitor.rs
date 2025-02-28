@@ -54,6 +54,10 @@ impl<'ast> Visit<'ast> for DefVisitor {
             return;
         }
 
+        if i.ident.to_string() == "JustOne" {
+            return; // Multiple definitions across modules
+        }
+
         let mut ty = i.clone();
         ty.attrs = ty.attrs.into_iter().filter(|attr| attr.path().is_ident("repr")).collect();
 
@@ -156,6 +160,11 @@ impl<'ast> Visit<'ast> for DefVisitor {
                         | "llvm.aarch64.crypto.sm3tt2a"
                         | "llvm.aarch64.crypto.sm3tt2b"
                         | "llvm.aarch64.tcancel" => continue 'items,
+
+                        "llvm.aarch64.addg" | "llvm.aarch64.gmi" | "llvm.aarch64.irg"
+                        | "llvm.aarch64.ldg" | "llvm.aarch64.stg" | "llvm.aarch64.subp" => {
+                            continue 'items;
+                        }
                         _ => {}
                     }
 
