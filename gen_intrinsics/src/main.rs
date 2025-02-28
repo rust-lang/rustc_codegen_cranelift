@@ -87,6 +87,7 @@ fn compile_object(visitor: &DefVisitor) {
         //.arg("--target=x86_64-unknown-linux-gnu")
         .arg("-o")
         .arg("target/rust_out.o")
+        .arg("-Zverify-llvm-ir")
         .arg("-")
         .stdin(Stdio::piped())
         .spawn()

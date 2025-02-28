@@ -137,8 +137,16 @@ impl<'ast> Visit<'ast> for DefVisitor {
 
                     // FIXME remove this skipping
                     match &*link_name {
-                        _ if link_name.starts_with("llvm.aarch64.neon.ld") => continue 'items,
-                        _ if link_name.starts_with("llvm.aarch64.neon.st") => continue 'items,
+                        _ if link_name.starts_with("llvm.aarch64.neon.ld")
+                            && link_name.contains("lane") =>
+                        {
+                            continue 'items;
+                        }
+                        _ if link_name.starts_with("llvm.aarch64.neon.st")
+                            && link_name.contains("lane") =>
+                        {
+                            continue 'items;
+                        }
                         _ if link_name.starts_with("llvm.aarch64.neon.rshrn") => continue 'items,
                         _ if link_name.starts_with("llvm.aarch64.neon.sq") => continue 'items,
                         _ if link_name.starts_with("llvm.aarch64.neon.uq") => continue 'items,
