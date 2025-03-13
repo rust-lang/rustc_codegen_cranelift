@@ -194,7 +194,15 @@ pub(super) fn load_lto_modules(
                 object::read::File::parse(child.data(&*archive_data).expect("corrupt rlib"))
                     .unwrap();
             let module = SerializableModule::deserialize(
-                lto_object.section_by_name(".rodata.cgclif_lto").unwrap().data().unwrap(),
+                lto_object
+                    .section_by_name(".rodata.cgclif_lto")
+                    .unwrap_or_else(|| {
+                        tcx.sess
+                            .dcx()
+                            .fatal(format!("no LTO data found for {}({name})", path.display()));
+                    })
+                    .data()
+                    .unwrap(),
                 crate::build_isa(tcx.sess),
             );
             modules.push((name.to_owned(), module));
