@@ -288,6 +288,10 @@ pub(crate) struct FunctionCx<'m, 'clif, 'tcx: 'm> {
     /// When `#[track_caller]` is used, the implicit caller location is stored in this variable.
     pub(crate) caller_location: Option<CValue<'tcx>>,
 
+    /// During cleanup the exception pointer will be stored at the location pointed to by this
+    /// pointer.
+    pub(crate) exception_slot: Pointer,
+
     pub(crate) clif_comments: crate::pretty_clif::CommentWriter,
 
     /// This should only be accessed by `CPlace::new_var`.
