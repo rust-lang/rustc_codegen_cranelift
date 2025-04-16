@@ -1,0 +1,25 @@
+From 43c0b573c426ed7945bc25586c494f86b4d93c86 Mon Sep 17 00:00:00 2001
+From: bjorn3 <17426603+bjorn3@users.noreply.github.com>
+Date: Wed, 16 Apr 2025 11:52:26 +0000
+Subject: [PATCH] Avoid compiling panic_abort
+
+It requires -Cpanic=abort, but cargo doesn't allow setting that for a single crate
+---
+ library/std/Cargo.toml | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/library/std/Cargo.toml b/library/std/Cargo.toml
+index 176da60..fd90469 100644
+--- a/library/std/Cargo.toml
++++ b/library/std/Cargo.toml
+@@ -16,7 +16,6 @@ crate-type = ["dylib", "rlib"]
+ alloc = { path = "../alloc", public = true }
+ cfg-if = { version = "1.0", features = ['rustc-dep-of-std'] }
+ panic_unwind = { path = "../panic_unwind", optional = true }
+-panic_abort = { path = "../panic_abort" }
+ core = { path = "../core", public = true }
+ compiler_builtins = { version = "=0.1.159" }
+ unwind = { path = "../unwind" }
+-- 
+2.43.0
+
