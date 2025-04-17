@@ -290,6 +290,7 @@ pub(crate) struct FunctionCx<'m, 'clif, 'tcx: 'm> {
 
     /// During cleanup the exception pointer will be stored at the location pointed to by this
     /// pointer.
+    // FIXME use SSA variable
     pub(crate) exception_slot: Pointer,
 
     pub(crate) clif_comments: crate::pretty_clif::CommentWriter,
