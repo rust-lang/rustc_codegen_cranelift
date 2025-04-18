@@ -20,7 +20,7 @@ use rustc_middle::ty::print::with_no_trimmed_paths;
 use rustc_session::Session;
 use rustc_span::source_map::Spanned;
 use rustc_target::callconv::{Conv, FnAbi, PassMode};
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 
 use self::pass_mode::*;
 pub(crate) use self::returning::codegen_return;
@@ -518,12 +518,6 @@ pub(crate) fn codegen_terminator_call<'tcx>(
     let args = args;
     assert_eq!(fn_abi.args.len(), args.len());
 
-    #[derive(Copy, Clone)]
-    enum CallTarget {
-        Direct(FuncRef),
-        Indirect(SigRef, Value),
-    }
-
     let (func_ref, first_arg_override) = match instance {
         // Trait object call
         Some(Instance { def: InstanceKind::Virtual(_, idx), .. }) => {
@@ -590,81 +584,7 @@ pub(crate) fn codegen_terminator_call<'tcx>(
             with_no_trimmed_paths!(fx.add_comment(nop_inst, format!("abi: {:?}", fn_abi)));
         }
 
-        let sig_ref = match func_ref {
-            CallTarget::Direct(func_ref) => fx.bcx.func.dfg.ext_funcs[func_ref].signature,
-            CallTarget::Indirect(sig_ref, _func_ptr) => sig_ref,
-        };
-
-        match unwind {
-            // FIXME abort on unreachable and terminate unwinds
-            UnwindAction::Continue | UnwindAction::Unreachable | UnwindAction::Terminate(_) => {
-                let call_inst = match func_ref {
-                    CallTarget::Direct(func_ref) => fx.bcx.ins().call(func_ref, &call_args),
-                    CallTarget::Indirect(sig, func_ptr) => {
-                        fx.bcx.ins().call_indirect(sig, func_ptr, &call_args)
-                    }
-                };
-
-                fx.bcx
-                    .func
-                    .dfg
-                    .inst_results(call_inst)
-                    .iter()
-                    .copied()
-                    .collect::<SmallVec<[Value; 2]>>()
-            }
-            UnwindAction::Cleanup(cleanup) => {
-                let returns_types = fx.bcx.func.dfg.signatures[sig_ref]
-                    .returns
-                    .iter()
-                    .map(|return_param| return_param.value_type)
-                    .collect::<Vec<_>>();
-
-                let fallthrough_block = fx.bcx.create_block();
-                let fallthrough_block_call_args = returns_types
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| BlockArg::TryCallRet(i.try_into().unwrap()))
-                    .collect::<Vec<_>>();
-                let fallthrough_block_call =
-                    fx.bcx.func.dfg.block_call(fallthrough_block, &fallthrough_block_call_args);
-                let pre_cleanup_block = fx.bcx.create_block();
-                let pre_cleanup_block_call =
-                    fx.bcx.func.dfg.block_call(pre_cleanup_block, &[BlockArg::TryCallExn(0)]);
-                let exception_table =
-                    fx.bcx.func.dfg.exception_tables.push(ExceptionTableData::new(
-                        sig_ref,
-                        fallthrough_block_call,
-                        [(Some(ExceptionTag::with_number(0).unwrap()), pre_cleanup_block_call)],
-                    ));
-
-                match func_ref {
-                    CallTarget::Direct(func_ref) => {
-                        fx.bcx.ins().try_call(func_ref, &call_args, exception_table);
-                    }
-                    CallTarget::Indirect(_sig, func_ptr) => {
-                        fx.bcx.ins().try_call_indirect(func_ptr, &call_args, exception_table);
-                    }
-                }
-
-                fx.bcx.seal_block(pre_cleanup_block);
-                fx.bcx.switch_to_block(pre_cleanup_block);
-                fx.bcx.set_cold_block(pre_cleanup_block);
-                let exception_ptr = fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
-                fx.bcx.def_var(fx.exception_slot, exception_ptr);
-                let cleanup_block = fx.get_block(cleanup);
-                fx.bcx.ins().jump(cleanup_block, &[]);
-
-                fx.bcx.seal_block(fallthrough_block);
-                fx.bcx.switch_to_block(fallthrough_block);
-                let returns = returns_types
-                    .into_iter()
-                    .map(|ty| fx.bcx.append_block_param(fallthrough_block, ty))
-                    .collect();
-                fx.bcx.ins().nop();
-                returns
-            }
-        }
+        codegen_call_with_unwind_action(fx, func_ref, unwind, &call_args, None)
     });
 
     if let Some(dest) = target {
@@ -821,44 +741,13 @@ pub(crate) fn codegen_drop<'tcx>(
 
                 let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config.default_call_conv, &fn_abi);
                 let sig = fx.bcx.import_signature(sig);
-                match unwind {
-                    // FIXME abort on unreachable and terminate unwinds
-                    UnwindAction::Continue
-                    | UnwindAction::Unreachable
-                    | UnwindAction::Terminate(_) => {
-                        fx.bcx.ins().call_indirect(sig, drop_fn, &[ptr]);
-                        fx.bcx.ins().jump(ret_block, &[]);
-                    }
-                    UnwindAction::Cleanup(cleanup) => {
-                        let ret_block_call = fx.bcx.func.dfg.block_call(ret_block, &[]);
-                        let pre_cleanup_block = fx.bcx.create_block();
-                        let pre_cleanup_block_call = fx
-                            .bcx
-                            .func
-                            .dfg
-                            .block_call(pre_cleanup_block, &[BlockArg::TryCallExn(0)]);
-                        let exception_table =
-                            fx.bcx.func.dfg.exception_tables.push(ExceptionTableData::new(
-                                sig,
-                                ret_block_call,
-                                [(
-                                    Some(ExceptionTag::with_number(0).unwrap()),
-                                    pre_cleanup_block_call,
-                                )],
-                            ));
-
-                        fx.bcx.ins().try_call_indirect(drop_fn, &[ptr], exception_table);
-
-                        fx.bcx.seal_block(pre_cleanup_block);
-                        fx.bcx.switch_to_block(pre_cleanup_block);
-                        fx.bcx.set_cold_block(pre_cleanup_block);
-                        let exception_ptr =
-                            fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
-                        fx.bcx.def_var(fx.exception_slot, exception_ptr);
-                        let cleanup_block = fx.get_block(cleanup);
-                        fx.bcx.ins().jump(cleanup_block, &[]);
-                    }
-                }
+                codegen_call_with_unwind_action(
+                    fx,
+                    CallTarget::Indirect(sig, drop_fn),
+                    unwind,
+                    &[ptr],
+                    Some(ret_block),
+                );
             }
             ty::Dynamic(_, _, ty::DynStar) => {
                 // IN THIS ARM, WE HAVE:
@@ -901,44 +790,13 @@ pub(crate) fn codegen_drop<'tcx>(
 
                 let sig = clif_sig_from_fn_abi(fx.tcx, fx.target_config.default_call_conv, &fn_abi);
                 let sig = fx.bcx.import_signature(sig);
-                match unwind {
-                    // FIXME abort on unreachable and terminate unwinds
-                    UnwindAction::Continue
-                    | UnwindAction::Unreachable
-                    | UnwindAction::Terminate(_) => {
-                        fx.bcx.ins().call_indirect(sig, drop_fn, &[data]);
-                        fx.bcx.ins().jump(ret_block, &[]);
-                    }
-                    UnwindAction::Cleanup(cleanup) => {
-                        let ret_block_call = fx.bcx.func.dfg.block_call(ret_block, &[]);
-                        let pre_cleanup_block = fx.bcx.create_block();
-                        let pre_cleanup_block_call = fx
-                            .bcx
-                            .func
-                            .dfg
-                            .block_call(pre_cleanup_block, &[BlockArg::TryCallExn(0)]);
-                        let exception_table =
-                            fx.bcx.func.dfg.exception_tables.push(ExceptionTableData::new(
-                                sig,
-                                ret_block_call,
-                                [(
-                                    Some(ExceptionTag::with_number(0).unwrap()),
-                                    pre_cleanup_block_call,
-                                )],
-                            ));
-
-                        fx.bcx.ins().try_call_indirect(drop_fn, &[data], exception_table);
-
-                        fx.bcx.seal_block(pre_cleanup_block);
-                        fx.bcx.switch_to_block(pre_cleanup_block);
-                        fx.bcx.set_cold_block(pre_cleanup_block);
-                        let exception_ptr =
-                            fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
-                        fx.bcx.def_var(fx.exception_slot, exception_ptr);
-                        let cleanup_block = fx.get_block(cleanup);
-                        fx.bcx.ins().jump(cleanup_block, &[]);
-                    }
-                }
+                codegen_call_with_unwind_action(
+                    fx,
+                    CallTarget::Indirect(sig, drop_fn),
+                    unwind,
+                    &[data],
+                    Some(ret_block),
+                );
             }
             _ => {
                 assert!(!matches!(drop_instance.def, InstanceKind::Virtual(_, _)));
@@ -963,45 +821,117 @@ pub(crate) fn codegen_drop<'tcx>(
                 }
 
                 let func_ref = fx.get_function_ref(drop_instance);
-                let sig_ref = fx.bcx.func.dfg.ext_funcs[func_ref].signature;
-                match unwind {
-                    // FIXME abort on unreachable and terminate unwinds
-                    UnwindAction::Continue
-                    | UnwindAction::Unreachable
-                    | UnwindAction::Terminate(_) => {
-                        fx.bcx.ins().call(func_ref, &call_args);
-                        fx.bcx.ins().jump(ret_block, &[]);
-                    }
-                    UnwindAction::Cleanup(cleanup) => {
-                        let ret_block_call = fx.bcx.func.dfg.block_call(ret_block, &[]);
-                        let pre_cleanup_block = fx.bcx.create_block();
-                        let pre_cleanup_block_call = fx
-                            .bcx
-                            .func
-                            .dfg
-                            .block_call(pre_cleanup_block, &[BlockArg::TryCallExn(0)]);
-                        let exception_table =
-                            fx.bcx.func.dfg.exception_tables.push(ExceptionTableData::new(
-                                sig_ref,
-                                ret_block_call,
-                                [(
-                                    Some(ExceptionTag::with_number(0).unwrap()),
-                                    pre_cleanup_block_call,
-                                )],
-                            ));
+                codegen_call_with_unwind_action(
+                    fx,
+                    CallTarget::Direct(func_ref),
+                    unwind,
+                    &call_args,
+                    Some(ret_block),
+                );
+            }
+        }
+    }
+}
 
-                        fx.bcx.ins().try_call(func_ref, &call_args, exception_table);
+#[derive(Copy, Clone)]
+pub(crate) enum CallTarget {
+    Direct(FuncRef),
+    Indirect(SigRef, Value),
+}
 
-                        fx.bcx.seal_block(pre_cleanup_block);
-                        fx.bcx.switch_to_block(pre_cleanup_block);
-                        fx.bcx.set_cold_block(pre_cleanup_block);
-                        let exception_ptr =
-                            fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
-                        fx.bcx.def_var(fx.exception_slot, exception_ptr);
-                        let cleanup_block = fx.get_block(cleanup);
-                        fx.bcx.ins().jump(cleanup_block, &[]);
-                    }
+pub(crate) fn codegen_call_with_unwind_action(
+    fx: &mut FunctionCx<'_, '_, '_>,
+    func_ref: CallTarget,
+    unwind: UnwindAction,
+    call_args: &[Value],
+    target_block: Option<Block>,
+) -> SmallVec<[Value; 2]> {
+    let sig_ref = match func_ref {
+        CallTarget::Direct(func_ref) => fx.bcx.func.dfg.ext_funcs[func_ref].signature,
+        CallTarget::Indirect(sig_ref, _func_ptr) => sig_ref,
+    };
+
+    if target_block.is_some() {
+        assert!(fx.bcx.func.dfg.signatures[sig_ref].returns.is_empty());
+    }
+
+    match unwind {
+        // FIXME abort on unreachable and terminate unwinds
+        UnwindAction::Continue | UnwindAction::Unreachable | UnwindAction::Terminate(_) => {
+            let call_inst = match func_ref {
+                CallTarget::Direct(func_ref) => fx.bcx.ins().call(func_ref, &call_args),
+                CallTarget::Indirect(sig, func_ptr) => {
+                    fx.bcx.ins().call_indirect(sig, func_ptr, &call_args)
                 }
+            };
+
+            if let Some(target_block) = target_block {
+                fx.bcx.ins().jump(target_block, &[]);
+                smallvec![]
+            } else {
+                fx.bcx
+                    .func
+                    .dfg
+                    .inst_results(call_inst)
+                    .iter()
+                    .copied()
+                    .collect::<SmallVec<[Value; 2]>>()
+            }
+        }
+        UnwindAction::Cleanup(cleanup) => {
+            let returns_types = fx.bcx.func.dfg.signatures[sig_ref]
+                .returns
+                .iter()
+                .map(|return_param| return_param.value_type)
+                .collect::<Vec<_>>();
+
+            let fallthrough_block = fx.bcx.create_block();
+            let fallthrough_block_call_args = returns_types
+                .iter()
+                .enumerate()
+                .map(|(i, _)| BlockArg::TryCallRet(i.try_into().unwrap()))
+                .collect::<Vec<_>>();
+            let fallthrough_block_call = fx.bcx.func.dfg.block_call(
+                target_block.unwrap_or(fallthrough_block),
+                &fallthrough_block_call_args,
+            );
+            let pre_cleanup_block = fx.bcx.create_block();
+            let pre_cleanup_block_call =
+                fx.bcx.func.dfg.block_call(pre_cleanup_block, &[BlockArg::TryCallExn(0)]);
+            let exception_table = fx.bcx.func.dfg.exception_tables.push(ExceptionTableData::new(
+                sig_ref,
+                fallthrough_block_call,
+                [(Some(ExceptionTag::with_number(0).unwrap()), pre_cleanup_block_call)],
+            ));
+
+            match func_ref {
+                CallTarget::Direct(func_ref) => {
+                    fx.bcx.ins().try_call(func_ref, &call_args, exception_table);
+                }
+                CallTarget::Indirect(_sig, func_ptr) => {
+                    fx.bcx.ins().try_call_indirect(func_ptr, &call_args, exception_table);
+                }
+            }
+
+            fx.bcx.seal_block(pre_cleanup_block);
+            fx.bcx.switch_to_block(pre_cleanup_block);
+            fx.bcx.set_cold_block(pre_cleanup_block);
+            let exception_ptr = fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
+            fx.bcx.def_var(fx.exception_slot, exception_ptr);
+            let cleanup_block = fx.get_block(cleanup);
+            fx.bcx.ins().jump(cleanup_block, &[]);
+
+            if target_block.is_none() {
+                fx.bcx.seal_block(fallthrough_block);
+                fx.bcx.switch_to_block(fallthrough_block);
+                let returns = returns_types
+                    .into_iter()
+                    .map(|ty| fx.bcx.append_block_param(fallthrough_block, ty))
+                    .collect();
+                fx.bcx.ins().nop();
+                returns
+            } else {
+                smallvec![]
             }
         }
     }

@@ -1,7 +1,7 @@
 //! Codegen of a single function
 
 use cranelift_codegen::CodegenError;
-use cranelift_codegen::ir::{BlockArg, ExceptionTableData, ExceptionTag, UserFuncName};
+use cranelift_codegen::ir::UserFuncName;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::ModuleError;
 use rustc_ast::InlineAsmOptions;
@@ -1162,49 +1162,16 @@ fn codegen_panic_inner<'tcx>(
     };
     let func_id = fx.module.declare_function(symbol_name, Linkage::Import, &sig).unwrap();
     let func_ref = fx.module.declare_func_in_func(func_id, &mut fx.bcx.func);
-    let sig_ref = fx.bcx.func.import_signature(sig);
     if fx.clif_comments.enabled() {
         fx.add_comment(func_ref, format!("{:?}", symbol_name));
     }
 
-    match unwind {
-        // FIXME abort on unreachable and terminate unwinds
-        UnwindAction::Continue | UnwindAction::Unreachable | UnwindAction::Terminate(_) => {
-            let call_inst = fx.bcx.ins().call(func_ref, args);
-            if fx.clif_comments.enabled() {
-                fx.add_comment(call_inst, format!("panic {}", symbol_name));
-            }
-
-            fx.bcx.ins().trap(TrapCode::user(1 /* unreachable */).unwrap());
-        }
-        UnwindAction::Cleanup(cleanup) => {
-            let fallthrough_block = fx.bcx.create_block();
-            let fallthrough_block_call = fx.bcx.func.dfg.block_call(fallthrough_block, &[]);
-            let cleanup_block = fx.bcx.create_block();
-            let cleanup_block_call =
-                fx.bcx.func.dfg.block_call(cleanup_block, &[BlockArg::TryCallExn(0)]);
-            let exception_table = fx.bcx.func.dfg.exception_tables.push(ExceptionTableData::new(
-                sig_ref,
-                fallthrough_block_call,
-                [(Some(ExceptionTag::with_number(0).unwrap()), cleanup_block_call)],
-            ));
-            let call_inst = fx.bcx.ins().try_call(func_ref, args, exception_table);
-            if fx.clif_comments.enabled() {
-                fx.add_comment(call_inst, format!("panic {}", symbol_name));
-            }
-
-            fx.bcx.seal_block(cleanup_block);
-            fx.bcx.switch_to_block(cleanup_block);
-            fx.bcx.set_cold_block(cleanup_block);
-            let exception_ptr = fx.bcx.append_block_param(cleanup_block, fx.pointer_type);
-            fx.bcx.def_var(fx.exception_slot, exception_ptr);
-            let cleanup_block = fx.get_block(cleanup);
-            fx.bcx.ins().jump(cleanup_block, &[]);
-
-            fx.bcx.seal_block(fallthrough_block);
-            fx.bcx.switch_to_block(fallthrough_block);
-            fx.bcx.set_cold_block(fallthrough_block);
-            fx.bcx.ins().trap(TrapCode::user(1 /* unreachable */).unwrap());
-        }
+    let nop_inst = fx.bcx.ins().nop();
+    if fx.clif_comments.enabled() {
+        fx.add_comment(nop_inst, format!("panic {}", symbol_name));
     }
+
+    codegen_call_with_unwind_action(fx, CallTarget::Direct(func_ref), unwind, &args, None);
+
+    fx.bcx.ins().trap(TrapCode::user(1 /* unreachable */).unwrap());
 }
