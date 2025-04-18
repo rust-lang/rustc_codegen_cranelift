@@ -2,7 +2,7 @@
 
 use cranelift_codegen::CodegenError;
 use cranelift_codegen::ir::{BlockArg, ExceptionTableData, ExceptionTag, UserFuncName};
-use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
+use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::ModuleError;
 use rustc_ast::InlineAsmOptions;
 use rustc_codegen_ssa::base::is_call_from_compiler_builtins_to_upstream_monomorphization;
@@ -110,7 +110,7 @@ pub(crate) fn codegen_fn<'tcx>(
     // Make FunctionCx
     let target_config = module.target_config();
     let pointer_type = target_config.pointer_type();
-    let mut clif_comments = crate::pretty_clif::CommentWriter::new(tcx, instance, fn_abi);
+    let clif_comments = crate::pretty_clif::CommentWriter::new(tcx, instance, fn_abi);
 
     let func_debug_cx = if let Some(debug_context) = &mut cx.debug_context {
         Some(debug_context.define_function(tcx, type_dbg, instance, fn_abi, &symbol_name, mir.span))
@@ -118,14 +118,8 @@ pub(crate) fn codegen_fn<'tcx>(
         None
     };
 
-    let exception_slot = bcx.func.create_sized_stack_slot(StackSlotData {
-        kind: StackSlotKind::ExplicitSlot,
-        size: pointer_type.bytes(),
-        align_shift: 4,
-    });
-    if clif_comments.enabled() {
-        clif_comments.add_comment(exception_slot, "exception slot");
-    }
+    let exception_slot = Variable::from_u32(0);
+    bcx.declare_var(exception_slot, pointer_type);
 
     let mut fx = FunctionCx {
         cx,
@@ -145,10 +139,10 @@ pub(crate) fn codegen_fn<'tcx>(
         block_map,
         local_map: IndexVec::with_capacity(mir.local_decls.len()),
         caller_location: None, // set by `codegen_fn_prelude`
-        exception_slot: Pointer::stack_slot(exception_slot),
+        exception_slot,
 
         clif_comments,
-        next_ssa_var: 0,
+        next_ssa_var: 1, // var0 is used for the exception slot
     };
 
     tcx.prof.generic_activity("codegen clif ir").run(|| codegen_fn_body(&mut fx, start_block));
@@ -575,8 +569,7 @@ fn codegen_fn_body(fx: &mut FunctionCx<'_, '_, '_>, start_block: Block) {
                 codegen_unwind_terminate(fx, source_info, *reason);
             }
             TerminatorKind::UnwindResume => {
-                let exception_ptr =
-                    fx.exception_slot.load(fx, fx.pointer_type, MemFlags::trusted());
+                let exception_ptr = fx.bcx.use_var(fx.exception_slot);
                 fx.lib_call(
                     "_Unwind_Resume",
                     vec![AbiParam::new(fx.pointer_type)],
@@ -1204,7 +1197,7 @@ fn codegen_panic_inner<'tcx>(
             fx.bcx.switch_to_block(cleanup_block);
             fx.bcx.set_cold_block(cleanup_block);
             let exception_ptr = fx.bcx.append_block_param(cleanup_block, fx.pointer_type);
-            fx.exception_slot.store(fx, exception_ptr, MemFlags::trusted());
+            fx.bcx.def_var(fx.exception_slot, exception_ptr);
             let cleanup_block = fx.get_block(cleanup);
             fx.bcx.ins().jump(cleanup_block, &[]);
 

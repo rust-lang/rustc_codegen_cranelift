@@ -651,7 +651,7 @@ pub(crate) fn codegen_terminator_call<'tcx>(
                 fx.bcx.switch_to_block(pre_cleanup_block);
                 fx.bcx.set_cold_block(pre_cleanup_block);
                 let exception_ptr = fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
-                fx.exception_slot.store(fx, exception_ptr, MemFlags::trusted());
+                fx.bcx.def_var(fx.exception_slot, exception_ptr);
                 let cleanup_block = fx.get_block(cleanup);
                 fx.bcx.ins().jump(cleanup_block, &[]);
 
@@ -854,7 +854,7 @@ pub(crate) fn codegen_drop<'tcx>(
                         fx.bcx.set_cold_block(pre_cleanup_block);
                         let exception_ptr =
                             fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
-                        fx.exception_slot.store(fx, exception_ptr, MemFlags::trusted());
+                        fx.bcx.def_var(fx.exception_slot, exception_ptr);
                         let cleanup_block = fx.get_block(cleanup);
                         fx.bcx.ins().jump(cleanup_block, &[]);
                     }
@@ -934,7 +934,7 @@ pub(crate) fn codegen_drop<'tcx>(
                         fx.bcx.set_cold_block(pre_cleanup_block);
                         let exception_ptr =
                             fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
-                        fx.exception_slot.store(fx, exception_ptr, MemFlags::trusted());
+                        fx.bcx.def_var(fx.exception_slot, exception_ptr);
                         let cleanup_block = fx.get_block(cleanup);
                         fx.bcx.ins().jump(cleanup_block, &[]);
                     }
@@ -997,7 +997,7 @@ pub(crate) fn codegen_drop<'tcx>(
                         fx.bcx.set_cold_block(pre_cleanup_block);
                         let exception_ptr =
                             fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
-                        fx.exception_slot.store(fx, exception_ptr, MemFlags::trusted());
+                        fx.bcx.def_var(fx.exception_slot, exception_ptr);
                         let cleanup_block = fx.get_block(cleanup);
                         fx.bcx.ins().jump(cleanup_block, &[]);
                     }
