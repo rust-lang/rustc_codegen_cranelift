@@ -24,6 +24,7 @@ use smallvec::{SmallVec, smallvec};
 
 use self::pass_mode::*;
 pub(crate) use self::returning::codegen_return;
+use crate::base::codegen_unwind_terminate;
 use crate::prelude::*;
 
 fn clif_sig_from_fn_abi<'tcx>(
@@ -584,7 +585,7 @@ pub(crate) fn codegen_terminator_call<'tcx>(
             with_no_trimmed_paths!(fx.add_comment(nop_inst, format!("abi: {:?}", fn_abi)));
         }
 
-        codegen_call_with_unwind_action(fx, func_ref, unwind, &call_args, None)
+        codegen_call_with_unwind_action(fx, source_info.span, func_ref, unwind, &call_args, None)
     });
 
     if let Some(dest) = target {
@@ -743,6 +744,7 @@ pub(crate) fn codegen_drop<'tcx>(
                 let sig = fx.bcx.import_signature(sig);
                 codegen_call_with_unwind_action(
                     fx,
+                    source_info.span,
                     CallTarget::Indirect(sig, drop_fn),
                     unwind,
                     &[ptr],
@@ -792,6 +794,7 @@ pub(crate) fn codegen_drop<'tcx>(
                 let sig = fx.bcx.import_signature(sig);
                 codegen_call_with_unwind_action(
                     fx,
+                    source_info.span,
                     CallTarget::Indirect(sig, drop_fn),
                     unwind,
                     &[data],
@@ -823,6 +826,7 @@ pub(crate) fn codegen_drop<'tcx>(
                 let func_ref = fx.get_function_ref(drop_instance);
                 codegen_call_with_unwind_action(
                     fx,
+                    source_info.span,
                     CallTarget::Direct(func_ref),
                     unwind,
                     &call_args,
@@ -841,6 +845,7 @@ pub(crate) enum CallTarget {
 
 pub(crate) fn codegen_call_with_unwind_action(
     fx: &mut FunctionCx<'_, '_, '_>,
+    span: Span,
     func_ref: CallTarget,
     unwind: UnwindAction,
     call_args: &[Value],
@@ -854,10 +859,8 @@ pub(crate) fn codegen_call_with_unwind_action(
     if target_block.is_some() {
         assert!(fx.bcx.func.dfg.signatures[sig_ref].returns.is_empty());
     }
-
     match unwind {
-        // FIXME abort on unreachable and terminate unwinds
-        UnwindAction::Continue | UnwindAction::Unreachable | UnwindAction::Terminate(_) => {
+        UnwindAction::Continue | UnwindAction::Unreachable => {
             let call_inst = match func_ref {
                 CallTarget::Direct(func_ref) => fx.bcx.ins().call(func_ref, &call_args),
                 CallTarget::Indirect(sig, func_ptr) => {
@@ -878,7 +881,7 @@ pub(crate) fn codegen_call_with_unwind_action(
                     .collect::<SmallVec<[Value; 2]>>()
             }
         }
-        UnwindAction::Cleanup(cleanup) => {
+        UnwindAction::Cleanup(_) | UnwindAction::Terminate(_) => {
             let returns_types = fx.bcx.func.dfg.signatures[sig_ref]
                 .returns
                 .iter()
@@ -916,10 +919,22 @@ pub(crate) fn codegen_call_with_unwind_action(
             fx.bcx.seal_block(pre_cleanup_block);
             fx.bcx.switch_to_block(pre_cleanup_block);
             fx.bcx.set_cold_block(pre_cleanup_block);
-            let exception_ptr = fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
-            fx.bcx.def_var(fx.exception_slot, exception_ptr);
-            let cleanup_block = fx.get_block(cleanup);
-            fx.bcx.ins().jump(cleanup_block, &[]);
+            match unwind {
+                UnwindAction::Continue | UnwindAction::Unreachable => unreachable!(),
+                UnwindAction::Cleanup(cleanup) => {
+                    let exception_ptr =
+                        fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
+                    fx.bcx.def_var(fx.exception_slot, exception_ptr);
+                    let cleanup_block = fx.get_block(cleanup);
+                    fx.bcx.ins().jump(cleanup_block, &[]);
+                }
+                UnwindAction::Terminate(reason) => {
+                    // FIXME dedup terminate blocks
+                    fx.bcx.append_block_param(pre_cleanup_block, fx.pointer_type);
+
+                    codegen_unwind_terminate(fx, span, reason);
+                }
+            }
 
             if target_block.is_none() {
                 fx.bcx.seal_block(fallthrough_block);

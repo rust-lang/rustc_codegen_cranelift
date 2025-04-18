@@ -14,6 +14,7 @@ use rustc_middle::ty::TypeVisitableExt;
 use rustc_middle::ty::adjustment::PointerCoercion;
 use rustc_middle::ty::layout::{FnAbiOf, HasTypingEnv};
 use rustc_middle::ty::print::with_no_trimmed_paths;
+use rustc_span::DUMMY_SP;
 
 use crate::constant::ConstantCx;
 use crate::debuginfo::{FunctionDebugContext, TypeDebugContext};
@@ -566,7 +567,7 @@ fn codegen_fn_body(fx: &mut FunctionCx<'_, '_, '_>, start_block: Block) {
                 );
             }
             TerminatorKind::UnwindTerminate(reason) => {
-                codegen_unwind_terminate(fx, source_info, *reason);
+                codegen_unwind_terminate(fx, source_info.span, *reason);
             }
             TerminatorKind::UnwindResume => {
                 let exception_ptr = fx.bcx.use_var(fx.exception_slot);
@@ -1123,16 +1124,10 @@ pub(crate) fn codegen_panic_nounwind<'tcx>(
 
 pub(crate) fn codegen_unwind_terminate<'tcx>(
     fx: &mut FunctionCx<'_, '_, 'tcx>,
-    source_info: mir::SourceInfo,
+    span: Span,
     reason: UnwindTerminateReason,
 ) {
-    codegen_panic_inner(
-        fx,
-        reason.lang_item(),
-        &[],
-        UnwindAction::Terminate(UnwindTerminateReason::Abi),
-        Some(source_info.span),
-    );
+    codegen_panic_inner(fx, reason.lang_item(), &[], UnwindAction::Unreachable, Some(span));
 }
 
 fn codegen_panic_inner<'tcx>(
@@ -1171,7 +1166,14 @@ fn codegen_panic_inner<'tcx>(
         fx.add_comment(nop_inst, format!("panic {}", symbol_name));
     }
 
-    codegen_call_with_unwind_action(fx, CallTarget::Direct(func_ref), unwind, &args, None);
+    codegen_call_with_unwind_action(
+        fx,
+        span.unwrap_or(DUMMY_SP),
+        CallTarget::Direct(func_ref),
+        unwind,
+        &args,
+        None,
+    );
 
     fx.bcx.ins().trap(TrapCode::user(1 /* unreachable */).unwrap());
 }
