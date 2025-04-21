@@ -79,6 +79,21 @@ pub(crate) fn get_function_sig<'tcx>(
     default_call_conv: CallConv,
     inst: Instance<'tcx>,
 ) -> Signature {
+    // FIXME remove this hack
+    if tcx.symbol_name(inst).name == "rust_eh_personality" {
+        return Signature {
+            params: vec![
+                AbiParam::new(types::I32),
+                AbiParam::new(types::I32),
+                AbiParam::new(types::I64),
+                AbiParam::new(types::I64 /* FIXME fx.pointer_type */),
+                AbiParam::new(types::I64 /* FIXME fx.pointer_type */),
+            ],
+            returns: vec![AbiParam::new(types::I32)],
+            call_conv: default_call_conv,
+        };
+    }
+
     assert!(!inst.args.has_infer());
     clif_sig_from_fn_abi(
         tcx,
@@ -302,7 +317,10 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
     }
 
     assert!(arg_abis_iter.next().is_none(), "ArgAbi left behind");
-    assert!(block_params_iter.next().is_none(), "arg_value left behind");
+    // FIXME remove hack
+    if fx.symbol_name != "rust_eh_personality" {
+        assert!(block_params_iter.next().is_none(), "arg_value left behind");
+    }
 
     self::comments::add_locals_header_comment(fx);
 
