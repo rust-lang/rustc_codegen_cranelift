@@ -357,18 +357,32 @@ pub(crate) fn codegen_float_binop<'tcx>(
         BinOp::Mul => b.fmul(lhs, rhs),
         BinOp::Div => b.fdiv(lhs, rhs),
         BinOp::Rem => {
-            let (name, ty) = match in_lhs.layout().ty.kind() {
-                ty::Float(FloatTy::F32) => ("fmodf", types::F32),
-                ty::Float(FloatTy::F64) => ("fmod", types::F64),
+            let (name, ty, lhs, rhs) = match in_lhs.layout().ty.kind() {
+                ty::Float(FloatTy::F16) => (
+                    "fmodf",
+                    types::F32,
+                    fx.bcx.ins().fpromote(types::F32, lhs),
+                    fx.bcx.ins().fpromote(types::F32, rhs),
+                ),
+                ty::Float(FloatTy::F32) => ("fmodf", types::F32, lhs, rhs),
+                ty::Float(FloatTy::F64) => ("fmod", types::F64, lhs, rhs),
+                ty::Float(FloatTy::F128) => ("fmodf128", types::F128, lhs, rhs),
                 _ => bug!(),
             };
 
-            fx.lib_call(
+            let ret_val = fx.lib_call(
                 name,
                 vec![AbiParam::new(ty), AbiParam::new(ty)],
                 vec![AbiParam::new(ty)],
                 &[lhs, rhs],
-            )[0]
+            )[0];
+
+            let ret_val = if *in_lhs.layout().ty.kind() == ty::Float(FloatTy::F16) {
+                fx.bcx.ins().fdemote(types::F16, ret_val)
+            } else {
+                ret_val
+            };
+            return CValue::by_val(ret_val, in_lhs.layout());
         }
         BinOp::Eq | BinOp::Lt | BinOp::Le | BinOp::Ne | BinOp::Ge | BinOp::Gt => {
             let fltcc = match bin_op {

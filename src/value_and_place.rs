@@ -325,7 +325,7 @@ impl<'tcx> CValue<'tcx> {
         const_val: ty::ScalarInt,
     ) -> CValue<'tcx> {
         assert_eq!(const_val.size(), layout.size, "{:#?}: {:?}", const_val, layout);
-        use cranelift_codegen::ir::immediates::{Ieee32, Ieee64};
+        use cranelift_codegen::ir::immediates::{Ieee16, Ieee32, Ieee64, Ieee128};
 
         let clif_ty = fx.clif_type(layout.ty).unwrap();
 
@@ -346,11 +346,23 @@ impl<'tcx> CValue<'tcx> {
                 let raw_val = const_val.size().truncate(const_val.to_bits(layout.size));
                 fx.bcx.ins().iconst(clif_ty, raw_val as i64)
             }
+            ty::Float(FloatTy::F16) => {
+                fx.bcx.ins().f16const(Ieee16::with_bits(u16::try_from(const_val).unwrap()))
+            }
             ty::Float(FloatTy::F32) => {
                 fx.bcx.ins().f32const(Ieee32::with_bits(u32::try_from(const_val).unwrap()))
             }
             ty::Float(FloatTy::F64) => {
                 fx.bcx.ins().f64const(Ieee64::with_bits(u64::try_from(const_val).unwrap()))
+            }
+            ty::Float(FloatTy::F128) => {
+                let value = fx
+                    .bcx
+                    .func
+                    .dfg
+                    .constants
+                    .insert(Ieee128::with_bits(u128::try_from(const_val).unwrap()).into());
+                fx.bcx.ins().f128const(value)
             }
             _ => panic!(
                 "CValue::const_val for non bool/char/float/integer/pointer type {:?} is not allowed",
@@ -568,10 +580,14 @@ impl<'tcx> CPlace<'tcx> {
                 (_, _) if src_ty == dst_ty => data,
 
                 // This is a `write_cvalue_transmute`.
-                (types::I32, types::F32)
+                (types::I16, types::F16)
+                | (types::F16, types::I16)
+                | (types::I32, types::F32)
                 | (types::F32, types::I32)
                 | (types::I64, types::F64)
-                | (types::F64, types::I64) => codegen_bitcast(fx, dst_ty, data),
+                | (types::F64, types::I64)
+                | (types::I128, types::F128)
+                | (types::F128, types::I128) => codegen_bitcast(fx, dst_ty, data),
                 _ if src_ty.is_vector() && dst_ty.is_vector() => codegen_bitcast(fx, dst_ty, data),
                 _ if src_ty.is_vector() || dst_ty.is_vector() => {
                     // FIXME(bytecodealliance/wasmtime#6104) do something more efficient for transmutes between vectors and integers.
