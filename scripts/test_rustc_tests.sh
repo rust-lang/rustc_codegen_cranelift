@@ -15,11 +15,6 @@ for test in $(rg --files-with-matches "lto" tests/{codegen-units,ui,incremental}
   rm $test
 done
 
-# should-fail tests don't work when compiletest is compiled with panic=abort
-for test in $(rg --files-with-matches "//@ should-fail" tests/{codegen-units,ui,incremental}); do
-  rm $test
-done
-
 for test in $(rg -i --files-with-matches "//(\[\w+\])?~[^\|]*\s*ERR|//@ error-pattern:|//@(\[.*\])? build-fail|//@(\[.*\])? run-fail|-Cllvm-args" tests/ui); do
   rm $test
 done
@@ -57,6 +52,8 @@ rm tests/ui/asm/x86_64/issue-96797.rs # const and sym inline asm operands don't 
 rm tests/ui/asm/global-asm-mono-sym-fn.rs # same
 rm tests/ui/asm/naked-asm-mono-sym-fn.rs # same
 rm tests/ui/asm/x86_64/goto.rs # inline asm labels not supported
+rm tests/ui/asm/aarch64/may_unwind.rs # inline asm unwind not supported
+rm tests/ui/asm/may_unwind.rs # same
 rm tests/ui/simd/simd-bitmask-notpow2.rs # non-pow-of-2 simd vector sizes
 rm -r tests/run-make/embed-source-dwarf # embedding sources in debuginfo
 rm -r tests/run-make/used-proc-macro # used(linker) isn't supported yet
@@ -80,6 +77,7 @@ rm -r tests/ui/instrument-coverage/
 # ==================
 rm tests/ui/codegen/issue-28950.rs # depends on stack size optimizations
 rm tests/ui/codegen/init-large-type.rs # same
+rm tests/ui/codegen/StackColoring-not-blowup-stack-issue-40883.rs # same
 rm -r tests/run-make/fmt-write-bloat/ # tests an optimization
 rm tests/ui/statics/const_generics.rs # same
 rm tests/ui/linking/executable-no-mangle-strip.rs # requires --gc-sections to work for statics
@@ -139,14 +137,13 @@ rm -r tests/run-make/export # same
 # ============
 rm -r tests/run-make/extern-fn-explicit-align # argument alignment not yet supported
 rm -r tests/run-make/panic-abort-eh_frame # .eh_frame emitted with panic=abort
+rm -r tests/run-make/forced-unwind-terminate-pof # adding wrong terminate guard
 
 # bugs in the test suite
 # ======================
 rm tests/ui/process/nofile-limit.rs # TODO some AArch64 linking issue
-rm tests/ui/backtrace/synchronized-panic-handler.rs # missing needs-unwind annotation
-rm tests/ui/lint/non-snake-case/lint-non-snake-case-crate.rs # same
-rm tests/ui/async-await/async-drop/async-drop-initial.rs # same (rust-lang/rust#140493)
 rm -r tests/ui/codegen/equal-pointers-unequal # make incorrect assumptions about the location of stack variables
+rm tests/incremental/extern_static/issue-49153.rs # references undefined symbol
 
 rm tests/ui/intrinsics/panic-uninitialized-zeroed.rs # really slow with unoptimized libstd
 rm tests/ui/process/process-panic-after-fork.rs # same
@@ -169,5 +166,5 @@ index 073116933bd..c3e4578204d 100644
 EOF
 
 echo "[TEST] rustc test suite"
-COMPILETEST_FORCE_STAGE0=1 ./x.py test --stage 0 --test-args=--no-capture tests/{codegen-units,run-make,ui,incremental}
+COMPILETEST_FORCE_STAGE0=1 ./x.py test --stage 0 tests/{codegen-units,run-make,ui,incremental}
 popd
