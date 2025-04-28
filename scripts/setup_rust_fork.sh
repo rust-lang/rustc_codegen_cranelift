@@ -8,7 +8,7 @@ export CG_CLIF_FORCE_GNU_AS=1
 # Compiletest expects all standard library paths to start with /rustc/FAKE_PREFIX.
 # CG_CLIF_STDLIB_REMAP_PATH_PREFIX will cause cg_clif's build system to pass
 # --remap-path-prefix to handle this.
-CG_CLIF_STDLIB_REMAP_PATH_PREFIX=/rustc/FAKE_PREFIX ./y.sh build
+CG_CLIF_STDLIB_REMAP_PATH_PREFIX=/rustc/FAKE_PREFIX ./y.sh build --panic-unwind-support
 
 echo "[SETUP] Rust fork"
 git clone --quiet https://github.com/rust-lang/rust.git --filter=tree:0 || true
