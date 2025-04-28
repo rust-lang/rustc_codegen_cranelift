@@ -15,11 +15,6 @@ for test in $(rg --files-with-matches "lto" tests/{codegen-units,ui,incremental}
   rm $test
 done
 
-# should-fail tests don't work when compiletest is compiled with panic=abort
-for test in $(rg --files-with-matches "//@ should-fail" tests/{codegen-units,ui,incremental}); do
-  rm $test
-done
-
 for test in $(rg -i --files-with-matches "//(\[\w+\])?~[^\|]*\s*ERR|//@ error-pattern:|//@(\[.*\])? build-fail|//@(\[.*\])? run-fail|-Cllvm-args" tests/ui); do
   rm $test
 done
@@ -139,9 +134,6 @@ rm -r tests/run-make/panic-abort-eh_frame # .eh_frame emitted with panic=abort
 # bugs in the test suite
 # ======================
 rm tests/ui/process/nofile-limit.rs # TODO some AArch64 linking issue
-rm tests/ui/backtrace/synchronized-panic-handler.rs # missing needs-unwind annotation
-rm tests/ui/lint/non-snake-case/lint-non-snake-case-crate.rs # same
-rm tests/ui/async-await/async-drop/async-drop-initial.rs # same (rust-lang/rust#140493)
 rm -r tests/ui/codegen/equal-pointers-unequal # make incorrect assumptions about the location of stack variables
 
 rm tests/ui/stdio-is-blocking.rs # really slow with unoptimized libstd
@@ -151,20 +143,6 @@ rm tests/ui/process/process-panic-after-fork.rs # same
 cp ../dist/bin/rustdoc-clif ../dist/bin/rustdoc # some tests expect bin/rustdoc to exist
 
 cat <<EOF | git apply -
-diff --git a/tests/run-make/linker-warning/rmake.rs b/tests/run-make/linker-warning/rmake.rs
-index 30387af428c..f7895b12961 100644
---- a/tests/run-make/linker-warning/rmake.rs
-+++ b/tests/run-make/linker-warning/rmake.rs
-@@ -57,7 +57,8 @@ fn main() {
-             .actual_text("(linker error)", out.stderr())
--            .normalize(r#"/rustc[^/]*/"#, "/rustc/")
-+            .normalize(r#"/tmp/rustc[^/]*/"#, "/tmp/rustc/")
-+            .normalize("libpanic_abort", "libpanic_unwind")
-             .normalize(
-                 regex::escape(run_make_support::build_root().to_str().unwrap()),
-                 "/build-root",
-             )
-             .normalize(r#""[^"]*\/symbols.o""#, "\\"/symbols.o\\"")
 diff --git a/src/tools/compiletest/src/runtest/run_make.rs b/src/tools/compiletest/src/runtest/run_make.rs
 index 073116933bd..c3e4578204d 100644
 --- a/src/tools/compiletest/src/runtest/run_make.rs
@@ -180,5 +158,5 @@ index 073116933bd..c3e4578204d 100644
 EOF
 
 echo "[TEST] rustc test suite"
-COMPILETEST_FORCE_STAGE0=1 ./x.py test --stage 0 --test-args=--no-capture tests/{codegen-units,run-make,ui,incremental}
+COMPILETEST_FORCE_STAGE0=1 ./x.py test --stage 0 tests/{codegen-units,ui,incremental}
 popd
