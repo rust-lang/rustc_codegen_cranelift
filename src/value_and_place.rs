@@ -573,6 +573,9 @@ impl<'tcx> CPlace<'tcx> {
                 | (types::I64, types::F64)
                 | (types::F64, types::I64) => codegen_bitcast(fx, dst_ty, data),
                 _ if src_ty.is_vector() && dst_ty.is_vector() => codegen_bitcast(fx, dst_ty, data),
+                _ if src_ty.is_vector() || dst_ty.is_vector() && src_ty.bits() == 128 => {
+                    codegen_bitcast(fx, dst_ty, data)
+                }
                 _ if src_ty.is_vector() || dst_ty.is_vector() => {
                     // FIXME(bytecodealliance/wasmtime#6104) do something more efficient for transmutes between vectors and integers.
                     let ptr = fx.create_stack_slot(src_ty.bytes(), src_ty.bytes());
