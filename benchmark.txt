@@ -1,0 +1,120 @@
+panic=abort
+Benchmark 1: cargo build
+  Time (mean ± σ):      7.115 s ±  0.042 s    [User: 20.655 s, System: 4.829 s]
+  Range (min … max):    7.018 s …  7.164 s    10 runs
+
+Benchmark 2: cargo-clif build
+  Time (mean ± σ):      6.443 s ±  0.035 s    [User: 16.163 s, System: 4.373 s]
+  Range (min … max):    6.403 s …  6.509 s    10 runs
+
+Benchmark 3: cargo-clif build --release
+  Time (mean ± σ):      6.573 s ±  0.068 s    [User: 17.793 s, System: 4.408 s]
+  Range (min … max):    6.494 s …  6.688 s    10 runs
+
+Summary
+  'cargo-clif build' ran
+    1.02 ± 0.01 times faster than 'cargo-clif build --release'
+    1.10 ± 0.01 times faster than 'cargo build'
+
+panic=unwind baseline
+Benchmark 1: cargo build
+  Time (mean ± σ):      7.148 s ±  0.112 s    [User: 20.688 s, System: 4.807 s]
+  Range (min … max):    7.049 s …  7.418 s    10 runs
+
+Benchmark 2: cargo-clif build
+  Time (mean ± σ):      7.484 s ±  0.050 s    [User: 20.919 s, System: 4.878 s]
+  Range (min … max):    7.413 s …  7.566 s    10 runs
+
+Benchmark 3: cargo-clif build --release
+  Time (mean ± σ):      7.536 s ±  0.041 s    [User: 22.934 s, System: 4.910 s]
+  Range (min … max):    7.490 s …  7.625 s    10 runs
+
+Summary
+  'cargo build' ran
+    1.05 ± 0.02 times faster than 'cargo-clif build'
+    1.05 ± 0.02 times faster than 'cargo-clif build --release'
+Benchmark 1: ./raytracer_cg_llvm
+  Time (mean ± σ):      6.231 s ±  0.034 s    [User: 6.223 s, System: 0.007 s]
+  Range (min … max):    6.191 s …  6.282 s    10 runs
+
+Benchmark 2: ./raytracer_cg_clif
+  Time (mean ± σ):      5.342 s ±  0.003 s    [User: 5.335 s, System: 0.006 s]
+  Range (min … max):    5.338 s …  5.347 s    10 runs
+
+Benchmark 3: ./raytracer_cg_clif_opt
+  Time (mean ± σ):      4.228 s ±  0.004 s    [User: 4.222 s, System: 0.007 s]
+  Range (min … max):    4.224 s …  4.234 s    10 runs
+
+Summary
+  './raytracer_cg_clif_opt' ran
+    1.26 ± 0.00 times faster than './raytracer_cg_clif'
+    1.47 ± 0.01 times faster than './raytracer_cg_llvm'
+
+panic=unwind optimized exception storage
+Benchmark 1: cargo build
+  Time (mean ± σ):      7.104 s ±  0.078 s    [User: 20.688 s, System: 4.803 s]
+  Range (min … max):    6.999 s …  7.273 s    10 runs
+
+Benchmark 2: cargo-clif build
+  Time (mean ± σ):      7.473 s ±  0.031 s    [User: 20.838 s, System: 4.868 s]
+  Range (min … max):    7.435 s …  7.524 s    10 runs
+
+Benchmark 3: cargo-clif build --release
+  Time (mean ± σ):      7.512 s ±  0.052 s    [User: 22.855 s, System: 4.887 s]
+  Range (min … max):    7.437 s …  7.605 s    10 runs
+
+Summary
+  'cargo build' ran
+    1.05 ± 0.01 times faster than 'cargo-clif build'
+    1.06 ± 0.01 times faster than 'cargo-clif build --release'
+Benchmark 1: ./raytracer_cg_llvm
+  Time (mean ± σ):      6.231 s ±  0.039 s    [User: 6.222 s, System: 0.009 s]
+  Range (min … max):    6.190 s …  6.315 s    10 runs
+
+Benchmark 2: ./raytracer_cg_clif
+  Time (mean ± σ):      5.179 s ±  0.003 s    [User: 5.172 s, System: 0.007 s]
+  Range (min … max):    5.173 s …  5.186 s    10 runs
+
+Benchmark 3: ./raytracer_cg_clif_opt
+  Time (mean ± σ):      4.154 s ±  0.010 s    [User: 4.147 s, System: 0.007 s]
+  Range (min … max):    4.139 s …  4.162 s    10 runs
+
+Summary
+  './raytracer_cg_clif_opt' ran
+    1.25 ± 0.00 times faster than './raytracer_cg_clif'
+    1.50 ± 0.01 times faster than './raytracer_cg_llvm'
+
+panic=unwind is_included_in_clobbers fix
+Benchmark 1: cargo build
+  Time (mean ± σ):      7.051 s ±  0.051 s    [User: 20.682 s, System: 4.771 s]
+  Range (min … max):    6.974 s …  7.130 s    10 runs
+
+Benchmark 2: cargo-clif build
+  Time (mean ± σ):      7.539 s ±  0.053 s    [User: 21.069 s, System: 4.806 s]
+  Range (min … max):    7.452 s …  7.625 s    10 runs
+
+Benchmark 3: cargo-clif build --release
+  Time (mean ± σ):      7.580 s ±  0.038 s    [User: 23.051 s, System: 4.872 s]
+  Range (min … max):    7.525 s …  7.654 s    10 runs
+
+Summary
+  'cargo build' ran
+    1.07 ± 0.01 times faster than 'cargo-clif build'
+    1.08 ± 0.01 times faster than 'cargo-clif build --release'
+[BENCH RUN] ebobby/simple-raytracer
+Benchmark 1: ./raytracer_cg_llvm
+  Time (mean ± σ):      6.185 s ±  0.029 s    [User: 6.178 s, System: 0.006 s]
+  Range (min … max):    6.152 s …  6.228 s    10 runs
+
+Benchmark 2: ./raytracer_cg_clif
+  Time (mean ± σ):      5.090 s ±  0.013 s    [User: 5.080 s, System: 0.009 s]
+  Range (min … max):    5.067 s …  5.111 s    10 runs
+
+Benchmark 3: ./raytracer_cg_clif_opt
+  Time (mean ± σ):      4.074 s ±  0.008 s    [User: 4.067 s, System: 0.007 s]
+  Range (min … max):    4.063 s …  4.092 s    10 runs
+
+Summary
+  './raytracer_cg_clif_opt' ran
+    1.25 ± 0.00 times faster than './raytracer_cg_clif'
+    1.52 ± 0.01 times faster than './raytracer_cg_llvm'
