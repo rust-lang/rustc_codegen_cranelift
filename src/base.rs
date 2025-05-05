@@ -312,7 +312,7 @@ fn codegen_fn_body(fx: &mut FunctionCx<'_, '_, '_>, start_block: Block) {
         }
 
         if bb_data.is_cleanup {
-            if cfg!(not(feature = "unwinding")) {
+            if true || cfg!(not(feature = "unwinding")) {
                 continue;
             }
 

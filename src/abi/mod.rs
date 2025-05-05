@@ -807,7 +807,7 @@ pub(crate) fn codegen_call_with_unwind_action(
         assert!(fx.bcx.func.dfg.signatures[sig_ref].returns.is_empty());
     }
 
-    if cfg!(not(feature = "unwinding")) {
+    if true || cfg!(not(feature = "unwinding")) {
         unwind = UnwindAction::Unreachable;
     }
 
@@ -856,10 +856,10 @@ pub(crate) fn codegen_call_with_unwind_action(
             let exception_table = fx.bcx.func.dfg.exception_tables.push(ExceptionTableData::new(
                 sig_ref,
                 fallthrough_block_call,
-                [(
+                [/*(
                     Some(ExceptionTag::with_number(EXCEPTION_HANDLER_CLEANUP).unwrap()),
                     pre_cleanup_block_call,
-                )],
+                )*/],
             ));
 
             match func_ref {
@@ -874,7 +874,7 @@ pub(crate) fn codegen_call_with_unwind_action(
             fx.bcx.seal_block(pre_cleanup_block);
             fx.bcx.switch_to_block(pre_cleanup_block);
             fx.bcx.set_cold_block(pre_cleanup_block);
-            match unwind {
+            /*match unwind {
                 UnwindAction::Continue | UnwindAction::Unreachable => unreachable!(),
                 UnwindAction::Cleanup(cleanup) => {
                     let exception_ptr =
@@ -889,7 +889,7 @@ pub(crate) fn codegen_call_with_unwind_action(
 
                     codegen_unwind_terminate(fx, span, reason);
                 }
-            }
+            }*/
 
             if target_block.is_none() {
                 fx.bcx.seal_block(fallthrough_block);
