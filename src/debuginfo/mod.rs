@@ -1,6 +1,7 @@
 //! Handling of everything related to debuginfo.
 
 mod emit;
+mod gcc_except_table;
 mod line_info;
 mod object;
 mod types;
