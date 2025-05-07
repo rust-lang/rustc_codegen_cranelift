@@ -1170,7 +1170,9 @@ fn codegen_regular_intrinsic_call<'tcx>(
                 returns: vec![],
             });
 
-            if fx.tcx.sess.panic_strategy() == PanicStrategy::Abort {
+            if cfg!(not(feature = "unwinding"))
+                || fx.tcx.sess.panic_strategy() == PanicStrategy::Abort
+            {
                 fx.bcx.ins().call_indirect(f_sig, f, &[data]);
 
                 let layout = fx.layout_of(fx.tcx.types.i32);

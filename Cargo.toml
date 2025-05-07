@@ -46,6 +46,7 @@ cranelift-object = { git = "https://github.com/bytecodealliance/wasmtime.git", b
 unstable-features = ["jit", "inline_asm_sym"]
 jit = ["cranelift-jit", "libloading"]
 inline_asm_sym = []
+unwinding = [] # Not yet included in unstable-features for performance reasons
 
 [package.metadata.rust-analyzer]
 rustc_private = true
