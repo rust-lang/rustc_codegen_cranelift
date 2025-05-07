@@ -4,13 +4,14 @@ use cranelift_codegen::ir::Endianness;
 use cranelift_codegen::isa::unwind::UnwindInfo;
 use cranelift_module::DataId;
 use cranelift_object::ObjectProduct;
-use eh_frame_experiments::{
-    Action, ActionTable, CallSite, CallSiteTable, ExceptionSpecTable, GccExceptTable, TypeInfoTable,
-};
 use gimli::write::{Address, CieId, EhFrame, FrameTable, Section};
 use gimli::{Encoding, Format, RunTimeEndian};
 
 use super::emit::{DebugRelocName, address_for_data, address_for_func};
+use super::gcc_except_table::{
+    Action, ActionKind, ActionTable, CallSite, CallSiteTable, ExceptionSpecTable, GccExceptTable,
+    TypeInfoTable,
+};
 use super::object::WriteDebugInfo;
 use crate::prelude::*;
 
@@ -151,10 +152,9 @@ impl UnwindContext {
                 };
 
                 let catch_type = gcc_except_table_data.type_info.add(Address::Constant(0));
-                let catch_action = gcc_except_table_data.actions.add(Action {
-                    kind: eh_frame_experiments::ActionKind::Catch(catch_type),
-                    next_action: None,
-                });
+                let catch_action = gcc_except_table_data
+                    .actions
+                    .add(Action { kind: ActionKind::Catch(catch_type), next_action: None });
 
                 for call_site in context.compiled_code().unwrap().buffer.call_sites() {
                     if call_site.exception_handlers.is_empty() {
