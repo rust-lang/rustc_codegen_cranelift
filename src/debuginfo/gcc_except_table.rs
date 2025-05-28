@@ -5,7 +5,6 @@ pub(super) struct GccExceptTable {
     pub call_sites: CallSiteTable,
     pub actions: ActionTable,
     pub type_info: TypeInfoTable,
-    pub exception_specs: ExceptionSpecTable,
 }
 
 impl GccExceptTable {
@@ -80,8 +79,7 @@ impl GccExceptTable {
         // type_info
         self.type_info.write(w, encoding)?;
 
-        // exception specs
-        self.exception_specs.write(w)?;
+        // exception specs (unused for rust)
 
         // align to 4 bytes
         while w.len() % 4 != 0 {
@@ -194,11 +192,7 @@ impl Action {
     fn write<W: Writer>(&self, w: &mut W, action_table_offset: u64) -> gimli::write::Result<()> {
         // ttypeIndex
         let ttype_index = match self.kind {
-            ActionKind::Cleanup => 0,
             ActionKind::Catch(type_info_id) => type_info_id.0 as i64 + 1,
-            ActionKind::ExceptionSpec(exception_spec_offset) => {
-                -(exception_spec_offset.0 as i64 + 1)
-            }
         };
         w.write_sleb128(ttype_index)?;
         // actionOffset
@@ -215,12 +209,8 @@ impl Action {
 }
 
 #[derive(Copy, Clone)]
-#[expect(dead_code)]
 pub(super) enum ActionKind {
-    Cleanup,
     Catch(TypeInfoId),
-    // FIXME
-    ExceptionSpec(ExceptionSpecOffset),
 }
 
 pub(super) struct TypeInfoTable {
@@ -256,53 +246,6 @@ impl TypeInfoTable {
 
 #[derive(Copy, Clone)]
 pub(super) struct TypeInfoId(u64);
-
-pub(super) struct ExceptionSpecTable {
-    specs: Vec<ExceptionSpec>,
-    encoded_length: u64,
-}
-
-impl ExceptionSpecTable {
-    pub(super) fn new() -> ExceptionSpecTable {
-        ExceptionSpecTable { specs: vec![], encoded_length: 0 }
-    }
-
-    #[expect(dead_code)] // FIXME
-    pub(super) fn add(&mut self, exception_spec: ExceptionSpec) -> ExceptionSpecOffset {
-        let id = ExceptionSpecOffset(self.encoded_length);
-        self.encoded_length += exception_spec.encoded_size();
-        self.specs.push(exception_spec);
-        id
-    }
-
-    fn write<W: Writer>(&self, w: &mut W) -> gimli::write::Result<()> {
-        for exception_spec in &self.specs {
-            exception_spec.write(w)?;
-        }
-
-        Ok(())
-    }
-}
-
-#[derive(Copy, Clone)]
-pub(super) struct ExceptionSpecOffset(u64);
-
-pub(super) struct ExceptionSpec(pub Vec<TypeInfoId>);
-
-impl ExceptionSpec {
-    fn encoded_size(&self) -> u64 {
-        let mut len = LenWriter(0);
-        self.write(&mut len).unwrap();
-        len.0 as u64
-    }
-
-    fn write<W: Writer>(&self, w: &mut W) -> gimli::write::Result<()> {
-        for type_info_id in &self.0 {
-            w.write_uleb128(type_info_id.0 + 1)?;
-        }
-        w.write_u8(0)
-    }
-}
 
 struct LenWriter(usize);
 

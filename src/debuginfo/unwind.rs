@@ -9,8 +9,7 @@ use gimli::{Encoding, Format, RunTimeEndian};
 
 use super::emit::{DebugRelocName, address_for_data, address_for_func};
 use super::gcc_except_table::{
-    Action, ActionKind, ActionTable, CallSite, CallSiteTable, ExceptionSpecTable, GccExceptTable,
-    TypeInfoTable,
+    Action, ActionKind, ActionTable, CallSite, CallSiteTable, GccExceptTable, TypeInfoTable,
 };
 use super::object::WriteDebugInfo;
 use crate::prelude::*;
@@ -157,7 +156,6 @@ impl UnwindContext {
                         call_sites: CallSiteTable(vec![]),
                         actions: ActionTable::new(),
                         type_info: TypeInfoTable::new(gimli::DW_EH_PE_udata4),
-                        exception_specs: ExceptionSpecTable::new(),
                     };
 
                     let catch_type = gcc_except_table_data.type_info.add(Address::Constant(0));
