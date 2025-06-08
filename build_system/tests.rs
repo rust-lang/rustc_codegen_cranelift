@@ -272,6 +272,17 @@ const EXTENDED_SYSROOT_SUITE: &[TestCase] = &[
             run_cmd.current_dir(IMAGE.target_dir(&runner.dirs));
 
             spawn_and_wait(run_cmd);
+
+            let expected =
+                fs::read(IMAGE.source_dir(&runner.dirs).join("examples").join("fractal.png"))
+                    .unwrap();
+            let output = fs::read(IMAGE.target_dir(&runner.dirs).join("fractal.png")).unwrap();
+
+            if output != expected {
+                println!("Output files don't match!");
+
+                std::process::exit(1);
+            }
         }
     }),
     TestCase::custom("test.blake3", &|runner| {
