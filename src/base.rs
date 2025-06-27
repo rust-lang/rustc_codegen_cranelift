@@ -26,15 +26,15 @@ pub(crate) struct CodegenedFunction {
     func_id: FuncId,
     func: Function,
     clif_comments: CommentWriter,
-    func_debug_cx: Option<FunctionDebugContext>,
+    //func_debug_cx: Option<FunctionDebugContext>,
     inline_asm: String,
 }
 
 pub(crate) fn codegen_fn<'tcx>(
     tcx: TyCtxt<'tcx>,
     cgu_name: Symbol,
-    mut debug_context: Option<&mut DebugContext>,
-    type_dbg: &mut TypeDebugContext<'tcx>,
+    //mut debug_context: Option<&mut DebugContext>,
+    //type_dbg: &mut TypeDebugContext<'tcx>,
     cached_func: Function,
     module: &mut dyn Module,
     instance: Instance<'tcx>,
@@ -65,9 +65,9 @@ pub(crate) fn codegen_fn<'tcx>(
     func.clear();
     func.name = UserFuncName::user(0, func_id.as_u32());
     func.signature = sig;
-    if debug_context.is_some() {
-        func.collect_debug_info();
-    }
+    // if debug_context.is_some() {
+    //     func.collect_debug_info();
+    // }
 
     let mut bcx = FunctionBuilder::new(&mut func, &mut func_ctx);
 
@@ -84,23 +84,22 @@ pub(crate) fn codegen_fn<'tcx>(
     assert_eq!(pointer_ty(tcx), pointer_type);
     let clif_comments = crate::pretty_clif::CommentWriter::new(tcx, instance, fn_abi);
 
-    let func_debug_cx = if let Some(debug_context) = debug_context.as_deref_mut() {
+    /*let func_debug_cx = if let Some(debug_context) = debug_context.as_deref_mut() {
         Some(debug_context.define_function(tcx, type_dbg, instance, fn_abi, &symbol_name, mir.span))
     } else {
-        None
-    };
+    None
+    };*/
 
     let exception_slot = bcx.declare_var(pointer_type);
 
     let mut fx = FunctionCx {
         module,
-        debug_context,
+        //debug_context,
         tcx,
         target_config,
         pointer_type,
         constants_cx: ConstantCx::new(),
-        func_debug_cx,
-
+        //func_debug_cx,
         cgu_name,
         instance,
         symbol_name,
@@ -125,7 +124,7 @@ pub(crate) fn codegen_fn<'tcx>(
     // Recover all necessary data from fx, before accessing func will prevent future access to it.
     let symbol_name = fx.symbol_name;
     let clif_comments = fx.clif_comments;
-    let func_debug_cx = fx.func_debug_cx;
+    //let func_debug_cx = fx.func_debug_cx;
     let inline_asm = fx.inline_asm;
 
     fx.constants_cx.finalize(fx.tcx, &mut *fx.module);
@@ -144,7 +143,14 @@ pub(crate) fn codegen_fn<'tcx>(
     // Verify function
     verify_func(tcx, &clif_comments, &func);
 
-    CodegenedFunction { symbol_name, func_id, func, clif_comments, func_debug_cx, inline_asm }
+    CodegenedFunction {
+        symbol_name,
+        func_id,
+        func,
+        clif_comments,
+        //func_debug_cx,
+        inline_asm,
+    }
 }
 
 pub(crate) fn compile_fn(
@@ -153,7 +159,7 @@ pub(crate) fn compile_fn(
     should_write_ir: bool,
     cached_context: &mut Context,
     module: &mut dyn Module,
-    debug_context: Option<&mut DebugContext>,
+    //debug_context: Option<&mut DebugContext>,
     global_asm: &mut String,
     codegened_func: CodegenedFunction,
 ) {
@@ -248,6 +254,7 @@ pub(crate) fn compile_fn(
         }
     }
 
+    /*
     // Define debuginfo for function
     profiler.generic_activity("generate debug info").run(|| {
         if let Some(debug_context) = debug_context {
@@ -258,6 +265,7 @@ pub(crate) fn compile_fn(
             );
         }
     });
+    */
 }
 
 fn verify_func(tcx: TyCtxt<'_>, writer: &crate::pretty_clif::CommentWriter, func: &Function) {

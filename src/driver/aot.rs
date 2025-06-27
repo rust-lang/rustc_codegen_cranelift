@@ -349,15 +349,15 @@ fn emit_cgu(
     prof: &SelfProfilerRef,
     name: String,
     module: UnwindModule<ObjectModule>,
-    debug: Option<DebugContext>,
+    //debug: Option<DebugContext>,
     global_asm_object_file: Option<PathBuf>,
     producer: &str,
 ) -> Result<ModuleCodegenResult, String> {
     let mut product = module.finish();
 
-    if let Some(mut debug) = debug {
-        debug.emit(&mut product);
-    }
+    // if let Some(mut debug) = debug {
+    //     debug.emit(&mut product);
+    // }
 
     let module_regular = emit_module(
         output_filenames,
@@ -512,15 +512,15 @@ fn codegen_cgu_content(
     tcx: TyCtxt<'_>,
     module: &mut dyn Module,
     cgu_name: rustc_span::Symbol,
-) -> (Option<DebugContext>, Vec<CodegenedFunction>, String) {
+) -> (Vec<CodegenedFunction>, String) {
     let _timer = tcx.prof.generic_activity_with_arg("codegen cgu", cgu_name.as_str());
 
     let cgu = tcx.codegen_unit(cgu_name);
     let mono_items = cgu.items_in_deterministic_order(tcx);
 
-    let mut debug_context = DebugContext::new(tcx, module.isa(), false, cgu_name.as_str());
+    //let mut debug_context = DebugContext::new(tcx, module.isa(), false, cgu_name.as_str());
     let mut global_asm = String::new();
-    let mut type_dbg = TypeDebugContext::default();
+    //let mut type_dbg = TypeDebugContext::default();
     super::predefine_mono_items(tcx, module, &mono_items);
     let mut codegened_functions = vec![];
     for (mono_item, item_data) in mono_items {
@@ -546,8 +546,8 @@ fn codegen_cgu_content(
                 let codegened_function = crate::base::codegen_fn(
                     tcx,
                     cgu_name,
-                    debug_context.as_mut(),
-                    &mut type_dbg,
+                    //debug_context.as_mut(),
+                    //&mut type_dbg,
                     Function::new(),
                     module,
                     instance,
@@ -556,9 +556,9 @@ fn codegen_cgu_content(
             }
             MonoItem::Static(def_id) => {
                 let data_id = crate::constant::codegen_static(tcx, module, def_id);
-                if let Some(debug_context) = debug_context.as_mut() {
-                    debug_context.define_static(tcx, &mut type_dbg, def_id, data_id);
-                }
+                // if let Some(debug_context) = debug_context.as_mut() {
+                //     debug_context.define_static(tcx, &mut type_dbg, def_id, data_id);
+                // }
             }
             MonoItem::GlobalAsm(item_id) => {
                 rustc_codegen_ssa::base::codegen_global_asm(
@@ -570,7 +570,7 @@ fn codegen_cgu_content(
     }
     crate::main_shim::maybe_create_entry_wrapper(tcx, module, false, cgu.is_primary());
 
-    (debug_context, codegened_functions, global_asm)
+    (codegened_functions, global_asm)
 }
 
 fn module_codegen(
@@ -583,8 +583,7 @@ fn module_codegen(
 ) -> OngoingModuleCodegen {
     let mut module = make_module(tcx.sess, cgu_name.as_str().to_string());
 
-    let (mut debug_context, codegened_functions, mut global_asm) =
-        codegen_cgu_content(tcx, &mut module, cgu_name);
+    let (codegened_functions, mut global_asm) = codegen_cgu_content(tcx, &mut module, cgu_name);
 
     let cgu_name = cgu_name.as_str().to_owned();
 
@@ -609,7 +608,7 @@ fn module_codegen(
                     should_write_ir,
                     &mut cached_context,
                     &mut module,
-                    debug_context.as_mut(),
+                    //debug_context.as_mut(),
                     &mut global_asm,
                     codegened_func,
                 );
@@ -634,7 +633,7 @@ fn module_codegen(
                     &profiler,
                     cgu_name,
                     module,
-                    debug_context,
+                    //debug_context,
                     global_asm_object_file,
                     &producer,
                 )
