@@ -107,7 +107,6 @@ pub(crate) fn codegen_fn<'tcx>(
         caller_location: None, // set by `codegen_fn_prelude`
 
         clif_comments,
-        next_ssa_var: 0,
         inline_asm: String::new(),
         inline_asm_index: 0,
     };
