@@ -270,13 +270,12 @@ pub(crate) fn create_wrapper_function(
 
 pub(crate) struct FunctionCx<'m, 'clif, 'tcx: 'm> {
     pub(crate) module: &'m mut dyn Module,
-    pub(crate) debug_context: Option<&'clif mut DebugContext>,
+    //pub(crate) debug_context: Option<&'clif mut DebugContext>,
     pub(crate) tcx: TyCtxt<'tcx>,
     pub(crate) target_config: TargetFrontendConfig, // Cached from module
     pub(crate) pointer_type: Type,                  // Cached from module
     pub(crate) constants_cx: ConstantCx,
-    pub(crate) func_debug_cx: Option<FunctionDebugContext>,
-
+    //pub(crate) func_debug_cx: Option<FunctionDebugContext>,
     pub(crate) cgu_name: Symbol,
     pub(crate) instance: Instance<'tcx>,
     pub(crate) symbol_name: String,
@@ -406,14 +405,14 @@ impl<'tcx> FunctionCx<'_, '_, 'tcx> {
     }
 
     pub(crate) fn set_debug_loc(&mut self, source_info: mir::SourceInfo) {
-        if let Some(debug_context) = &mut self.debug_context {
+        /*if let Some(debug_context) = &mut self.debug_context {
             let (file_id, line, column) =
                 debug_context.get_span_loc(self.tcx, self.mir.span, source_info.span);
 
             let source_loc =
                 self.func_debug_cx.as_mut().unwrap().add_dbg_loc(file_id, line, column);
             self.bcx.set_srcloc(source_loc);
-        }
+        }*/
     }
 
     pub(crate) fn get_caller_location(&mut self, source_info: mir::SourceInfo) -> CValue<'tcx> {
