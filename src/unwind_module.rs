@@ -1,5 +1,6 @@
 use cranelift_codegen::Context;
 use cranelift_codegen::control::ControlPlane;
+use cranelift_codegen::incremental_cache::CacheKvStore;
 use cranelift_codegen::ir::Signature;
 use cranelift_codegen::isa::{TargetFrontendConfig, TargetIsa};
 use cranelift_module::{
@@ -90,7 +91,28 @@ impl<T: Module> Module for UnwindModule<T> {
         ctx: &mut Context,
         ctrl_plane: &mut ControlPlane,
     ) -> ModuleResult<()> {
-        self.module.define_function_with_control_plane(func, ctx, ctrl_plane)?;
+        if std::env::var("CG_CLIF_FUNCTION_CACHE").as_deref() == Ok("naive") {
+            if ctx.func.layout.blocks().nth(1).is_none()
+                || ctx.func.layout.blocks().nth(2).is_none()
+            {
+                ctx.compile(self.module.isa(), ctrl_plane)?;
+            } else {
+                ctx.compile_with_cache(self.module.isa(), &mut Cache, ctrl_plane)?;
+            }
+        } else {
+            ctx.compile(self.module.isa(), ctrl_plane)?;
+        }
+        let res = ctx.compiled_code().unwrap();
+
+        let alignment = res.buffer.alignment as u64;
+        let relocs = res
+            .buffer
+            .relocs()
+            .iter()
+            .map(|reloc| ModuleReloc::from_mach_reloc(&reloc, &ctx.func, func))
+            .collect::<Vec<_>>();
+        self.module.define_function_bytes(func, alignment, res.buffer.data(), &relocs)?;
+
         self.unwind_context.add_function(&mut self.module, func, ctx);
         Ok(())
     }
@@ -107,5 +129,31 @@ impl<T: Module> Module for UnwindModule<T> {
 
     fn define_data(&mut self, data_id: DataId, data: &DataDescription) -> ModuleResult<()> {
         self.module.define_data(data_id, data)
+    }
+}
+
+struct Cache;
+
+impl Cache {
+    fn file_for_key(&self, key: &[u8]) -> String {
+        let mut path = key.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        path.push_str(".clif_cache");
+        "/home/bjorn/Projects/cg_clif/cache/".to_owned() + &path
+    }
+}
+
+impl CacheKvStore for Cache {
+    fn get(&self, key: &[u8]) -> Option<std::borrow::Cow<'_, [u8]>> {
+        let path = self.file_for_key(key);
+        if std::fs::exists(&path).unwrap() {
+            Some(std::fs::read(path).unwrap().into())
+        } else {
+            None
+        }
+    }
+
+    fn insert(&mut self, key: &[u8], val: Vec<u8>) {
+        let path = self.file_for_key(key);
+        std::fs::write(path, val).unwrap();
     }
 }
