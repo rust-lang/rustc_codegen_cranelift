@@ -15,3 +15,5 @@
 perf.data
 perf.data.old
 *.mm_profdata
+
+/cache
