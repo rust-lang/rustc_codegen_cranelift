@@ -32,7 +32,7 @@ pub(crate) struct CodegenedFunction {
 pub(crate) fn codegen_fn<'tcx>(
     tcx: TyCtxt<'tcx>,
     cx: &mut crate::CodegenCx,
-    type_dbg: &mut TypeDebugContext<'tcx>,
+    //type_dbg: &mut TypeDebugContext<'tcx>,
     cached_func: Function,
     module: &mut dyn Module,
     instance: Instance<'tcx>,
@@ -63,9 +63,9 @@ pub(crate) fn codegen_fn<'tcx>(
     func.clear();
     func.name = UserFuncName::user(0, func_id.as_u32());
     func.signature = sig;
-    if cx.debug_context.is_some() {
-        func.collect_debug_info();
-    }
+    //if cx.debug_context.is_some() {
+    //    func.collect_debug_info();
+    //}
 
     let mut bcx = FunctionBuilder::new(&mut func, &mut func_ctx);
 
@@ -81,11 +81,11 @@ pub(crate) fn codegen_fn<'tcx>(
     let pointer_type = target_config.pointer_type();
     let clif_comments = crate::pretty_clif::CommentWriter::new(tcx, instance, fn_abi);
 
-    let func_debug_cx = if let Some(debug_context) = &mut cx.debug_context {
-        Some(debug_context.define_function(tcx, type_dbg, instance, fn_abi, &symbol_name, mir.span))
+    let func_debug_cx = None; /* if let Some(debug_context) = &mut cx.debug_context {
+    Some(debug_context.define_function(tcx, type_dbg, instance, fn_abi, &symbol_name, mir.span))
     } else {
-        None
-    };
+    None
+    };*/
 
     let mut fx = FunctionCx {
         cx,
@@ -240,6 +240,7 @@ pub(crate) fn compile_fn(
         }
     }
 
+    /*
     // Define debuginfo for function
     let debug_context = &mut cx.debug_context;
     profiler.generic_activity("generate debug info").run(|| {
@@ -251,6 +252,7 @@ pub(crate) fn compile_fn(
             );
         }
     });
+    */
 }
 
 fn verify_func(tcx: TyCtxt<'_>, writer: &crate::pretty_clif::CommentWriter, func: &Function) {

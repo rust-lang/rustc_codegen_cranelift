@@ -552,7 +552,7 @@ fn codegen_cgu_content(
                 let codegened_function = crate::base::codegen_fn(
                     tcx,
                     &mut cx,
-                    &mut type_dbg,
+                    //&mut type_dbg,
                     Function::new(),
                     module,
                     instance,
@@ -561,9 +561,9 @@ fn codegen_cgu_content(
             }
             MonoItem::Static(def_id) => {
                 let data_id = crate::constant::codegen_static(tcx, module, def_id);
-                if let Some(debug_context) = &mut cx.debug_context {
-                    debug_context.define_static(tcx, &mut type_dbg, def_id, data_id);
-                }
+                // if let Some(debug_context) = &mut cx.debug_context {
+                //     debug_context.define_static(tcx, &mut type_dbg, def_id, data_id);
+                // }
             }
             MonoItem::GlobalAsm(item_id) => {
                 rustc_codegen_ssa::base::codegen_global_asm(
@@ -637,7 +637,7 @@ fn module_codegen(
                     &profiler,
                     cgu_name,
                     module,
-                    cx.debug_context,
+                    None, //cx.debug_context,
                     global_asm_object_file,
                     &producer,
                 )

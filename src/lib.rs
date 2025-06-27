@@ -135,14 +135,14 @@ impl CodegenCx {
     fn new(tcx: TyCtxt<'_>, isa: &dyn TargetIsa, debug_info: bool, cgu_name: Symbol) -> Self {
         assert_eq!(pointer_ty(tcx), isa.pointer_type());
 
-        let debug_context = if debug_info && !tcx.sess.target.options.is_like_windows {
+        /*let debug_context = if debug_info && !tcx.sess.target.options.is_like_windows {
             Some(DebugContext::new(tcx, isa, cgu_name.as_str()))
         } else {
             None
-        };
+        };*/
         CodegenCx {
             should_write_ir: crate::pretty_clif::should_write_ir(tcx),
-            debug_context,
+            //debug_context,
             cgu_name,
         }
     }

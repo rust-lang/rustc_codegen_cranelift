@@ -144,7 +144,7 @@ fn codegen_and_compile_fn<'tcx>(
         let codegened_func = crate::base::codegen_fn(
             tcx,
             cx,
-            &mut TypeDebugContext::default(),
+            //&mut TypeDebugContext::default(),
             cached_func,
             module,
             instance,
