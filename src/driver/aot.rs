@@ -327,7 +327,8 @@ fn make_module(sess: &Session, name: String) -> UnwindModule<ObjectModule> {
     let isa = crate::build_isa(sess, false);
 
     let mut builder =
-        ObjectBuilder::new(isa, name + ".o", cranelift_module::default_libcall_names()).unwrap();
+        ObjectBuilder::new(isa, name.clone() + ".o", cranelift_module::default_libcall_names())
+            .unwrap();
 
     // Disable function sections by default on MSVC as it causes significant slowdowns with link.exe.
     // Maybe link.exe has exponential behavior when there are many sections with the same name? Also
@@ -339,7 +340,7 @@ fn make_module(sess: &Session, name: String) -> UnwindModule<ObjectModule> {
         sess.opts.unstable_opts.function_sections.unwrap_or(default_function_sections),
     );
 
-    UnwindModule::new(ObjectModule::new(builder), true)
+    UnwindModule::new(ObjectModule::new(builder), &name, true)
 }
 
 fn emit_cgu(
