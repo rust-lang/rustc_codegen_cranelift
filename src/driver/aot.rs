@@ -27,7 +27,6 @@ use rustc_session::config::{OptLevel, OutputFilenames, OutputType};
 use rustc_span::Symbol;
 
 use crate::base::CodegenedFunction;
-use crate::debuginfo::TypeDebugContext;
 use crate::global_asm::{GlobalAsmConfig, GlobalAsmContext};
 use crate::prelude::*;
 use crate::unwind_module::UnwindModule;
@@ -36,7 +35,6 @@ pub(crate) struct AotModule {
     producer: String,
     global_asm_config: GlobalAsmConfig,
     module: UnwindModule<ObjectModule>,
-    debug_context: Option<DebugContext>,
     codegened_functions: Vec<CodegenedFunction>,
     global_asm: String,
 }
@@ -66,35 +64,22 @@ fn make_module(tcx: TyCtxt<'_>, cgu_name: &str) -> AotModule {
 
     let producer = crate::debuginfo::producer(tcx.sess);
     let global_asm_config = GlobalAsmConfig::new(tcx.sess);
-    let debug_context = DebugContext::new(tcx, module.isa(), false, cgu_name);
     let codegened_functions = vec![];
     let global_asm = String::new();
 
-    AotModule {
-        producer,
-        global_asm_config,
-        module,
-        debug_context,
-        codegened_functions,
-        global_asm,
-    }
+    AotModule { producer, global_asm_config, module, codegened_functions, global_asm }
 }
 
 fn emit_module(
     output_filenames: &OutputFilenames,
     prof: &SelfProfilerRef,
     module: UnwindModule<ObjectModule>,
-    debug: Option<DebugContext>,
     kind: ModuleKind,
     name: String,
     global_asm_object: Option<PathBuf>,
     producer_str: &str,
 ) -> Result<CompiledModule, String> {
     let mut product = module.finish();
-
-    if let Some(mut debug) = debug {
-        debug.emit(&mut product);
-    }
 
     if product.object.format() == cranelift_object::object::BinaryFormat::Elf {
         let comment_section = product.object.add_section(
@@ -151,7 +136,6 @@ fn codegen_cgu(tcx: TyCtxt<'_>, cgu_name: Symbol) -> AotModule {
     let mono_items = cgu.items_in_deterministic_order(tcx);
 
     let mut module = make_module(tcx, cgu_name.as_str());
-    let mut type_dbg = TypeDebugContext::default();
     super::predefine_mono_items(tcx, &mut module.module, &mono_items);
     for (mono_item, item_data) in mono_items {
         match mono_item {
@@ -176,8 +160,6 @@ fn codegen_cgu(tcx: TyCtxt<'_>, cgu_name: Symbol) -> AotModule {
                 let codegened_function = crate::base::codegen_fn(
                     tcx,
                     cgu.name(),
-                    module.debug_context.as_mut(),
-                    &mut type_dbg,
                     Function::new(),
                     &mut module.module,
                     instance,
@@ -185,10 +167,7 @@ fn codegen_cgu(tcx: TyCtxt<'_>, cgu_name: Symbol) -> AotModule {
                 module.codegened_functions.push(codegened_function);
             }
             MonoItem::Static(def_id) => {
-                let data_id = crate::constant::codegen_static(tcx, &mut module.module, def_id);
-                if let Some(debug_context) = module.debug_context.as_mut() {
-                    debug_context.define_static(tcx, &mut type_dbg, def_id, data_id);
-                }
+                crate::constant::codegen_static(tcx, &mut module.module, def_id);
             }
             MonoItem::GlobalAsm(item_id) => {
                 rustc_codegen_ssa::base::codegen_global_asm(
@@ -226,7 +205,6 @@ fn compile_cgu(
                 should_write_ir,
                 &mut cached_context,
                 &mut aot_module.module,
-                aot_module.debug_context.as_mut(),
                 &mut aot_module.global_asm,
                 codegened_func,
             );
@@ -254,7 +232,6 @@ fn compile_cgu(
             output_filenames,
             prof,
             aot_module.module,
-            aot_module.debug_context,
             kind,
             cgu_name.clone(),
             global_asm_object_file,
