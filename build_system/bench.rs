@@ -73,7 +73,7 @@ pub(crate) fn benchmark(dirs: &Dirs, compiler: &Compiler) {
         bench_runs,
         Some(&clean_cmd),
         &[
-            ("cargo build", &llvm_build_cmd),
+            //("cargo build", &llvm_build_cmd),
             ("cargo-clif build", &clif_build_cmd),
             ("cargo-clif build --release", &clif_build_opt_cmd),
         ],
@@ -87,6 +87,8 @@ pub(crate) fn benchmark(dirs: &Dirs, compiler: &Compiler) {
         gha_step_summary.write_all(&std::fs::read(bench_compile_markdown).unwrap()).unwrap();
         gha_step_summary.write_all(b"\n").unwrap();
     }
+
+    return;
 
     eprintln!("[BENCH RUN] ebobby/simple-raytracer");
 
@@ -103,7 +105,7 @@ pub(crate) fn benchmark(dirs: &Dirs, compiler: &Compiler) {
         bench_runs,
         None,
         &[
-            ("", raytracer_cg_llvm.to_str().unwrap()),
+            //("", raytracer_cg_llvm.to_str().unwrap()),
             ("", raytracer_cg_clif.to_str().unwrap()),
             ("", raytracer_cg_clif_opt.to_str().unwrap()),
         ],
