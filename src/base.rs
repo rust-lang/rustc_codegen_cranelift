@@ -13,6 +13,7 @@ use rustc_middle::ty::adjustment::PointerCoercion;
 use rustc_middle::ty::layout::{FnAbiOf, HasTypingEnv};
 use rustc_middle::ty::print::with_no_trimmed_paths;
 use rustc_session::config::OutputFilenames;
+use rustc_span::Symbol;
 
 use crate::constant::ConstantCx;
 use crate::debuginfo::{FunctionDebugContext, TypeDebugContext};
@@ -31,7 +32,8 @@ pub(crate) struct CodegenedFunction {
 
 pub(crate) fn codegen_fn<'tcx>(
     tcx: TyCtxt<'tcx>,
-    cx: &mut crate::CodegenCx,
+    cgu_name: Symbol,
+    mut debug_context: Option<&mut DebugContext>,
     type_dbg: &mut TypeDebugContext<'tcx>,
     cached_func: Function,
     module: &mut dyn Module,
@@ -77,9 +79,10 @@ pub(crate) fn codegen_fn<'tcx>(
     // Make FunctionCx
     let target_config = module.target_config();
     let pointer_type = target_config.pointer_type();
+    assert_eq!(pointer_ty(tcx), pointer_type);
     let clif_comments = crate::pretty_clif::CommentWriter::new(tcx, instance, fn_abi);
 
-    let func_debug_cx = if let Some(debug_context) = &mut cx.debug_context {
+    let func_debug_cx = if let Some(debug_context) = debug_context.as_deref_mut() {
         Some(debug_context.define_function(tcx, type_dbg, instance, fn_abi, &symbol_name, mir.span))
     } else {
         None
@@ -89,14 +92,15 @@ pub(crate) fn codegen_fn<'tcx>(
     bcx.declare_var(exception_slot, pointer_type);
 
     let mut fx = FunctionCx {
-        cx,
         module,
+        debug_context,
         tcx,
         target_config,
         pointer_type,
         constants_cx: ConstantCx::new(),
         func_debug_cx,
 
+        cgu_name,
         instance,
         symbol_name,
         mir,
@@ -126,7 +130,7 @@ pub(crate) fn codegen_fn<'tcx>(
 
     fx.constants_cx.finalize(fx.tcx, &mut *fx.module);
 
-    if cx.should_write_ir {
+    if crate::pretty_clif::should_write_ir(tcx.sess) {
         crate::pretty_clif::write_clif_file(
             tcx.output_filenames(()),
             &symbol_name,
@@ -144,11 +148,12 @@ pub(crate) fn codegen_fn<'tcx>(
 }
 
 pub(crate) fn compile_fn(
-    cx: &mut crate::CodegenCx,
     profiler: &SelfProfilerRef,
     output_filenames: &OutputFilenames,
+    should_write_ir: bool,
     cached_context: &mut Context,
     module: &mut dyn Module,
+    debug_context: Option<&mut DebugContext>,
     global_asm: &mut String,
     codegened_func: CodegenedFunction,
 ) {
@@ -193,7 +198,7 @@ pub(crate) fn compile_fn(
 
     // Define function
     profiler.generic_activity("define function").run(|| {
-        context.want_disasm = cx.should_write_ir;
+        context.want_disasm = should_write_ir;
         match module.define_function(codegened_func.func_id, context) {
             Ok(()) => {}
             Err(ModuleError::Compilation(CodegenError::ImplLimitExceeded)) => {
@@ -223,7 +228,7 @@ pub(crate) fn compile_fn(
         }
     });
 
-    if cx.should_write_ir {
+    if should_write_ir {
         // Write optimized function to file for debugging
         crate::pretty_clif::write_clif_file(
             output_filenames,
@@ -244,7 +249,6 @@ pub(crate) fn compile_fn(
     }
 
     // Define debuginfo for function
-    let debug_context = &mut cx.debug_context;
     profiler.generic_activity("generate debug info").run(|| {
         if let Some(debug_context) = debug_context {
             codegened_func.func_debug_cx.unwrap().finalize(
