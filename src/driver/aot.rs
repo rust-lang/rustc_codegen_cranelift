@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
+use cranelift_codegen::incremental_cache::CacheKvStore;
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use rustc_ast::expand::allocator::AllocatorMethod;
 use rustc_codegen_ssa::back::lto::ThinModule;
@@ -16,7 +17,9 @@ use rustc_codegen_ssa::back::write::{
 };
 use rustc_codegen_ssa::traits::{ExtraBackendMethods, WriteBackendMethods};
 use rustc_codegen_ssa::{CompiledModule, ModuleCodegen, ModuleKind};
+use rustc_data_structures::fingerprint::Fingerprint;
 use rustc_data_structures::profiling::SelfProfilerRef;
+use rustc_data_structures::stable_hash::{StableHash, StableHasher};
 use rustc_errors::{DiagCtxt, DiagCtxtHandle};
 use rustc_hir::attrs::Linkage as RLinkage;
 use rustc_middle::dep_graph::WorkProduct;
@@ -26,16 +29,16 @@ use rustc_session::Session;
 use rustc_session::config::{OptLevel, OutputFilenames, OutputType};
 use rustc_span::Symbol;
 
-use crate::base::CodegenedFunction;
 use crate::global_asm::{GlobalAsmConfig, GlobalAsmContext};
 use crate::prelude::*;
-use crate::unwind_module::UnwindModule;
+use crate::serializable_module::SerializableModule;
+use crate::unwind_module::{FileCache, UnwindModule};
 
 pub(crate) struct AotModule {
     producer: String,
     global_asm_config: GlobalAsmConfig,
     module: UnwindModule<ObjectModule>,
-    codegened_functions: Vec<CodegenedFunction>,
+    codegened_functions: Vec<SerializableModule>,
     global_asm: String,
 }
 
@@ -137,6 +140,7 @@ fn codegen_cgu(tcx: TyCtxt<'_>, cgu_name: Symbol) -> AotModule {
 
     let mut module = make_module(tcx, cgu_name.as_str());
     super::predefine_mono_items(tcx, &mut module.module, &mono_items);
+    let isa = crate::build_isa(tcx.sess, false);
     for (mono_item, item_data) in mono_items {
         match mono_item {
             MonoItem::Fn(instance) => {
@@ -157,14 +161,64 @@ fn codegen_cgu(tcx: TyCtxt<'_>, cgu_name: Symbol) -> AotModule {
                     );
                     continue;
                 }
-                let codegened_function = crate::base::codegen_fn(
+
+                let dep_node = mono_item.codegen_dep_node(tcx);
+                let mut hasher = StableHasher::new();
+                tcx.with_stable_hashing_context(|mut hcx| {
+                    // Different crates may use different symbol name mangling for the same private function
+                    tcx.stable_crate_id(LOCAL_CRATE).stable_hash(&mut hcx, &mut hasher);
+                    instance.stable_hash(&mut hcx, &mut hasher);
+                });
+                let cache_key: Fingerprint = hasher.finish();
+
+                // FIXME don't call try_mark_green if already compiled in another cgu
+                if tcx.dep_graph.is_fully_enabled()
+                    && tcx.dep_graph.try_mark_green(tcx, &dep_node).is_some()
+                {
+                    let data = FileCache.get(&cache_key.to_le_bytes()).unwrap();
+                    module
+                        .codegened_functions
+                        .push(SerializableModule::deserialize(&data, isa.clone()));
+                    continue;
+                };
+
+                let (ser_module, _) = tcx.dep_graph.with_task(
+                    dep_node,
                     tcx,
-                    cgu.name(),
-                    Function::new(),
-                    &mut module.module,
-                    instance,
+                    || {
+                        let mut ser_module =
+                            SerializableModule::new(crate::build_isa(tcx.sess, false));
+                        let codegened_function = crate::base::codegen_fn(
+                            tcx,
+                            cgu.name(),
+                            Function::new(),
+                            &mut ser_module,
+                            instance,
+                        );
+                        let mut cached_context = Context::new();
+                        let mut global_asm = String::new();
+                        crate::base::compile_fn(
+                            &tcx.prof,
+                            tcx.dcx(),
+                            &tcx.output_filenames(()),
+                            crate::pretty_clif::should_write_ir(tcx.sess),
+                            &mut cached_context,
+                            &mut ser_module,
+                            &mut global_asm,
+                            codegened_function,
+                        );
+
+                        ser_module.add_global_asm(&global_asm);
+
+                        let data = ser_module.serialize();
+                        FileCache.insert(&cache_key.to_le_bytes(), data.to_vec());
+
+                        ser_module
+                    },
+                    Some(rustc_middle::dep_graph::hash_result),
                 );
-                module.codegened_functions.push(codegened_function);
+
+                module.codegened_functions.push(ser_module);
             }
             MonoItem::Static(def_id) => {
                 crate::constant::codegen_static(tcx, &mut module.module, def_id);
@@ -184,9 +238,9 @@ fn codegen_cgu(tcx: TyCtxt<'_>, cgu_name: Symbol) -> AotModule {
 
 fn compile_cgu(
     prof: &SelfProfilerRef,
-    dcx: DiagCtxtHandle<'_>,
+    _dcx: DiagCtxtHandle<'_>,
     output_filenames: &OutputFilenames,
-    should_write_ir: bool,
+    _should_write_ir: bool,
     mut aot_module: AotModule,
     cgu_name: String,
     kind: ModuleKind,
@@ -196,18 +250,9 @@ fn compile_cgu(
             prof.clone(),
         )));
 
-        let mut cached_context = Context::new();
         for codegened_func in aot_module.codegened_functions {
-            crate::base::compile_fn(
-                &prof,
-                dcx,
-                &output_filenames,
-                should_write_ir,
-                &mut cached_context,
-                &mut aot_module.module,
-                &mut aot_module.global_asm,
-                codegened_func,
-            );
+            let asm = codegened_func.apply_to(&mut aot_module.module);
+            aot_module.global_asm.push_str(&asm);
         }
     });
 

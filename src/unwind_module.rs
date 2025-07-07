@@ -149,7 +149,7 @@ impl<T: Module> Module for UnwindModule<T> {
     }
 }
 
-struct FileCache;
+pub(crate) struct FileCache;
 
 impl FileCache {
     fn file_for_key(&self, key: &[u8]) -> String {

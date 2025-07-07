@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::entity::SecondaryMap;
@@ -8,12 +8,14 @@ use cranelift_codegen::isa::TargetIsa;
 use cranelift_module::{
     DataId, ModuleDeclarations, ModuleError, ModuleReloc, ModuleRelocTarget, ModuleResult,
 };
+use rustc_data_structures::stable_hash::{StableHash, StableHashCtxt, StableHasher};
 
 use crate::prelude::*;
 
 pub(super) struct SerializableModule {
     isa: Arc<dyn TargetIsa>,
     inner: SerializableModuleInner,
+    serialized: OnceLock<Vec<u8>>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -21,6 +23,13 @@ struct SerializableModuleInner {
     declarations: ModuleDeclarations,
     functions: BTreeMap<FuncId, Function>,
     data_objects: BTreeMap<DataId, DataDescription>,
+    global_asm: String,
+}
+
+impl StableHash for SerializableModule {
+    fn stable_hash<Hcx: StableHashCtxt>(&self, hcx: &mut Hcx, hasher: &mut StableHasher) {
+        self.serialize().stable_hash(hcx, hasher);
+    }
 }
 
 impl SerializableModule {
@@ -31,20 +40,30 @@ impl SerializableModule {
                 declarations: ModuleDeclarations::default(),
                 functions: BTreeMap::new(),
                 data_objects: BTreeMap::new(),
+                global_asm: String::new(),
             },
+            serialized: OnceLock::new(),
         }
     }
 
-    pub(crate) fn serialize(self) -> Vec<u8> {
-        postcard::to_stdvec(&self.inner).unwrap()
+    pub(crate) fn serialize(&self) -> &[u8] {
+        self.serialized.get_or_init(|| postcard::to_stdvec(&self.inner).unwrap())
     }
 
     pub(crate) fn deserialize(blob: &[u8], isa: Arc<dyn TargetIsa>) -> SerializableModule {
         // FIXME check isa compatibility
-        SerializableModule { isa, inner: postcard::from_bytes(blob).unwrap() }
+        SerializableModule {
+            isa,
+            inner: postcard::from_bytes(blob).unwrap(),
+            serialized: OnceLock::new(),
+        }
     }
 
-    pub(crate) fn apply_to(self, module: &mut dyn Module) {
+    pub(crate) fn add_global_asm(&mut self, asm: &str) {
+        self.inner.global_asm.push_str(asm);
+    }
+
+    pub(crate) fn apply_to(self, module: &mut dyn Module) -> String {
         let mut function_map: SecondaryMap<FuncId, Option<FuncId>> = SecondaryMap::new();
         let mut data_object_map: SecondaryMap<DataId, Option<DataId>> = SecondaryMap::new();
 
@@ -147,7 +166,7 @@ impl SerializableModule {
             module.define_data(data_id, &data).unwrap();
         }
 
-        //todo!();
+        self.inner.global_asm
     }
 }
 
@@ -212,6 +231,8 @@ impl Module for SerializableModule {
 
         ctx.verify_if(&*self.isa)?;
         ctx.optimize(&*self.isa, ctrl_plane)?;
+
+        // FIXME compile to machine code
 
         self.inner.functions.insert(func_id, ctx.func.clone());
 
