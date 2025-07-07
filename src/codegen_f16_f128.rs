@@ -73,7 +73,7 @@ pub(crate) fn fcmp(fx: &mut FunctionCx<'_, '_, '_>, cc: FloatCC, lhs: Value, rhs
                 // FIXME(rust-lang/compiler-builtins#919): This should be `I64` on non-AArch64
                 // architectures, but switching it before compiler-builtins is fixed causes test
                 // failures.
-                vec![AbiParam::new(types::I32)],
+                vec![AbiParam::new(types::I64)],
                 &[lhs, rhs],
             )[0];
             let zero = fx.bcx.ins().iconst(types::I32, 0);
