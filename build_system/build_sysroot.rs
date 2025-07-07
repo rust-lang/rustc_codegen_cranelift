@@ -216,8 +216,12 @@ fn build_clif_sysroot_for_triple(
     }
 
     // Build sysroot
-    let mut rustflags =
-        vec!["-Zforce-unstable-if-unmarked".to_owned(), "-Zincremental-verify-ich".to_owned()];
+    let mut rustflags = vec![
+        "-Zforce-unstable-if-unmarked".to_owned(),
+        "-Zincremental-verify-ich".to_owned(),
+        "-Ccodegen-units=1".to_owned(),
+        "-Csymbol-mangling-version=v0".to_owned(),
+    ];
     if !panic_unwind_support {
         rustflags.push("-Cpanic=abort".to_owned());
     }

@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
+use cranelift_codegen::incremental_cache::CacheKvStore;
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use rustc_codegen_ssa::assert_module_sources::CguReuse;
 use rustc_codegen_ssa::back::link::ensure_removed;
@@ -15,6 +16,7 @@ use rustc_codegen_ssa::base::determine_cgu_reuse;
 use rustc_codegen_ssa::{
     CodegenResults, CompiledModule, CrateInfo, ModuleKind, errors as ssa_errors,
 };
+use rustc_data_structures::fingerprint::Fingerprint;
 use rustc_data_structures::profiling::SelfProfilerRef;
 use rustc_data_structures::stable_hasher::{HashStable, StableHasher};
 use rustc_data_structures::sync::{IntoDynSyncSend, par_map};
@@ -26,6 +28,7 @@ use rustc_middle::mir::mono::{
 };
 use rustc_session::Session;
 use rustc_session::config::{OutFileName, OutputFilenames, OutputType};
+use rustc_span::sym;
 
 use crate::base::CodegenedFunction;
 use crate::concurrency_limiter::{ConcurrencyLimiter, ConcurrencyLimiterToken};
@@ -33,7 +36,7 @@ use crate::debuginfo::TypeDebugContext;
 use crate::global_asm::{GlobalAsmConfig, GlobalAsmContext};
 use crate::prelude::*;
 use crate::serializable_module::SerializableModule;
-use crate::unwind_module::UnwindModule;
+use crate::unwind_module::{FileCache, UnwindModule};
 
 fn disable_incr_cache() -> bool {
     env::var("CG_CLIF_DISABLE_INCR_CACHE").as_deref() == Ok("1")
@@ -513,7 +516,7 @@ fn codegen_cgu_content(
     tcx: TyCtxt<'_>,
     module: &mut dyn Module,
     cgu_name: rustc_span::Symbol,
-) -> (Vec<(SerializableModule, String)>, String) {
+) -> (Vec<SerializableModule>, String) {
     let _timer = tcx.prof.generic_activity_with_arg("codegen cgu", cgu_name.as_str());
 
     let cgu = tcx.codegen_unit(cgu_name);
@@ -524,6 +527,7 @@ fn codegen_cgu_content(
     //let mut type_dbg = TypeDebugContext::default();
     super::predefine_mono_items(tcx, module, &mono_items);
     let mut codegened_functions = vec![];
+    let isa = crate::build_isa(tcx.sess, false);
     for (mono_item, item_data) in mono_items {
         match mono_item {
             MonoItem::Fn(instance) => {
@@ -545,40 +549,64 @@ fn codegen_cgu_content(
                     continue;
                 }
 
-                /*let dep_node = mono_item.codegen_dep_node(tcx);
-                let ((ser_module, global_asm), _) = tcx.dep_graph.with_task(
+                let dep_node = mono_item.codegen_dep_node(tcx);
+                let mut hasher = StableHasher::new();
+                tcx.with_stable_hashing_context(|mut hcx| {
+                    instance.hash_stable(&mut hcx, &mut hasher);
+                });
+                let cache_key: Fingerprint = hasher.finish();
+
+                if tcx.dep_graph.is_fully_enabled() && tcx.try_mark_green(&dep_node) {
+                    let data = FileCache.get(&cache_key.to_le_bytes()).unwrap();
+                    codegened_functions.push(SerializableModule::deserialize(&data, isa.clone()));
+                    continue;
+                };
+
+                let (ser_module, _) = tcx.dep_graph.with_task(
                     dep_node,
                     tcx,
-                    (cgu.name(), instance),
-                    |tcx, (cgu_name, instance)| {*/
-                let mut ser_module = SerializableModule::new(crate::build_isa(tcx.sess, false));
-                let codegened_function = crate::base::codegen_fn(
-                    tcx,
-                    cgu_name,
-                    //debug_context.as_mut(),
-                    //&mut type_dbg,
-                    Function::new(),
-                    &mut ser_module,
                     instance,
-                );
-                let mut cached_context = Context::new();
-                let mut global_asm = String::new();
-                crate::base::compile_fn(
-                    &tcx.prof,
-                    &tcx.output_filenames(()),
-                    crate::pretty_clif::should_write_ir(tcx.sess),
-                    &mut cached_context,
-                    &mut ser_module,
-                    //debug_context.as_mut(),
-                    &mut global_asm,
-                    codegened_function,
-                );
-                /*(ser_module, global_asm)
+                    |tcx, instance| {
+                        let mut ser_module =
+                            SerializableModule::new(crate::build_isa(tcx.sess, false));
+                        let codegened_function = crate::base::codegen_fn(
+                            tcx,
+                            tcx.crate_name(LOCAL_CRATE),
+                            //debug_context.as_mut(),
+                            //&mut type_dbg,
+                            Function::new(),
+                            &mut ser_module,
+                            instance,
+                        );
+                        let mut cached_context = Context::new();
+                        let mut global_asm = String::new();
+                        crate::base::compile_fn(
+                            &tcx.prof,
+                            &tcx.output_filenames(()),
+                            crate::pretty_clif::should_write_ir(tcx.sess),
+                            &mut cached_context,
+                            &mut ser_module,
+                            //debug_context.as_mut(),
+                            &mut global_asm,
+                            codegened_function,
+                        );
+                        ser_module.add_global_asm(&global_asm);
+
+                        let mut hasher = StableHasher::new();
+                        tcx.with_stable_hashing_context(|mut hcx| {
+                            instance.hash_stable(&mut hcx, &mut hasher);
+                        });
+                        let cache_key: Fingerprint = hasher.finish();
+
+                        let data = ser_module.serialize();
+                        FileCache.insert(&cache_key.to_le_bytes(), data);
+
+                        ser_module
                     },
                     Some(rustc_middle::dep_graph::hash_result),
-                );*/
+                );
 
-                codegened_functions.push((ser_module, global_asm));
+                codegened_functions.push(ser_module);
             }
             MonoItem::Static(def_id) => {
                 let data_id = crate::constant::codegen_static(tcx, module, def_id);
@@ -624,8 +652,8 @@ fn module_codegen(
                 profiler.clone(),
             )));
 
-            for (codegened_func, asm) in codegened_functions {
-                codegened_func.apply_to(&mut module);
+            for codegened_func in codegened_functions {
+                let asm = codegened_func.apply_to(&mut module);
                 global_asm.push_str(&asm);
             }
         });
