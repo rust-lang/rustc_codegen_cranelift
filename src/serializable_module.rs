@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::entity::SecondaryMap;
@@ -8,12 +8,14 @@ use cranelift_codegen::isa::TargetIsa;
 use cranelift_module::{
     DataId, ModuleDeclarations, ModuleError, ModuleReloc, ModuleRelocTarget, ModuleResult,
 };
+use rustc_data_structures::stable_hasher::HashStable;
 
 use crate::prelude::*;
 
 pub(super) struct SerializableModule {
     isa: Arc<dyn TargetIsa>,
     inner: SerializableModuleInner,
+    serialized: OnceLock<Vec<u8>>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -21,6 +23,17 @@ struct SerializableModuleInner {
     declarations: ModuleDeclarations,
     functions: BTreeMap<FuncId, Function>,
     data_objects: BTreeMap<DataId, DataDescription>,
+}
+
+impl<CTX> HashStable<CTX> for SerializableModule {
+    fn hash_stable(
+        &self,
+        hcx: &mut CTX,
+        hasher: &mut rustc_data_structures::stable_hasher::StableHasher,
+    ) {
+        let ser = self.serialized.get_or_init(|| self.serialize());
+        ser.hash_stable(hcx, hasher);
+    }
 }
 
 impl SerializableModule {
@@ -32,16 +45,21 @@ impl SerializableModule {
                 functions: BTreeMap::new(),
                 data_objects: BTreeMap::new(),
             },
+            serialized: OnceLock::new(),
         }
     }
 
-    pub(crate) fn serialize(self) -> Vec<u8> {
+    pub(crate) fn serialize(&self) -> Vec<u8> {
         postcard::to_stdvec(&self.inner).unwrap()
     }
 
     pub(crate) fn deserialize(blob: &[u8], isa: Arc<dyn TargetIsa>) -> SerializableModule {
         // FIXME check isa compatibility
-        SerializableModule { isa, inner: postcard::from_bytes(blob).unwrap() }
+        SerializableModule {
+            isa,
+            inner: postcard::from_bytes(blob).unwrap(),
+            serialized: OnceLock::new(),
+        }
     }
 
     pub(crate) fn apply_to(self, module: &mut dyn Module) {

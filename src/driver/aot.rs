@@ -32,6 +32,7 @@ use crate::concurrency_limiter::{ConcurrencyLimiter, ConcurrencyLimiterToken};
 use crate::debuginfo::TypeDebugContext;
 use crate::global_asm::{GlobalAsmConfig, GlobalAsmContext};
 use crate::prelude::*;
+use crate::serializable_module::SerializableModule;
 use crate::unwind_module::UnwindModule;
 
 fn disable_incr_cache() -> bool {
@@ -512,7 +513,7 @@ fn codegen_cgu_content(
     tcx: TyCtxt<'_>,
     module: &mut dyn Module,
     cgu_name: rustc_span::Symbol,
-) -> (Vec<CodegenedFunction>, String) {
+) -> (Vec<(SerializableModule, String)>, String) {
     let _timer = tcx.prof.generic_activity_with_arg("codegen cgu", cgu_name.as_str());
 
     let cgu = tcx.codegen_unit(cgu_name);
@@ -543,16 +544,41 @@ fn codegen_cgu_content(
                     );
                     continue;
                 }
+
+                /*let dep_node = mono_item.codegen_dep_node(tcx);
+                let ((ser_module, global_asm), _) = tcx.dep_graph.with_task(
+                    dep_node,
+                    tcx,
+                    (cgu.name(), instance),
+                    |tcx, (cgu_name, instance)| {*/
+                let mut ser_module = SerializableModule::new(crate::build_isa(tcx.sess, false));
                 let codegened_function = crate::base::codegen_fn(
                     tcx,
                     cgu_name,
                     //debug_context.as_mut(),
                     //&mut type_dbg,
                     Function::new(),
-                    module,
+                    &mut ser_module,
                     instance,
                 );
-                codegened_functions.push(codegened_function);
+                let mut cached_context = Context::new();
+                let mut global_asm = String::new();
+                crate::base::compile_fn(
+                    &tcx.prof,
+                    &tcx.output_filenames(()),
+                    crate::pretty_clif::should_write_ir(tcx.sess),
+                    &mut cached_context,
+                    &mut ser_module,
+                    //debug_context.as_mut(),
+                    &mut global_asm,
+                    codegened_function,
+                );
+                /*(ser_module, global_asm)
+                    },
+                    Some(rustc_middle::dep_graph::hash_result),
+                );*/
+
+                codegened_functions.push((ser_module, global_asm));
             }
             MonoItem::Static(def_id) => {
                 let data_id = crate::constant::codegen_static(tcx, module, def_id);
@@ -591,8 +617,6 @@ fn module_codegen(
 
     let profiler = tcx.prof.clone();
     let invocation_temp = tcx.sess.invocation_temp.clone();
-    let output_filenames = tcx.output_filenames(()).clone();
-    let should_write_ir = crate::pretty_clif::should_write_ir(tcx.sess);
 
     OngoingModuleCodegen::Async(std::thread::spawn(move || {
         profiler.clone().generic_activity_with_arg("compile functions", &*cgu_name).run(|| {
@@ -600,18 +624,9 @@ fn module_codegen(
                 profiler.clone(),
             )));
 
-            let mut cached_context = Context::new();
-            for codegened_func in codegened_functions {
-                crate::base::compile_fn(
-                    &profiler,
-                    &output_filenames,
-                    should_write_ir,
-                    &mut cached_context,
-                    &mut module,
-                    //debug_context.as_mut(),
-                    &mut global_asm,
-                    codegened_func,
-                );
+            for (codegened_func, asm) in codegened_functions {
+                codegened_func.apply_to(&mut module);
+                global_asm.push_str(&asm);
             }
         });
 

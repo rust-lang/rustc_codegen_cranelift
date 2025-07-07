@@ -216,7 +216,8 @@ fn build_clif_sysroot_for_triple(
     }
 
     // Build sysroot
-    let mut rustflags = vec!["-Zforce-unstable-if-unmarked".to_owned()];
+    let mut rustflags =
+        vec!["-Zforce-unstable-if-unmarked".to_owned(), "-Zincremental-verify-ich".to_owned()];
     if !panic_unwind_support {
         rustflags.push("-Cpanic=abort".to_owned());
     }
