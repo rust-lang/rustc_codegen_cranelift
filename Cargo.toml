@@ -8,9 +8,9 @@ crate-type = ["dylib"]
 
 [dependencies]
 # These have to be in sync with each other
-cranelift-codegen = { version = "0.123.0", default-features = false, features = ["std", "timing", "unwind", "all-native-arch", "incremental-cache"] }
+cranelift-codegen = { version = "0.123.0", default-features = false, features = ["std", "timing", "unwind", "all-native-arch", "enable-serde", "incremental-cache"] }
 cranelift-frontend = { version = "0.123.0" }
-cranelift-module = { version = "0.123.0" }
+cranelift-module = { version = "0.123.0", features = ["enable-serde"] }
 cranelift-native = { version = "0.123.0" }
 cranelift-jit = { version = "0.123.0", optional = true }
 cranelift-object = { version = "0.123.0" }
@@ -21,6 +21,8 @@ object = { version = "0.37", default-features = false, features = ["std", "read_
 indexmap = "2.0.0"
 libloading = { version = "0.8.0", optional = true }
 smallvec = "1.8.1"
+serde = { version = "1.0.203", features = ["derive"] }
+postcard = { version = "1.0.8", default-features = false, features = ["use-std"] }
 
 [patch.crates-io]
 # Uncomment to use an unreleased version of cranelift

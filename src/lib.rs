@@ -81,6 +81,7 @@ mod num;
 mod optimize;
 mod pointer;
 mod pretty_clif;
+mod serializable_module;
 mod toolchain;
 mod unsize;
 mod unwind_module;
