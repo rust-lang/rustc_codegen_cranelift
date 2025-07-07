@@ -225,6 +225,8 @@ dependencies = [
  "anyhow",
  "cranelift-codegen",
  "cranelift-control",
+ "serde",
+ "serde_derive",
 ]
 
 [[package]]
@@ -514,6 +516,8 @@ dependencies = [
  "indexmap",
  "libloading",
  "object",
+ "postcard",
+ "serde",
  "smallvec",
  "target-lexicon",
 ]
