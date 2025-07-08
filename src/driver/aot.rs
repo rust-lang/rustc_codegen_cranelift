@@ -567,8 +567,8 @@ fn codegen_cgu_content(
                 let (ser_module, _) = tcx.dep_graph.with_task(
                     dep_node,
                     tcx,
-                    instance,
-                    |tcx, instance| {
+                    (instance, cache_key),
+                    |tcx, (instance, cache_key)| {
                         let mut ser_module =
                             SerializableModule::new(crate::build_isa(tcx.sess, false));
                         let codegened_function = crate::base::codegen_fn(
@@ -593,14 +593,6 @@ fn codegen_cgu_content(
                             codegened_function,
                         );
                         ser_module.add_global_asm(&global_asm);
-
-                        let mut hasher = StableHasher::new();
-                        tcx.with_stable_hashing_context(|mut hcx| {
-                            // Different crates may use different symbol name mangling for the same private function
-                            tcx.stable_crate_id(LOCAL_CRATE).hash_stable(&mut hcx, &mut hasher);
-                            instance.hash_stable(&mut hcx, &mut hasher);
-                        });
-                        let cache_key: Fingerprint = hasher.finish();
 
                         let data = ser_module.serialize();
                         FileCache.insert(&cache_key.to_le_bytes(), data);
