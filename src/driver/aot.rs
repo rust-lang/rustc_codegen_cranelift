@@ -516,7 +516,7 @@ fn codegen_cgu_content(
     tcx: TyCtxt<'_>,
     module: &mut dyn Module,
     cgu_name: rustc_span::Symbol,
-) -> (Vec<SerializableModule>, String) {
+) -> (Vec<(SerializableModule, Option<Fingerprint>)>, String) {
     let _timer = tcx.prof.generic_activity_with_arg("codegen cgu", cgu_name.as_str());
 
     let cgu = tcx.codegen_unit(cgu_name);
@@ -560,15 +560,16 @@ fn codegen_cgu_content(
 
                 if tcx.dep_graph.is_fully_enabled() && tcx.try_mark_green(&dep_node) {
                     let data = FileCache.get(&cache_key.to_le_bytes()).unwrap();
-                    codegened_functions.push(SerializableModule::deserialize(&data, isa.clone()));
+                    codegened_functions
+                        .push((SerializableModule::deserialize(&data, isa.clone()), None));
                     continue;
                 };
 
                 let (ser_module, _) = tcx.dep_graph.with_task(
                     dep_node,
                     tcx,
-                    (instance, cache_key),
-                    |tcx, (instance, cache_key)| {
+                    instance,
+                    |tcx, instance| {
                         let mut ser_module =
                             SerializableModule::new(crate::build_isa(tcx.sess, false));
                         let codegened_function = crate::base::codegen_fn(
@@ -594,15 +595,12 @@ fn codegen_cgu_content(
                         );
                         ser_module.add_global_asm(&global_asm);
 
-                        let data = ser_module.serialize();
-                        FileCache.insert(&cache_key.to_le_bytes(), data);
-
                         ser_module
                     },
                     Some(rustc_middle::dep_graph::hash_result),
                 );
 
-                codegened_functions.push(ser_module);
+                codegened_functions.push((ser_module, Some(cache_key)));
             }
             MonoItem::Static(def_id) => {
                 let data_id = crate::constant::codegen_static(tcx, module, def_id);
@@ -648,7 +646,12 @@ fn module_codegen(
                 profiler.clone(),
             )));
 
-            for codegened_func in codegened_functions {
+            for (codegened_func, cache_key) in codegened_functions {
+                if let Some(cache_key) = cache_key {
+                    let data = codegened_func.serialize();
+                    FileCache.insert(&cache_key.to_le_bytes(), data);
+                }
+
                 let asm = codegened_func.apply_to(&mut module);
                 global_asm.push_str(&asm);
             }

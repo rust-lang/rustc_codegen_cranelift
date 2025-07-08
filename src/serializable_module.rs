@@ -1,10 +1,14 @@
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::mem;
 use std::sync::{Arc, OnceLock};
 
 use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::entity::SecondaryMap;
-use cranelift_codegen::ir::{Signature, UserExternalName};
+use cranelift_codegen::ir::function::FunctionParameters;
+use cranelift_codegen::ir::{ExternalName, Signature, UserExternalName};
 use cranelift_codegen::isa::TargetIsa;
+use cranelift_codegen::{Final, FinalizedMachReloc, FinalizedRelocTarget, MachBufferFinalized};
 use cranelift_module::{
     DataId, ModuleDeclarations, ModuleError, ModuleReloc, ModuleRelocTarget, ModuleResult,
 };
@@ -18,12 +22,18 @@ pub(super) struct SerializableModule {
     serialized: OnceLock<Vec<u8>>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 struct SerializableModuleInner {
     declarations: ModuleDeclarations,
-    functions: BTreeMap<FuncId, Function>,
+    functions: BTreeMap<FuncId, RefCell<FunctionMaybeCompiled>>,
     data_objects: BTreeMap<DataId, DataDescription>,
     global_asm: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+enum FunctionMaybeCompiled {
+    Ir(Function),
+    Compiled(MachBufferFinalized<Final>, FunctionParameters),
 }
 
 impl<CTX> HashStable<CTX> for SerializableModule {
@@ -52,6 +62,7 @@ impl SerializableModule {
     }
 
     pub(crate) fn serialize(&self) -> Vec<u8> {
+        self.compile_funcs();
         postcard::to_stdvec(&self.inner).unwrap()
     }
 
@@ -68,7 +79,26 @@ impl SerializableModule {
         self.inner.global_asm.push_str(asm);
     }
 
+    fn compile_funcs(&self) {
+        let mut ctx = Context::new();
+        for func in self.inner.functions.values() {
+            let mut func = func.borrow_mut();
+            match &mut *func {
+                FunctionMaybeCompiled::Ir(ir_func) => {
+                    // FIXME lazily do this during serialize/apply_to
+                    ctx.func = mem::replace(ir_func, Function::new());
+                    let res = ctx.compile(&*self.isa, &mut ControlPlane::default()).unwrap();
+
+                    let buffer = res.buffer.clone();
+                    *func = FunctionMaybeCompiled::Compiled(buffer, ctx.func.params);
+                }
+                FunctionMaybeCompiled::Compiled(_, _) => {}
+            }
+        }
+    }
+
     pub(crate) fn apply_to(self, module: &mut dyn Module) -> String {
+        self.compile_funcs();
         let mut function_map: SecondaryMap<FuncId, Option<FuncId>> = SecondaryMap::new();
         let mut data_object_map: SecondaryMap<DataId, Option<DataId>> = SecondaryMap::new();
 
@@ -98,41 +128,62 @@ impl SerializableModule {
                 data_object_map[data_id].unwrap()
             };
 
-        for (func_id, mut func) in self.inner.functions {
+        for (func_id, func) in self.inner.functions {
             let func_id = remap_func_id(module, &self.inner.declarations, func_id);
-            let user_named_funcs = func.params.user_named_funcs().clone();
-            for (ext_name_ref, ext_name) in user_named_funcs {
-                if ext_name.namespace == 0 {
-                    func.params.reset_user_func_name(
-                        ext_name_ref,
-                        UserExternalName::new(
-                            0,
-                            remap_func_id(
-                                module,
-                                &self.inner.declarations,
-                                FuncId::from_u32(ext_name.index),
+
+            let FunctionMaybeCompiled::Compiled(buffer, params) = &*func.borrow() else {
+                unreachable!()
+            };
+
+            let remap_reloc = |reloc: &FinalizedMachReloc| {
+                let name = match reloc.target {
+                    FinalizedRelocTarget::ExternalName(ExternalName::User(reff)) => {
+                        let ext_name = &params.user_named_funcs()[reff];
+                        let ext_name = if ext_name.namespace == 0 {
+                            UserExternalName::new(
+                                0,
+                                remap_func_id(
+                                    module,
+                                    &self.inner.declarations,
+                                    FuncId::from_u32(ext_name.index),
+                                )
+                                .as_u32(),
                             )
-                            .as_u32(),
-                        ),
-                    );
-                } else if ext_name.namespace == 1 {
-                    func.params.reset_user_func_name(
-                        ext_name_ref,
-                        UserExternalName::new(
-                            1,
-                            remap_data_id(
-                                module,
-                                &self.inner.declarations,
-                                DataId::from_u32(ext_name.index),
+                        } else if ext_name.namespace == 1 {
+                            UserExternalName::new(
+                                1,
+                                remap_data_id(
+                                    module,
+                                    &self.inner.declarations,
+                                    DataId::from_u32(ext_name.index),
+                                )
+                                .as_u32(),
                             )
-                            .as_u32(),
-                        ),
-                    );
-                } else {
-                    unreachable!();
-                }
-            }
-            module.define_function(func_id, &mut Context::for_function(func)).unwrap();
+                        } else {
+                            unreachable!();
+                        };
+                        ModuleRelocTarget::user(ext_name.namespace, ext_name.index)
+                    }
+                    FinalizedRelocTarget::ExternalName(ExternalName::TestCase(_)) => {
+                        unimplemented!()
+                    }
+                    FinalizedRelocTarget::ExternalName(ExternalName::LibCall(libcall)) => {
+                        ModuleRelocTarget::LibCall(libcall)
+                    }
+                    FinalizedRelocTarget::ExternalName(ExternalName::KnownSymbol(ks)) => {
+                        ModuleRelocTarget::KnownSymbol(ks)
+                    }
+                    FinalizedRelocTarget::Func(offset) => {
+                        ModuleRelocTarget::FunctionOffset(func_id, offset)
+                    }
+                };
+                ModuleReloc { offset: reloc.offset, kind: reloc.kind, name, addend: reloc.addend }
+            };
+
+            let relocs = buffer.relocs().iter().map(remap_reloc).collect::<Vec<_>>();
+            module
+                .define_function_bytes(func_id, buffer.alignment as u64, buffer.data(), &relocs)
+                .unwrap();
         }
 
         for (data_id, mut data) in self.inner.data_objects {
@@ -219,7 +270,7 @@ impl Module for SerializableModule {
         &mut self,
         func_id: FuncId,
         ctx: &mut Context,
-        ctrl_plane: &mut ControlPlane,
+        _ctrl_plane: &mut ControlPlane,
     ) -> ModuleResult<()> {
         let decl = self.inner.declarations.get_function_decl(func_id);
         if !decl.linkage.is_definable() {
@@ -234,12 +285,9 @@ impl Module for SerializableModule {
             ));
         }
 
-        ctx.verify_if(&*self.isa)?;
-        ctx.optimize(&*self.isa, ctrl_plane)?;
-
-        // FIXME compile to machine code
-
-        self.inner.functions.insert(func_id, ctx.func.clone());
+        self.inner
+            .functions
+            .insert(func_id, RefCell::new(FunctionMaybeCompiled::Ir(ctx.func.clone())));
 
         Ok(())
     }

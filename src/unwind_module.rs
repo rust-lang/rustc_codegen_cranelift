@@ -136,12 +136,12 @@ impl<T: Module> Module for UnwindModule<T> {
 
     fn define_function_bytes(
         &mut self,
-        _func_id: FuncId,
-        _alignment: u64,
-        _bytes: &[u8],
-        _relocs: &[ModuleReloc],
+        func_id: FuncId,
+        alignment: u64,
+        bytes: &[u8],
+        relocs: &[ModuleReloc],
     ) -> ModuleResult<()> {
-        unimplemented!()
+        self.module.define_function_bytes(func_id, alignment, bytes, relocs)
     }
 
     fn define_data(&mut self, data_id: DataId, data: &DataDescription) -> ModuleResult<()> {
