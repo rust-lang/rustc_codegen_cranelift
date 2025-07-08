@@ -552,6 +552,8 @@ fn codegen_cgu_content(
                 let dep_node = mono_item.codegen_dep_node(tcx);
                 let mut hasher = StableHasher::new();
                 tcx.with_stable_hashing_context(|mut hcx| {
+                    // Different crates may use different symbol name mangling for the same private function
+                    tcx.stable_crate_id(LOCAL_CRATE).hash_stable(&mut hcx, &mut hasher);
                     instance.hash_stable(&mut hcx, &mut hasher);
                 });
                 let cache_key: Fingerprint = hasher.finish();
@@ -594,6 +596,8 @@ fn codegen_cgu_content(
 
                         let mut hasher = StableHasher::new();
                         tcx.with_stable_hashing_context(|mut hcx| {
+                            // Different crates may use different symbol name mangling for the same private function
+                            tcx.stable_crate_id(LOCAL_CRATE).hash_stable(&mut hcx, &mut hasher);
                             instance.hash_stable(&mut hcx, &mut hasher);
                         });
                         let cache_key: Fingerprint = hasher.finish();
