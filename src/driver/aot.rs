@@ -558,6 +558,7 @@ fn codegen_cgu_content(
                 });
                 let cache_key: Fingerprint = hasher.finish();
 
+                // FIXME don't call try_mark_green if already compiled in another cgu
                 if tcx.dep_graph.is_fully_enabled() && tcx.try_mark_green(&dep_node) {
                     let data = FileCache.get(&cache_key.to_le_bytes()).unwrap();
                     codegened_functions
