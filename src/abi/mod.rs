@@ -156,6 +156,7 @@ impl<'tcx> FunctionCx<'_, '_, 'tcx> {
         };
 
         let ret_single_i128 = returns.len() == 1 && returns[0].value_type == types::I128;
+        let ret_single_f128 = returns.len() == 1 && returns[0].value_type == types::F128;
         if ret_single_i128 && self.tcx.sess.target.is_like_windows {
             // Return i128 using the vector ABI on Windows
             returns[0].value_type = types::I64X2;
@@ -163,8 +164,20 @@ impl<'tcx> FunctionCx<'_, '_, 'tcx> {
             let ret = self.lib_call_unadjusted(name, params, returns, &args)[0];
 
             Cow::Owned(vec![codegen_bitcast(self, types::I128, ret)])
-        } else if ret_single_i128 && self.tcx.sess.target.arch == "s390x" {
-            // Return i128 using a return area pointer on s390x.
+        } else if ret_single_f128 && self.tcx.sess.target.is_like_windows {
+            // Return f128 using a return area pointer on Windows.
+            let mut params = params;
+            let mut args = args.to_vec();
+
+            params.insert(0, AbiParam::new(self.pointer_type));
+            let ret_ptr = self.create_stack_slot(16, 16);
+            args.insert(0, ret_ptr.get_addr(self));
+
+            self.lib_call_unadjusted(name, params, vec![], &args);
+
+            Cow::Owned(vec![ret_ptr.load(self, types::I128, MemFlags::trusted())])
+        } else if (ret_single_i128 || ret_single_f128) && self.tcx.sess.target.arch == "s390x" {
+            // Return i128/f128 using a return area pointer on s390x.
             let mut params = params;
             let mut args = args.to_vec();
 
