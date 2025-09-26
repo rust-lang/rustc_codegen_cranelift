@@ -55,7 +55,7 @@ cd rustc_codegen_cranelift
 To run the test suite replace the last command with:
 
 ```bash
-/y.sh prepare # only needs to be run the first time
+./y.sh prepare # only needs to be run the first time
 ./test.sh
 ```
 
