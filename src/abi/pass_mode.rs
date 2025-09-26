@@ -359,6 +359,9 @@ pub(crate) fn adjust_fn_abi_for_rust_abi_mistakes<'tcx>(
             if fn_abi.ret.layout.size <= tcx.data_layout.pointer_size() {
                 return fn_abi;
             }
+            if let BackendRepr::SimdVector { .. } = fn_abi.ret.layout.backend_repr {
+                return fn_abi;
+            }
         }
         PassMode::Pair(..) => {}
     }
