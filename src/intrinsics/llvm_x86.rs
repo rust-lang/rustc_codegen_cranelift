@@ -1336,7 +1336,7 @@ pub(super) fn codegen_x86_llvm_intrinsic_call<'tcx>(
                     reg: InlineAsmRegOrRegClass::Reg(InlineAsmReg::X86(X86InlineAsmReg::xmm0)),
                     _late: true,
                     in_value: a,
-                    out_place: Some(ret)
+                    out_place: Some(ret),
                 }],
                 InlineAsmOptions::NOSTACK | InlineAsmOptions::PURE | InlineAsmOptions::NOMEM,
             );
