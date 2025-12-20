@@ -3,20 +3,17 @@
 use std::ffi::OsStr;
 use std::path::{Component, Path};
 
-use crate::debuginfo::FunctionDebugContext;
-use crate::prelude::*;
-
-use rustc_data_structures::sync::Lrc;
-use rustc_span::{
-    FileName, Pos, SourceFile, SourceFileAndLine, SourceFileHash, SourceFileHashAlgorithm,
-};
-
-use cranelift_codegen::binemit::CodeOffset;
 use cranelift_codegen::MachSrcLoc;
-
-use gimli::write::{
-    Address, AttributeValue, FileId, FileInfo, LineProgram, LineString, LineStringTable,
+use cranelift_codegen::binemit::CodeOffset;
+use gimli::write::{FileId, FileInfo, LineProgram, LineString, LineStringTable};
+use rustc_span::{
+    FileName, Pos, RemapPathScopeComponents, SourceFile, SourceFileAndLine,
+    SourceFileHashAlgorithm, hygiene,
 };
+
+use crate::debuginfo::FunctionDebugContext;
+use crate::debuginfo::emit::address_for_func;
+use crate::prelude::*;
 
 // OPTIMIZATION: It is cheaper to do this in one pass than using `.parent()` and `.file_name()`.
 fn split_path_dir_and_file(path: &Path) -> (&Path, &OsStr) {
@@ -48,86 +45,92 @@ fn osstr_as_utf8_bytes(path: &OsStr) -> &[u8] {
     }
 }
 
-const MD5_LEN: usize = 16;
+fn make_file_info(source_file: &SourceFile, embed_source: bool) -> Option<FileInfo> {
+    let has_md5 = source_file.src_hash.kind == SourceFileHashAlgorithm::Md5;
+    let has_source = embed_source && source_file.src.is_some();
 
-fn make_file_info(hash: SourceFileHash) -> Option<FileInfo> {
-    if hash.kind == SourceFileHashAlgorithm::Md5 {
-        let mut buf = [0u8; MD5_LEN];
-        buf.copy_from_slice(hash.hash_bytes());
-        Some(FileInfo { timestamp: 0, size: 0, md5: buf })
-    } else {
-        None
+    if !has_md5 && !has_source {
+        return None;
     }
+
+    let mut info = FileInfo::default();
+
+    if has_md5 {
+        info.md5.copy_from_slice(source_file.src_hash.hash_bytes());
+    }
+
+    if embed_source {
+        if let Some(src) = &source_file.src {
+            info.source = Some(LineString::String(src.as_bytes().to_vec()));
+        }
+    }
+
+    Some(info)
 }
 
 impl DebugContext {
     pub(crate) fn get_span_loc(
+        &mut self,
         tcx: TyCtxt<'_>,
         function_span: Span,
         span: Span,
-    ) -> (Lrc<SourceFile>, u64, u64) {
-        // Based on https://github.com/rust-lang/rust/blob/e369d87b015a84653343032833d65d0545fd3f26/src/librustc_codegen_ssa/mir/mod.rs#L116-L131
-        // In order to have a good line stepping behavior in debugger, we overwrite debug
-        // locations of macro expansions with that of the outermost expansion site (when the macro is
-        // annotated with `#[collapse_debuginfo]` or when `-Zdebug-macros` is provided).
-        let span = if tcx.should_collapse_debuginfo(span) {
-            span
-        } else {
-            // Walk up the macro expansion chain until we reach a non-expanded span.
-            // We also stop at the function body level because no line stepping can occur
-            // at the level above that.
-            rustc_span::hygiene::walk_chain(span, function_span.ctxt())
-        };
-
+    ) -> (FileId, u64, u64) {
+        // Match behavior of `FunctionCx::adjusted_span_and_dbg_scope`.
+        let span = hygiene::walk_chain_collapsed(span, function_span);
         match tcx.sess.source_map().lookup_line(span.lo()) {
             Ok(SourceFileAndLine { sf: file, line }) => {
-                let line_pos = file.lines(|lines| lines[line]);
+                let file_id = self.add_source_file(&file);
+                let line_pos = file.lines()[line];
+                let col = file.relative_position(span.lo()) - line_pos;
 
-                (
-                    file,
-                    u64::try_from(line).unwrap() + 1,
-                    u64::from((span.lo() - line_pos).to_u32()) + 1,
-                )
+                (file_id, u64::try_from(line).unwrap() + 1, u64::from(col.to_u32()) + 1)
             }
-            Err(file) => (file, 0, 0),
+            Err(file) => (self.add_source_file(&file), 0, 0),
         }
     }
 
     pub(crate) fn add_source_file(&mut self, source_file: &SourceFile) -> FileId {
-        let line_program: &mut LineProgram = &mut self.dwarf.unit.line_program;
-        let line_strings: &mut LineStringTable = &mut self.dwarf.line_strings;
+        let cache_key = (source_file.stable_id, source_file.src_hash);
+        *self.created_files.entry(cache_key).or_insert_with(|| {
+            let line_program: &mut LineProgram = &mut self.dwarf.unit.line_program;
+            let line_strings: &mut LineStringTable = &mut self.dwarf.line_strings;
 
-        match &source_file.name {
-            FileName::Real(path) => {
-                let (dir_path, file_name) =
-                    split_path_dir_and_file(path.remapped_path_if_available());
-                let dir_name = osstr_as_utf8_bytes(dir_path.as_os_str());
-                let file_name = osstr_as_utf8_bytes(file_name);
+            match &source_file.name {
+                FileName::Real(path) => {
+                    let (dir_path, file_name) =
+                        split_path_dir_and_file(path.path(RemapPathScopeComponents::DEBUGINFO));
+                    let dir_name = osstr_as_utf8_bytes(dir_path.as_os_str());
+                    let file_name = osstr_as_utf8_bytes(file_name);
 
-                let dir_id = if !dir_name.is_empty() {
-                    let dir_name = LineString::new(dir_name, line_program.encoding(), line_strings);
-                    line_program.add_directory(dir_name)
-                } else {
-                    line_program.default_directory()
-                };
-                let file_name = LineString::new(file_name, line_program.encoding(), line_strings);
+                    let dir_id = if !dir_name.is_empty() {
+                        let dir_name =
+                            LineString::new(dir_name, line_program.encoding(), line_strings);
+                        line_program.add_directory(dir_name)
+                    } else {
+                        line_program.default_directory()
+                    };
+                    let file_name =
+                        LineString::new(file_name, line_program.encoding(), line_strings);
 
-                let info = make_file_info(source_file.src_hash);
+                    let info = make_file_info(source_file, self.embed_source);
 
-                line_program.file_has_md5 &= info.is_some();
-                line_program.add_file(file_name, dir_id, info)
+                    let has_md5 = source_file.src_hash.kind == SourceFileHashAlgorithm::Md5;
+                    line_program.file_has_md5 &= has_md5;
+                    line_program.add_file(file_name, dir_id, info)
+                }
+                filename => {
+                    // For anonymous sources, create an empty directory instead of using the default
+                    let dir_id = line_program.default_directory();
+
+                    let dummy_file_name = LineString::new(
+                        filename.prefer_remapped_unconditionally().to_string().into_bytes(),
+                        line_program.encoding(),
+                        line_strings,
+                    );
+                    line_program.add_file(dummy_file_name, dir_id, None)
+                }
             }
-            // FIXME give more appropriate file names
-            filename => {
-                let dir_id = line_program.default_directory();
-                let dummy_file_name = LineString::new(
-                    filename.prefer_remapped().to_string().into_bytes(),
-                    line_program.encoding(),
-                    line_strings,
-                );
-                line_program.add_file(dummy_file_name, dir_id, None)
-            }
-        }
+        })
     }
 }
 
@@ -140,7 +143,7 @@ impl FunctionDebugContext {
     pub(super) fn create_debug_lines(
         &mut self,
         debug_context: &mut DebugContext,
-        symbol: usize,
+        func_id: FuncId,
         context: &Context,
     ) -> CodeOffset {
         let create_row_for_span =
@@ -153,11 +156,7 @@ impl FunctionDebugContext {
                 debug_context.dwarf.unit.line_program.generate_row();
             };
 
-        debug_context
-            .dwarf
-            .unit
-            .line_program
-            .begin_sequence(Some(Address::Symbol { symbol, addend: 0 }));
+        debug_context.dwarf.unit.line_program.begin_sequence(Some(address_for_func(func_id)));
 
         let mut func_end = 0;
 
@@ -178,13 +177,6 @@ impl FunctionDebugContext {
         let func_end = mcr.buffer.total_size();
 
         assert_ne!(func_end, 0);
-
-        let entry = debug_context.dwarf.unit.get_mut(self.entry_id);
-        entry.set(
-            gimli::DW_AT_low_pc,
-            AttributeValue::Address(Address::Symbol { symbol, addend: 0 }),
-        );
-        entry.set(gimli::DW_AT_high_pc, AttributeValue::Udata(u64::from(func_end)));
 
         func_end
     }

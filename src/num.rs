@@ -1,11 +1,12 @@
 //! Various operations on integer and floating-point numbers
 
+use crate::codegen_f16_f128;
 use crate::prelude::*;
 
-pub(crate) fn bin_op_to_intcc(bin_op: BinOp, signed: bool) -> Option<IntCC> {
+fn bin_op_to_intcc(bin_op: BinOp, signed: bool) -> IntCC {
     use BinOp::*;
     use IntCC::*;
-    Some(match bin_op {
+    match bin_op {
         Eq => Equal,
         Lt => {
             if signed {
@@ -36,8 +37,24 @@ pub(crate) fn bin_op_to_intcc(bin_op: BinOp, signed: bool) -> Option<IntCC> {
                 UnsignedGreaterThan
             }
         }
-        _ => return None,
-    })
+        _ => unreachable!(),
+    }
+}
+
+fn codegen_three_way_compare<'tcx>(
+    fx: &mut FunctionCx<'_, '_, 'tcx>,
+    signed: bool,
+    lhs: Value,
+    rhs: Value,
+) -> CValue<'tcx> {
+    // This emits `(lhs > rhs) - (lhs < rhs)`, which is cranelift's preferred form per
+    // <https://github.com/bytecodealliance/wasmtime/blob/8052bb9e3b792503b225f2a5b2ba3bc023bff462/cranelift/codegen/src/prelude_opt.isle#L41-L47>
+    let gt_cc = crate::num::bin_op_to_intcc(BinOp::Gt, signed);
+    let lt_cc = crate::num::bin_op_to_intcc(BinOp::Lt, signed);
+    let gt = fx.bcx.ins().icmp(gt_cc, lhs, rhs);
+    let lt = fx.bcx.ins().icmp(lt_cc, lhs, rhs);
+    let val = fx.bcx.ins().isub(gt, lt);
+    CValue::by_val(val, fx.layout_of(fx.tcx.ty_ordering_enum(fx.mir.span)))
 }
 
 fn codegen_compare_bin_op<'tcx>(
@@ -47,7 +64,7 @@ fn codegen_compare_bin_op<'tcx>(
     lhs: Value,
     rhs: Value,
 ) -> CValue<'tcx> {
-    let intcc = crate::num::bin_op_to_intcc(bin_op, signed).unwrap();
+    let intcc = crate::num::bin_op_to_intcc(bin_op, signed);
     let val = fx.bcx.ins().icmp(intcc, lhs, rhs);
     CValue::by_val(val, fx.layout_of(fx.tcx.types.bool))
 }
@@ -71,6 +88,16 @@ pub(crate) fn codegen_binop<'tcx>(
                 _ => {}
             }
         }
+        BinOp::Cmp => match in_lhs.layout().ty.kind() {
+            ty::Bool | ty::Uint(_) | ty::Int(_) | ty::Char => {
+                let signed = type_sign(in_lhs.layout().ty);
+                let lhs = in_lhs.load_scalar(fx);
+                let rhs = in_rhs.load_scalar(fx);
+
+                return codegen_three_way_compare(fx, signed, lhs, rhs);
+            }
+            _ => {}
+        },
         _ => {}
     }
 
@@ -83,7 +110,7 @@ pub(crate) fn codegen_binop<'tcx>(
     }
 }
 
-pub(crate) fn codegen_bool_binop<'tcx>(
+fn codegen_bool_binop<'tcx>(
     fx: &mut FunctionCx<'_, '_, 'tcx>,
     bin_op: BinOp,
     in_lhs: CValue<'tcx>,
@@ -110,7 +137,7 @@ pub(crate) fn codegen_int_binop<'tcx>(
     in_lhs: CValue<'tcx>,
     in_rhs: CValue<'tcx>,
 ) -> CValue<'tcx> {
-    if bin_op != BinOp::Shl && bin_op != BinOp::Shr {
+    if !matches!(bin_op, BinOp::Shl | BinOp::ShlUnchecked | BinOp::Shr | BinOp::ShrUnchecked) {
         assert_eq!(
             in_lhs.layout().ty,
             in_rhs.layout().ty,
@@ -159,8 +186,11 @@ pub(crate) fn codegen_int_binop<'tcx>(
             }
         }
         BinOp::Offset => unreachable!("Offset is not an integer operation"),
+        BinOp::AddWithOverflow | BinOp::SubWithOverflow | BinOp::MulWithOverflow => {
+            unreachable!("Overflow binops handled by `codegen_checked_int_binop`")
+        }
         // Compare binops handles by `codegen_binop`.
-        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::Cmp => {
             unreachable!("{:?}({:?}, {:?})", bin_op, in_lhs.layout().ty, in_rhs.layout().ty);
         }
     };
@@ -176,10 +206,6 @@ pub(crate) fn codegen_checked_int_binop<'tcx>(
 ) -> CValue<'tcx> {
     let lhs = in_lhs.load_scalar(fx);
     let rhs = in_rhs.load_scalar(fx);
-
-    if let Some(res) = crate::codegen_i128::maybe_codegen_checked(fx, bin_op, in_lhs, in_rhs) {
-        return res;
-    }
 
     let signed = type_sign(in_lhs.layout().ty);
 
@@ -213,6 +239,10 @@ pub(crate) fn codegen_checked_int_binop<'tcx>(
             (val, has_overflow)
         }
         BinOp::Mul => {
+            if let Some(res) = crate::codegen_i128::maybe_codegen_mul_checked(fx, in_lhs, in_rhs) {
+                return res;
+            }
+
             let ty = fx.bcx.func.dfg.value_type(lhs);
             match ty {
                 types::I8 | types::I16 | types::I32 if !signed => {
@@ -321,16 +351,41 @@ pub(crate) fn codegen_float_binop<'tcx>(
     let lhs = in_lhs.load_scalar(fx);
     let rhs = in_rhs.load_scalar(fx);
 
+    // FIXME(bytecodealliance/wasmtime#8312): Remove once backend lowerings have
+    // been added to Cranelift.
+    let (lhs, rhs) = if *in_lhs.layout().ty.kind() == ty::Float(FloatTy::F16) {
+        (codegen_f16_f128::f16_to_f32(fx, lhs), codegen_f16_f128::f16_to_f32(fx, rhs))
+    } else {
+        (lhs, rhs)
+    };
     let b = fx.bcx.ins();
     let res = match bin_op {
+        // FIXME(bytecodealliance/wasmtime#8312): Remove once backend lowerings
+        // have been added to Cranelift.
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div
+            if *in_lhs.layout().ty.kind() == ty::Float(FloatTy::F128) =>
+        {
+            codegen_f16_f128::codegen_f128_binop(fx, bin_op, lhs, rhs)
+        }
         BinOp::Add => b.fadd(lhs, rhs),
         BinOp::Sub => b.fsub(lhs, rhs),
         BinOp::Mul => b.fmul(lhs, rhs),
         BinOp::Div => b.fdiv(lhs, rhs),
         BinOp::Rem => {
-            let (name, ty) = match in_lhs.layout().ty.kind() {
-                ty::Float(FloatTy::F32) => ("fmodf", types::F32),
-                ty::Float(FloatTy::F64) => ("fmod", types::F64),
+            let (name, ty, lhs, rhs) = match in_lhs.layout().ty.kind() {
+                ty::Float(FloatTy::F16) => (
+                    "fmodf",
+                    types::F32,
+                    // FIXME(bytecodealliance/wasmtime#8312): Already converted
+                    // by the FIXME above.
+                    // fx.bcx.ins().fpromote(types::F32, lhs),
+                    // fx.bcx.ins().fpromote(types::F32, rhs),
+                    lhs,
+                    rhs,
+                ),
+                ty::Float(FloatTy::F32) => ("fmodf", types::F32, lhs, rhs),
+                ty::Float(FloatTy::F64) => ("fmod", types::F64, lhs, rhs),
+                ty::Float(FloatTy::F128) => ("fmodf128", types::F128, lhs, rhs),
                 _ => bug!(),
             };
 
@@ -341,6 +396,14 @@ pub(crate) fn codegen_float_binop<'tcx>(
                 &[lhs, rhs],
             )[0];
 
+            let ret_val = if *in_lhs.layout().ty.kind() == ty::Float(FloatTy::F16) {
+                // FIXME(bytecodealliance/wasmtime#8312): Use native Cranelift
+                // operation once Cranelift backend lowerings have been
+                // implemented.
+                codegen_f16_f128::f32_to_f16(fx, ret_val)
+            } else {
+                ret_val
+            };
             return CValue::by_val(ret_val, in_lhs.layout());
         }
         BinOp::Eq | BinOp::Lt | BinOp::Le | BinOp::Ne | BinOp::Ge | BinOp::Gt => {
@@ -353,16 +416,26 @@ pub(crate) fn codegen_float_binop<'tcx>(
                 BinOp::Gt => FloatCC::GreaterThan,
                 _ => unreachable!(),
             };
-            let val = fx.bcx.ins().fcmp(fltcc, lhs, rhs);
+            // FIXME(bytecodealliance/wasmtime#8312): Replace with Cranelift
+            // `fcmp` once `f16`/`f128` backend lowerings have been added to
+            // Cranelift.
+            let val = codegen_f16_f128::fcmp(fx, fltcc, lhs, rhs);
             return CValue::by_val(val, fx.layout_of(fx.tcx.types.bool));
         }
         _ => unreachable!("{:?}({:?}, {:?})", bin_op, in_lhs, in_rhs),
     };
 
+    // FIXME(bytecodealliance/wasmtime#8312): Remove once backend lowerings have
+    // been added to Cranelift.
+    let res = if *in_lhs.layout().ty.kind() == ty::Float(FloatTy::F16) {
+        codegen_f16_f128::f32_to_f16(fx, res)
+    } else {
+        res
+    };
     CValue::by_val(res, in_lhs.layout())
 }
 
-pub(crate) fn codegen_ptr_binop<'tcx>(
+fn codegen_ptr_binop<'tcx>(
     fx: &mut FunctionCx<'_, '_, 'tcx>,
     bin_op: BinOp,
     in_lhs: CValue<'tcx>,
@@ -372,7 +445,7 @@ pub(crate) fn codegen_ptr_binop<'tcx>(
         .layout()
         .ty
         .builtin_deref(true)
-        .map(|TypeAndMut { ty, mutbl: _ }| !has_ptr_meta(fx.tcx, ty))
+        .map(|ty| !fx.tcx.type_has_metadata(ty, ty::TypingEnv::fully_monomorphized()))
         .unwrap_or(true);
 
     if is_thin_ptr {
@@ -384,7 +457,7 @@ pub(crate) fn codegen_ptr_binop<'tcx>(
                 codegen_compare_bin_op(fx, bin_op, false, lhs, rhs)
             }
             BinOp::Offset => {
-                let pointee_ty = in_lhs.layout().ty.builtin_deref(true).unwrap().ty;
+                let pointee_ty = in_lhs.layout().ty.builtin_deref(true).unwrap();
                 let (base, offset) = (in_lhs, in_rhs.load_scalar(fx));
                 let pointee_size = fx.layout_of(pointee_ty).size.bytes();
                 let ptr_diff = fx.bcx.ins().imul_imm(offset, pointee_size as i64);
@@ -412,13 +485,9 @@ pub(crate) fn codegen_ptr_binop<'tcx>(
             BinOp::Lt | BinOp::Le | BinOp::Ge | BinOp::Gt => {
                 let ptr_eq = fx.bcx.ins().icmp(IntCC::Equal, lhs_ptr, rhs_ptr);
 
-                let ptr_cmp =
-                    fx.bcx.ins().icmp(bin_op_to_intcc(bin_op, false).unwrap(), lhs_ptr, rhs_ptr);
-                let extra_cmp = fx.bcx.ins().icmp(
-                    bin_op_to_intcc(bin_op, false).unwrap(),
-                    lhs_extra,
-                    rhs_extra,
-                );
+                let ptr_cmp = fx.bcx.ins().icmp(bin_op_to_intcc(bin_op, false), lhs_ptr, rhs_ptr);
+                let extra_cmp =
+                    fx.bcx.ins().icmp(bin_op_to_intcc(bin_op, false), lhs_extra, rhs_extra);
 
                 fx.bcx.ins().select(ptr_eq, extra_cmp, ptr_cmp)
             }
@@ -434,15 +503,19 @@ pub(crate) fn codegen_ptr_binop<'tcx>(
 // and `a.is_nan() ? b : (a <= b ? b : a)` for `maxnumf*`. NaN checks are done by comparing
 // a float against itself. Only in case of NaN is it not equal to itself.
 pub(crate) fn codegen_float_min(fx: &mut FunctionCx<'_, '_, '_>, a: Value, b: Value) -> Value {
-    let a_is_nan = fx.bcx.ins().fcmp(FloatCC::NotEqual, a, a);
-    let a_ge_b = fx.bcx.ins().fcmp(FloatCC::GreaterThanOrEqual, a, b);
+    // FIXME(bytecodealliance/wasmtime#8312): Replace with Cranelift `fcmp` once
+    // `f16`/`f128` backend lowerings have been added to Cranelift.
+    let a_is_nan = codegen_f16_f128::fcmp(fx, FloatCC::NotEqual, a, a);
+    let a_ge_b = codegen_f16_f128::fcmp(fx, FloatCC::GreaterThanOrEqual, a, b);
     let temp = fx.bcx.ins().select(a_ge_b, b, a);
     fx.bcx.ins().select(a_is_nan, b, temp)
 }
 
 pub(crate) fn codegen_float_max(fx: &mut FunctionCx<'_, '_, '_>, a: Value, b: Value) -> Value {
-    let a_is_nan = fx.bcx.ins().fcmp(FloatCC::NotEqual, a, a);
-    let a_le_b = fx.bcx.ins().fcmp(FloatCC::LessThanOrEqual, a, b);
+    // FIXME(bytecodealliance/wasmtime#8312): Replace with Cranelift `fcmp` once
+    // `f16`/`f128` backend lowerings have been added to Cranelift.
+    let a_is_nan = codegen_f16_f128::fcmp(fx, FloatCC::NotEqual, a, a);
+    let a_le_b = codegen_f16_f128::fcmp(fx, FloatCC::LessThanOrEqual, a, b);
     let temp = fx.bcx.ins().select(a_le_b, b, a);
     fx.bcx.ins().select(a_is_nan, b, temp)
 }

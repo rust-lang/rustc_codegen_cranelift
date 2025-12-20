@@ -2,18 +2,19 @@
 
 #![feature(type_alias_impl_trait)]
 
-trait T {
+pub trait T {
     type Item;
 }
 
-type Alias<'a> = impl T<Item = &'a ()>;
+pub type Alias<'a> = impl T<Item = &'a ()>;
 
 struct S;
 impl<'a> T for &'a S {
     type Item = &'a ();
 }
 
-fn filter_positive<'a>() -> Alias<'a> {
+#[define_opaque(Alias)]
+pub fn filter_positive<'a>() -> Alias<'a> {
     &S
 }
 

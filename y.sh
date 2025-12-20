@@ -1,6 +1,5 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
 set -e
 echo "[BUILD] build system" 1>&2
-rustc build_system/main.rs -o y.bin -Cdebuginfo=1 --edition 2021
-exec ./y.bin "$@"
+exec cargo run --manifest-path build_system/Cargo.toml -- "$@"

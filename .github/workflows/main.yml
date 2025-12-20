@@ -4,34 +4,47 @@ on:
   - push
   - pull_request
 
+defaults:
+  run:
+    shell: bash
+
+permissions: {}
+
+env:
+  # Disabling incr comp reduces cache size and incr comp doesn't save as much
+  # on CI anyway.
+  CARGO_BUILD_INCREMENTAL: false
+  # Rust's CI denies warnings. Deny them here too to ensure subtree syncs don't
+  # fail because of warnings.
+  RUSTFLAGS: "-Dwarnings"
+
 jobs:
   rustfmt:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Avoid installing rustc-dev
       run: |
-        sed -i 's/components.*/components = ["rustfmt"]/' rust-toolchain
-        echo 'profile = "minimal"' >> rust-toolchain
+        sed -i 's/components.*/components = ["rustfmt"]/' rust-toolchain.toml
         rustfmt -v
 
     - name: Rustfmt
       run: |
         cargo fmt --check
-        rustfmt --check build_system/main.rs
-        rustfmt --check example/*
+        rustfmt --check --edition 2024 build_system/main.rs
+        rustfmt --check --edition 2024 example/*
+        rustfmt --check --edition 2024 scripts/*.rs
 
 
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
-    defaults:
-      run:
-        shell: bash
+    env:
+      CG_CLIF_EXPENSIVE_CHECKS: 1
 
     strategy:
       fail-fast: false
@@ -40,20 +53,23 @@ jobs:
           - os: ubuntu-latest
             env:
               TARGET_TRIPLE: x86_64-unknown-linux-gnu
-          - os: macos-latest
-            env:
-              TARGET_TRIPLE: x86_64-apple-darwin
-          # cross-compile from Linux to Windows using mingw
-          - os: ubuntu-latest
-            env:
-              TARGET_TRIPLE: x86_64-pc-windows-gnu
-          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
             env:
               TARGET_TRIPLE: aarch64-unknown-linux-gnu
-          # s390x requires QEMU 6.1 or greater, we could build it from source, but ubuntu 22.04 comes with 6.2 by default
+          - os: macos-15-intel
+            env:
+              TARGET_TRIPLE: x86_64-apple-darwin
+          - os: macos-latest
+            env:
+              TARGET_TRIPLE: aarch64-apple-darwin
           - os: ubuntu-latest
             env:
               TARGET_TRIPLE: s390x-unknown-linux-gnu
+            apt_deps: gcc-s390x-linux-gnu qemu-user
+          - os: ubuntu-latest
+            env:
+              TARGET_TRIPLE: riscv64gc-unknown-linux-gnu
+            apt_deps: gcc-riscv64-linux-gnu qemu-user
           - os: windows-latest
             env:
               TARGET_TRIPLE: x86_64-pc-windows-msvc
@@ -62,35 +78,27 @@ jobs:
               TARGET_TRIPLE: x86_64-pc-windows-gnu
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+
+    - name: CPU features
+      if: matrix.os == 'ubuntu-latest'
+      run: cat /proc/cpuinfo
 
     - name: Cache cargo target dir
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: build/cg_clif
-        key: ${{ runner.os }}-${{ matrix.env.TARGET_TRIPLE }}-cargo-build-target-${{ hashFiles('rust-toolchain', '**/Cargo.lock') }}
+        key: ${{ runner.os }}-${{ matrix.env.TARGET_TRIPLE }}-cargo-build-target-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
 
     - name: Set MinGW as the default toolchain
       if: matrix.os == 'windows-latest' && matrix.env.TARGET_TRIPLE == 'x86_64-pc-windows-gnu'
       run: rustup set default-host x86_64-pc-windows-gnu
 
-    - name: Install MinGW toolchain and wine
-      if: matrix.os == 'ubuntu-latest' && matrix.env.TARGET_TRIPLE == 'x86_64-pc-windows-gnu'
+    - name: Install toolchain and emulator
+      if: matrix.apt_deps != null
       run: |
         sudo apt-get update
-        sudo apt-get install -y gcc-mingw-w64-x86-64 wine-stable
-
-    - name: Install AArch64 toolchain and qemu
-      if: matrix.os == 'ubuntu-latest' && matrix.env.TARGET_TRIPLE == 'aarch64-unknown-linux-gnu'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user
-
-    - name: Install s390x toolchain and qemu
-      if: matrix.env.TARGET_TRIPLE == 's390x-unknown-linux-gnu'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y gcc-s390x-linux-gnu qemu-user
+        sudo apt-get install -y ${{ matrix.apt_deps }}
 
     - name: Prepare dependencies
       run: ./y.sh prepare
@@ -108,9 +116,6 @@ jobs:
 
     # This is roughly config rust-lang/rust uses for testing
     - name: Test with LLVM sysroot
-      # Skip native x86_64-pc-windows-gnu. It is way too slow and cross-compiled
-      # x86_64-pc-windows-gnu covers at least part of the tests.
-      if: matrix.os != 'windows-latest' || matrix.env.TARGET_TRIPLE != 'x86_64-pc-windows-gnu'
       env:
         TARGET_TRIPLE: ${{ matrix.env.TARGET_TRIPLE }}
       run: ./y.sh test --sysroot llvm --no-unstable-features
@@ -121,12 +126,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
-    defaults:
-      run:
-        shell: bash
-
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+
+    - name: CPU features
+      run: cat /proc/cpuinfo
 
     - name: Prepare dependencies
       run: ./y.sh prepare
@@ -144,61 +148,51 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
-    defaults:
-      run:
-        shell: bash
-
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+
+    - name: CPU features
+      run: cat /proc/cpuinfo
 
     - name: Cache cargo target dir
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: build/cg_clif
-        key: ${{ runner.os }}-x86_64-unknown-linux-gnu-cargo-build-target-${{ hashFiles('rust-toolchain', '**/Cargo.lock') }}
-
-    - name: Cache cargo bin dir
-      uses: actions/cache@v3
-      with:
-        path: ~/.cargo/bin
-        key: ${{ runner.os }}-${{ matrix.env.TARGET_TRIPLE }}-cargo-bin-dir-${{ hashFiles('rust-toolchain', '**/Cargo.lock') }}
+        key: ${{ runner.os }}-x86_64-unknown-linux-gnu-cargo-build-target-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
 
     - name: Install hyperfine
-      run: cargo install hyperfine || true
-
-    - name: Prepare dependencies
-      run: ./y.sh prepare
+      run: |
+        sudo apt update
+        sudo apt install -y hyperfine
 
     - name: Build
-      run: CI_OPT=1 ./y.sh build --sysroot none
+      run: ./y.sh build --sysroot none
 
     - name: Benchmark
-      run: CI_OPT=1 ./y.sh bench
+      run: ./y.sh bench
 
 
   dist:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
-    defaults:
-      run:
-        shell: bash
-
     strategy:
       fail-fast: false
       matrix:
         include:
-          # FIXME update at some point in the future once most distros use a newer glibc
-          - os: ubuntu-20.04
+          # Intentionally using an older ubuntu version to lower the glibc requirements of the distributed cg_clif
+          - os: ubuntu-22.04
             env:
               TARGET_TRIPLE: x86_64-unknown-linux-gnu
-          - os: macos-latest
+          - os: ubuntu-24.04-arm
+            env:
+              TARGET_TRIPLE: aarch64-unknown-linux-gnu
+          - os: macos-15-intel
             env:
               TARGET_TRIPLE: x86_64-apple-darwin
-          # cross-compile from Linux to Windows using mingw
-          - os: ubuntu-latest
+          - os: macos-latest
             env:
-              TARGET_TRIPLE: x86_64-pc-windows-gnu
+              TARGET_TRIPLE: aarch64-apple-darwin
           - os: windows-latest
             env:
               TARGET_TRIPLE: x86_64-pc-windows-msvc
@@ -207,65 +201,51 @@ jobs:
               TARGET_TRIPLE: x86_64-pc-windows-gnu
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Cache cargo target dir
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: build/cg_clif
-        key: ${{ runner.os }}-${{ matrix.env.TARGET_TRIPLE }}-dist-cargo-build-target-${{ hashFiles('rust-toolchain', '**/Cargo.lock') }}
+        key: ${{ runner.os }}-${{ matrix.env.TARGET_TRIPLE }}-dist-cargo-build-target-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
 
     - name: Set MinGW as the default toolchain
       if: matrix.os == 'windows-latest' && matrix.env.TARGET_TRIPLE == 'x86_64-pc-windows-gnu'
       run: rustup set default-host x86_64-pc-windows-gnu
 
-    - name: Install MinGW toolchain and wine
-      if: matrix.os == 'ubuntu-latest' && matrix.env.TARGET_TRIPLE == 'x86_64-pc-windows-gnu'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y gcc-mingw-w64-x86-64 wine-stable
-
-    - name: Prepare dependencies
-      run: ./y.sh prepare
-
     - name: Build backend
-      run: CI_OPT=1 ./y.sh build --sysroot none
+      run: ./y.sh build --sysroot none
 
     - name: Build sysroot
-      run: CI_OPT=1 ./y.sh build
+      run: ./y.sh build
 
     - name: Package prebuilt cg_clif
       run: tar cvfJ cg_clif.tar.xz dist
 
     - name: Upload prebuilt cg_clif
-      if: matrix.os == 'windows-latest' || matrix.env.TARGET_TRIPLE != 'x86_64-pc-windows-gnu'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: cg_clif-${{ matrix.env.TARGET_TRIPLE }}
-        path: cg_clif.tar.xz
-
-    - name: Upload prebuilt cg_clif (cross compile)
-      if: matrix.os != 'windows-latest' && matrix.env.TARGET_TRIPLE == 'x86_64-pc-windows-gnu'
-      uses: actions/upload-artifact@v3
-      with:
-        name: cg_clif-${{ runner.os }}-cross-x86_64-mingw
         path: cg_clif.tar.xz
 
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: ${{ github.ref == 'refs/heads/master' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     needs: [rustfmt, test, bench, dist]
+
+    permissions:
+      contents: write # for creating the dev tag and release
 
     concurrency:
       group: release-dev
       cancel-in-progress: true
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Download all built artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: artifacts/
 
@@ -281,12 +261,9 @@ jobs:
           rmdir artifacts/ # verify all artifacts are represented in release/
           ls -R release/
 
-      - run: npm install --production
-        working-directory: .github/actions/github-release
-
-      - name: Publish Release
-        uses: ./.github/actions/github-release
-        with:
-          files: "release/*"
-          token: ${{ github.token }}
-        continue-on-error: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete --cleanup-tag -y dev || true
+          gh release create --target $GITHUB_SHA --prerelease dev release/*

@@ -1,27 +1,25 @@
 use std::sync::{Arc, Condvar, Mutex};
 
-use rustc_session::Session;
-
-use jobserver::HelperThread;
+use rustc_data_structures::jobserver::{self, HelperThread};
+use rustc_errors::DiagCtxtHandle;
 
 // FIXME don't panic when a worker thread panics
 
 pub(super) struct ConcurrencyLimiter {
-    helper_thread: Option<HelperThread>,
+    helper_thread: Option<Mutex<HelperThread>>,
     state: Arc<Mutex<state::ConcurrencyLimiterState>>,
     available_token_condvar: Arc<Condvar>,
     finished: bool,
 }
 
 impl ConcurrencyLimiter {
-    pub(super) fn new(sess: &Session, pending_jobs: usize) -> Self {
+    pub(super) fn new(pending_jobs: usize) -> Self {
         let state = Arc::new(Mutex::new(state::ConcurrencyLimiterState::new(pending_jobs)));
         let available_token_condvar = Arc::new(Condvar::new());
 
         let state_helper = state.clone();
         let available_token_condvar_helper = available_token_condvar.clone();
-        let helper_thread = sess
-            .jobserver
+        let helper_thread = jobserver::client()
             .clone()
             .into_helper_thread(move |token| {
                 let mut state = state_helper.lock().unwrap();
@@ -40,14 +38,14 @@ impl ConcurrencyLimiter {
             })
             .unwrap();
         ConcurrencyLimiter {
-            helper_thread: Some(helper_thread),
+            helper_thread: Some(Mutex::new(helper_thread)),
             state,
             available_token_condvar,
             finished: false,
         }
     }
 
-    pub(super) fn acquire(&mut self, handler: &rustc_errors::Handler) -> ConcurrencyLimiterToken {
+    pub(super) fn acquire(&self, dcx: DiagCtxtHandle<'_>) -> ConcurrencyLimiterToken {
         let mut state = self.state.lock().unwrap();
         loop {
             state.assert_invariants();
@@ -65,7 +63,7 @@ impl ConcurrencyLimiter {
                     // Make sure to drop the mutex guard first to prevent poisoning the mutex.
                     drop(state);
                     if let Some(err) = err {
-                        handler.fatal(err).raise();
+                        dcx.fatal(err);
                     } else {
                         // The error was already emitted, but compilation continued. Raise a silent
                         // fatal error.
@@ -74,14 +72,9 @@ impl ConcurrencyLimiter {
                 }
             }
 
-            self.helper_thread.as_mut().unwrap().request_token();
+            self.helper_thread.as_ref().unwrap().lock().unwrap().request_token();
             state = self.available_token_condvar.wait(state).unwrap();
         }
-    }
-
-    pub(super) fn job_already_done(&mut self) {
-        let mut state = self.state.lock().unwrap();
-        state.job_already_done();
     }
 
     pub(crate) fn finished(mut self) {
@@ -118,7 +111,7 @@ impl Drop for ConcurrencyLimiterToken {
 }
 
 mod state {
-    use jobserver::Acquired;
+    use rustc_data_structures::jobserver::Acquired;
 
     #[derive(Debug)]
     pub(super) struct ConcurrencyLimiterState {
@@ -186,14 +179,6 @@ mod state {
             self.assert_invariants();
             self.pending_jobs -= 1;
             self.active_jobs -= 1;
-            self.assert_invariants();
-            self.drop_excess_capacity();
-            self.assert_invariants();
-        }
-
-        pub(super) fn job_already_done(&mut self) {
-            self.assert_invariants();
-            self.pending_jobs -= 1;
             self.assert_invariants();
             self.drop_excess_capacity();
             self.assert_invariants();

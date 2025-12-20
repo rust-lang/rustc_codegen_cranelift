@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-#![forbid(unsafe_code)]/* This line is ignored by bash
+#![rustfmt::skip]/* This line is ignored by bash
 # This block is ignored by rustc
 pushd $(dirname "$0")/../
 RUSTC="$(pwd)/dist/rustc-clif"
 popd
-PROFILE=$1 OUTPUT=$2 exec $RUSTC -Zunstable-options -Cllvm-args=mode=jit -Cprefer-dynamic $0
+PROFILE=$1 OUTPUT=$2 exec $RUSTC -Zunstable-options -Cllvm-args=jit-mode -Cprefer-dynamic $0
 #*/
 
 //! This program filters away uninteresting samples and trims uninteresting frames for stackcollapse
@@ -26,11 +26,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let profile = std::fs::read_to_string(profile_name)
         .map_err(|err| format!("Failed to read profile {}", err))?;
-    let mut output = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(output_name)?;
+    let mut output =
+        std::fs::OpenOptions::new().create(true).write(true).truncate(true).open(output_name)?;
 
     for line in profile.lines() {
         let mut stack = &line[..line.rfind(" ").unwrap()];
@@ -100,9 +97,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             stack = &stack[..index + ENCODE_METADATA.len()];
         }
 
-        const SUBST_AND_NORMALIZE_ERASING_REGIONS: &str = "rustc_middle::ty::normalize_erasing_regions::<impl rustc_middle::ty::context::TyCtxt>::subst_and_normalize_erasing_regions";
-        if let Some(index) = stack.find(SUBST_AND_NORMALIZE_ERASING_REGIONS) {
-            stack = &stack[..index + SUBST_AND_NORMALIZE_ERASING_REGIONS.len()];
+        const INSTANTIATE_AND_NORMALIZE_ERASING_REGIONS: &str = "rustc_middle::ty::normalize_erasing_regions::<impl rustc_middle::ty::context::TyCtxt>::instantiate_and_normalize_erasing_regions";
+        if let Some(index) = stack.find(INSTANTIATE_AND_NORMALIZE_ERASING_REGIONS) {
+            stack = &stack[..index + INSTANTIATE_AND_NORMALIZE_ERASING_REGIONS.len()];
         }
 
         const NORMALIZE_ERASING_LATE_BOUND_REGIONS: &str = "rustc_middle::ty::normalize_erasing_regions::<impl rustc_middle::ty::context::TyCtxt>::normalize_erasing_late_bound_regions";

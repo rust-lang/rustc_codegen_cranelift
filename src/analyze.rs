@@ -1,10 +1,9 @@
 //! SSA analysis
 
-use crate::prelude::*;
-
 use rustc_index::IndexVec;
 use rustc_middle::mir::StatementKind::*;
-use rustc_middle::ty::Ty;
+
+use crate::prelude::*;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum SsaKind {
@@ -26,7 +25,7 @@ pub(crate) fn analyze(fx: &FunctionCx<'_, '_, '_>) -> IndexVec<Local, SsaKind> {
         for stmt in bb.statements.iter() {
             match &stmt.kind {
                 Assign(place_and_rval) => match &place_and_rval.1 {
-                    Rvalue::Ref(_, _, place) | Rvalue::AddressOf(_, place) => {
+                    Rvalue::Ref(_, _, place) | Rvalue::RawPtr(_, place) => {
                         flag_map[place.local] = SsaKind::NotSsa;
                     }
                     _ => {}

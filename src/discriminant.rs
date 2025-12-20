@@ -3,7 +3,8 @@
 //! Adapted from <https://github.com/rust-lang/rust/blob/31c0645b9d2539f47eecb096142474b29dc542f7/compiler/rustc_codegen_ssa/src/mir/place.rs>
 //! (<https://github.com/rust-lang/rust/pull/104535>)
 
-use rustc_target::abi::{Int, TagEncoding, Variants};
+use rustc_abi::Primitive::Int;
+use rustc_abi::{TagEncoding, Variants};
 
 use crate::prelude::*;
 
@@ -13,10 +14,11 @@ pub(crate) fn codegen_set_discriminant<'tcx>(
     variant_index: VariantIdx,
 ) {
     let layout = place.layout();
-    if layout.for_variant(fx, variant_index).abi.is_uninhabited() {
+    if layout.for_variant(fx, variant_index).is_uninhabited() {
         return;
     }
     match layout.variants {
+        Variants::Empty => unreachable!("we already handled uninhabited types"),
         Variants::Single { index } => {
             assert_eq!(index, variant_index);
         }
@@ -26,18 +28,22 @@ pub(crate) fn codegen_set_discriminant<'tcx>(
             tag_encoding: TagEncoding::Direct,
             variants: _,
         } => {
-            let ptr = place.place_field(fx, FieldIdx::new(tag_field));
+            let ptr = place.place_field(fx, tag_field);
             let to = layout.ty.discriminant_for_variant(fx.tcx, variant_index).unwrap().val;
-            let to = if ptr.layout().abi.is_signed() {
-                ty::ScalarInt::try_from_int(
-                    ptr.layout().size.sign_extend(to) as i128,
-                    ptr.layout().size,
-                )
-                .unwrap()
-            } else {
-                ty::ScalarInt::try_from_uint(to, ptr.layout().size).unwrap()
+            let to = match ptr.layout().ty.kind() {
+                ty::Uint(UintTy::U128) | ty::Int(IntTy::I128) => {
+                    let lsb = fx.bcx.ins().iconst(types::I64, to as u64 as i64);
+                    let msb = fx.bcx.ins().iconst(types::I64, (to >> 64) as u64 as i64);
+                    fx.bcx.ins().iconcat(lsb, msb)
+                }
+                ty::Uint(_) | ty::Int(_) => {
+                    let clif_ty = fx.clif_type(ptr.layout().ty).unwrap();
+                    let raw_val = ptr.layout().size.truncate(to);
+                    fx.bcx.ins().iconst(clif_ty, raw_val as i64)
+                }
+                _ => unreachable!(),
             };
-            let discr = CValue::const_val(fx, ptr.layout(), to);
+            let discr = CValue::by_val(to, ptr.layout());
             ptr.write_cvalue(fx, discr);
         }
         Variants::Multiple {
@@ -47,7 +53,7 @@ pub(crate) fn codegen_set_discriminant<'tcx>(
             variants: _,
         } => {
             if variant_index != untagged_variant {
-                let niche = place.place_field(fx, FieldIdx::new(tag_field));
+                let niche = place.place_field(fx, tag_field);
                 let niche_type = fx.clif_type(niche.layout().ty).unwrap();
                 let niche_value = variant_index.as_u32() - niche_variants.start().as_u32();
                 let niche_value = (niche_value as u128).wrapping_add(niche_start);
@@ -75,26 +81,32 @@ pub(crate) fn codegen_get_discriminant<'tcx>(
 ) {
     let layout = value.layout();
 
-    if layout.abi.is_uninhabited() {
+    if layout.is_uninhabited() {
         return;
     }
 
     let (tag_scalar, tag_field, tag_encoding) = match &layout.variants {
+        Variants::Empty => unreachable!("we already handled uninhabited types"),
         Variants::Single { index } => {
             let discr_val = layout
                 .ty
                 .discriminant_for_variant(fx.tcx, *index)
                 .map_or(u128::from(index.as_u32()), |discr| discr.val);
-            let discr_val = if dest_layout.abi.is_signed() {
-                ty::ScalarInt::try_from_int(
-                    dest_layout.size.sign_extend(discr_val) as i128,
-                    dest_layout.size,
-                )
-                .unwrap()
-            } else {
-                ty::ScalarInt::try_from_uint(discr_val, dest_layout.size).unwrap()
+
+            let val = match dest_layout.ty.kind() {
+                ty::Uint(UintTy::U128) | ty::Int(IntTy::I128) => {
+                    let lsb = fx.bcx.ins().iconst(types::I64, discr_val as u64 as i64);
+                    let msb = fx.bcx.ins().iconst(types::I64, (discr_val >> 64) as u64 as i64);
+                    fx.bcx.ins().iconcat(lsb, msb)
+                }
+                ty::Uint(_) | ty::Int(_) => {
+                    let clif_ty = fx.clif_type(dest_layout.ty).unwrap();
+                    let raw_val = dest_layout.size.truncate(discr_val);
+                    fx.bcx.ins().iconst(clif_ty, raw_val as i64)
+                }
+                _ => unreachable!(),
             };
-            let res = CValue::const_val(fx, dest_layout, discr_val);
+            let res = CValue::by_val(val, dest_layout);
             dest.write_cvalue(fx, res);
             return;
         }
@@ -106,7 +118,7 @@ pub(crate) fn codegen_get_discriminant<'tcx>(
     let cast_to = fx.clif_type(dest_layout.ty).unwrap();
 
     // Read the tag/niche-encoded discriminant from memory.
-    let tag = value.value_field(fx, FieldIdx::new(tag_field));
+    let tag = value.value_field(fx, tag_field);
     let tag = tag.load_scalar(fx);
 
     // Decode the discriminant (specifically if it's niche-encoded).

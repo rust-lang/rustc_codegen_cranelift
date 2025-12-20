@@ -1,6 +1,15 @@
-#![feature(no_core, lang_items, never_type, linkage, extern_types, thread_local, repr_simd)]
+#![feature(
+    no_core,
+    lang_items,
+    never_type,
+    linkage,
+    extern_types,
+    thread_local,
+    repr_simd,
+    rustc_private
+)]
 #![no_core]
-#![allow(dead_code, non_camel_case_types)]
+#![allow(dead_code, non_camel_case_types, internal_features)]
 
 extern crate mini_core;
 
@@ -100,10 +109,10 @@ fn start<T: Termination + 'static>(
             puts(*argv as *const i8);
         }
         unsafe {
-            puts(*((argv as usize + intrinsics::size_of::<*const u8>()) as *const *const i8));
+            puts(*((argv as usize + size_of::<*const u8>()) as *const *const i8));
         }
         unsafe {
-            puts(*((argv as usize + 2 * intrinsics::size_of::<*const u8>()) as *const *const i8));
+            puts(*((argv as usize + 2 * size_of::<*const u8>()) as *const *const i8));
         }
     }
 
@@ -111,12 +120,15 @@ fn start<T: Termination + 'static>(
 }
 
 static mut NUM: u8 = 6 * 7;
-static NUM_REF: &'static u8 = unsafe { &NUM };
+
+static NUM_REF: &'static u8 = unsafe { &*&raw const NUM };
 
 unsafe fn zeroed<T>() -> T {
-    let mut uninit = MaybeUninit { uninit: () };
-    intrinsics::write_bytes(&mut uninit.value.value as *mut T, 0, 1);
-    uninit.value.value
+    unsafe {
+        let mut uninit = MaybeUninit { uninit: () };
+        intrinsics::write_bytes(&mut uninit.value.value as *mut T, 0, 1);
+        uninit.value.value
+    }
 }
 
 fn take_f32(_f: f32) {}
@@ -203,16 +215,17 @@ fn main() {
         assert_eq!(intrinsics::size_of_val(a) as u8, 16);
         assert_eq!(intrinsics::size_of_val(&0u32) as u8, 4);
 
-        assert_eq!(intrinsics::min_align_of::<u16>() as u8, 2);
-        assert_eq!(
-            intrinsics::min_align_of_val(&a) as u8,
-            intrinsics::min_align_of::<&str>() as u8
-        );
+        assert_eq!(align_of::<u16>() as u8, 2);
+        assert_eq!(intrinsics::align_of_val(&a) as u8, align_of::<&str>() as u8);
 
-        assert!(!intrinsics::needs_drop::<u8>());
-        assert!(!intrinsics::needs_drop::<[u8]>());
-        assert!(intrinsics::needs_drop::<NoisyDrop>());
-        assert!(intrinsics::needs_drop::<NoisyDropUnsized>());
+        let u8_needs_drop = const { intrinsics::needs_drop::<u8>() };
+        assert!(!u8_needs_drop);
+        let slice_needs_drop = const { intrinsics::needs_drop::<[u8]>() };
+        assert!(!slice_needs_drop);
+        let noisy_drop = const { intrinsics::needs_drop::<NoisyDrop>() };
+        assert!(noisy_drop);
+        let noisy_unsized_drop = const { intrinsics::needs_drop::<NoisyDropUnsized>() };
+        assert!(noisy_unsized_drop);
 
         Unique { pointer: NonNull(1 as *mut &str), _marker: PhantomData } as Unique<dyn SomeTrait>;
 
@@ -226,7 +239,7 @@ fn main() {
         }
 
         unsafe fn uninitialized<T>() -> T {
-            MaybeUninit { uninit: () }.value.value
+            unsafe { MaybeUninit { uninit: () }.value.value }
         }
 
         zeroed::<(u8, u8)>();
@@ -259,20 +272,20 @@ fn main() {
     let x = &[0u32, 42u32] as &[u32];
     match x {
         [] => assert_eq!(0u32, 1),
-        [_, ref y @ ..] => assert_eq!(&x[1] as *const u32 as usize, &y[0] as *const u32 as usize),
+        [_, y @ ..] => assert_eq!(&x[1] as *const u32 as usize, &y[0] as *const u32 as usize),
     }
 
     assert_eq!(((|()| 42u8) as fn(()) -> u8)(()), 42);
 
-    #[cfg(not(any(jit, windows)))]
+    #[cfg(not(any(jit, target_vendor = "apple", windows)))]
     {
-        extern "C" {
+        unsafe extern "C" {
             #[linkage = "extern_weak"]
             static ABC: *const u8;
         }
 
         {
-            extern "C" {
+            unsafe extern "C" {
                 #[linkage = "extern_weak"]
                 static ABC: *const u8;
             }
@@ -299,7 +312,7 @@ fn main() {
 
     check_niche_behavior();
 
-    extern "C" {
+    unsafe extern "C" {
         type ExternType;
     }
 
@@ -322,14 +335,10 @@ fn main() {
     #[cfg(all(not(jit), not(all(windows, target_env = "gnu"))))]
     test_tls();
 
-    #[cfg(all(
-        not(jit),
-        not(no_unstable_features),
-        target_arch = "x86_64",
-        any(target_os = "linux", target_os = "macos")
-    ))]
+    #[cfg(all(not(jit), target_arch = "x86_64", any(target_os = "linux", target_os = "macos")))]
     unsafe {
         global_asm_test();
+        naked_test();
     }
 
     // Both statics have a reference that points to the same anonymous allocation.
@@ -337,35 +346,31 @@ fn main() {
     static REF2: &u8 = REF1;
     assert_eq!(*REF1, *REF2);
 
-    extern "C" {
-        type A;
-    }
-
-    fn main() {
-        let x: &A = unsafe { &*(1usize as *const A) };
-
-        assert_eq!(unsafe { intrinsics::size_of_val(x) }, 0);
-        assert_eq!(unsafe { intrinsics::min_align_of_val(x) }, 1);
-    }
-
     #[repr(simd)]
     struct V([f64; 2]);
 
     let f = V([0.0, 1.0]);
-    let _a = f.0[0];
+    let fp = (&raw const f) as *const [f64; 2];
+    let _a = (unsafe { &*fp })[0];
+
+    stack_val_align();
 }
 
-#[cfg(all(
-    not(jit),
-    not(no_unstable_features),
-    target_arch = "x86_64",
-    any(target_os = "linux", target_os = "macos")
-))]
-extern "C" {
+#[inline(never)]
+fn stack_val_align() {
+    #[repr(align(8192))]
+    struct Foo(u8);
+
+    let a = Foo(0);
+    assert_eq!(&a as *const Foo as usize % 8192, 0);
+}
+
+#[cfg(all(not(jit), target_arch = "x86_64", any(target_os = "linux", target_os = "macos")))]
+unsafe extern "C" {
     fn global_asm_test();
 }
 
-#[cfg(all(not(jit), not(no_unstable_features), target_arch = "x86_64", target_os = "linux"))]
+#[cfg(all(not(jit), target_arch = "x86_64", target_os = "linux"))]
 global_asm! {
     "
     .global global_asm_test
@@ -375,7 +380,7 @@ global_asm! {
     "
 }
 
-#[cfg(all(not(jit), not(no_unstable_features), target_arch = "x86_64", target_os = "macos"))]
+#[cfg(all(not(jit), target_arch = "x86_64", target_os = "macos"))]
 global_asm! {
     "
     .global _global_asm_test
@@ -383,6 +388,12 @@ global_asm! {
     // comment that would normally be removed by LLVM
     ret
     "
+}
+
+#[cfg(all(not(jit), target_arch = "x86_64"))]
+#[unsafe(naked)]
+extern "C" fn naked_test() {
+    naked_asm!("ret")
 }
 
 #[repr(C)]
@@ -403,7 +414,7 @@ struct pthread_attr_t {
 
 #[link(name = "pthread")]
 #[cfg(unix)]
-extern "C" {
+unsafe extern "C" {
     fn pthread_attr_init(attr: *mut pthread_attr_t) -> c_int;
 
     fn pthread_create(
@@ -424,7 +435,7 @@ type HANDLE = *mut c_void;
 
 #[link(name = "msvcrt")]
 #[cfg(windows)]
-extern "C" {
+unsafe extern "C" {
     fn WaitForSingleObject(hHandle: LPVOID, dwMilliseconds: DWORD) -> DWORD;
 
     fn CreateThread(
@@ -446,46 +457,51 @@ struct Thread {
 
 impl Thread {
     unsafe fn create(f: extern "C" fn(_: *mut c_void) -> *mut c_void) -> Self {
-        #[cfg(unix)]
-        {
-            let mut attr: pthread_attr_t = zeroed();
-            let mut thread: pthread_t = 0;
+        unsafe {
+            #[cfg(unix)]
+            {
+                let mut attr: pthread_attr_t = zeroed();
+                let mut thread: pthread_t = 0;
 
-            if pthread_attr_init(&mut attr) != 0 {
-                assert!(false);
+                if pthread_attr_init(&mut attr) != 0 {
+                    assert!(false);
+                }
+
+                if pthread_create(&mut thread, &attr, f, 0 as *mut c_void) != 0 {
+                    assert!(false);
+                }
+
+                Thread { handle: thread }
             }
 
-            if pthread_create(&mut thread, &attr, f, 0 as *mut c_void) != 0 {
-                assert!(false);
+            #[cfg(windows)]
+            {
+                let handle =
+                    CreateThread(0 as *mut c_void, 0, f, 0 as *mut c_void, 0, 0 as *mut u32);
+
+                if (handle as u64) == 0 {
+                    assert!(false);
+                }
+
+                Thread { handle }
             }
-
-            Thread { handle: thread }
-        }
-
-        #[cfg(windows)]
-        {
-            let handle = CreateThread(0 as *mut c_void, 0, f, 0 as *mut c_void, 0, 0 as *mut u32);
-
-            if (handle as u64) == 0 {
-                assert!(false);
-            }
-
-            Thread { handle }
         }
     }
 
     unsafe fn join(self) {
-        #[cfg(unix)]
-        {
-            let mut res = 0 as *mut c_void;
-            pthread_join(self.handle, &mut res);
-        }
+        unsafe {
+            #[cfg(unix)]
+            {
+                let mut res = 0 as *mut c_void;
+                pthread_join(self.handle, &mut res);
+            }
 
-        #[cfg(windows)]
-        {
-            // The INFINITE macro is used to signal operations that do not timeout.
-            let infinite = 0xffffffff;
-            assert!(WaitForSingleObject(self.handle, infinite) == 0);
+            #[cfg(windows)]
+            {
+                // The INFINITE macro is used to signal operations that do not timeout.
+                let infinite = 0xffffffff;
+                assert!(WaitForSingleObject(self.handle, infinite) == 0);
+            }
         }
     }
 }
@@ -575,6 +591,7 @@ pub enum E2<X> {
     V4,
 }
 
+#[allow(unreachable_patterns)]
 fn check_niche_behavior() {
     if let E1::V2 { .. } = (E1::V1 { f: true }) {
         intrinsics::abort();
