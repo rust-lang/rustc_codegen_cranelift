@@ -1,0 +1,2 @@
+repo = "rustc_codegen_cranelift"
+filter = ":rev(6f3f6bdacb75571a87f08e0920d9c191b3d65ded:prefix=compiler/rustc_codegen_cranelift):/compiler/rustc_codegen_cranelift"
