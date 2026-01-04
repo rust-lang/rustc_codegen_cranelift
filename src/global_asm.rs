@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
+use cranelift_codegen::isa::TargetFrontendConfig;
 use rustc_ast::{InlineAsmOptions, InlineAsmTemplatePiece};
 use rustc_codegen_ssa::traits::{AsmCodegenMethods, GlobalAsmOperandRef};
 use rustc_middle::ty::TyCtxt;
@@ -15,11 +16,17 @@ use rustc_middle::ty::layout::{
 use rustc_session::config::{OutputFilenames, OutputType};
 use rustc_target::asm::InlineAsmArch;
 
+use crate::abi::get_function_sig;
+use crate::common::create_wrapper_function;
 use crate::prelude::*;
 
 pub(crate) struct GlobalAsmContext<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub global_asm: &'a mut String,
+    pub module: &'a mut dyn Module,
+    pub target_config: TargetFrontendConfig,
+    /// Counter for generating unique wrapper names
+    pub global_asm_sym_index: &'a mut u32,
 }
 
 impl<'tcx> AsmCodegenMethods<'tcx> for GlobalAsmContext<'_, 'tcx> {
@@ -30,7 +37,16 @@ impl<'tcx> AsmCodegenMethods<'tcx> for GlobalAsmContext<'_, 'tcx> {
         options: InlineAsmOptions,
         _line_spans: &[Span],
     ) {
-        codegen_global_asm_inner(self.tcx, self.global_asm, template, operands, options);
+        codegen_global_asm_inner(
+            self.tcx,
+            self.global_asm,
+            self.module,
+            self.target_config,
+            self.global_asm_sym_index,
+            template,
+            operands,
+            options,
+        );
     }
 
     fn mangled_name(&self, instance: Instance<'tcx>) -> String {
@@ -89,11 +105,15 @@ impl<'tcx> HasTypingEnv<'tcx> for GlobalAsmContext<'_, 'tcx> {
 fn codegen_global_asm_inner<'tcx>(
     tcx: TyCtxt<'tcx>,
     global_asm: &mut String,
+    module: &mut dyn Module,
+    target_config: TargetFrontendConfig,
+    global_asm_sym_index: &mut u32,
     template: &[InlineAsmTemplatePiece],
     operands: &[GlobalAsmOperandRef<'tcx>],
     options: InlineAsmOptions,
 ) {
     let is_x86 = matches!(tcx.sess.asm_arch.unwrap(), InlineAsmArch::X86 | InlineAsmArch::X86_64);
+    let is_macho = tcx.sess.target.is_like_darwin;
 
     if is_x86 {
         if !options.contains(InlineAsmOptions::ATT_SYNTAX) {
@@ -119,9 +139,22 @@ fn codegen_global_asm_inner<'tcx>(
                         }
 
                         let symbol = tcx.symbol_name(instance);
-                        // FIXME handle the case where the function was made private to the
-                        // current codegen unit
-                        global_asm.push_str(symbol.name);
+
+                        // Pass a wrapper rather than the function itself as the function itself
+                        // may not be exported from the main codegen unit and may thus be
+                        // unreachable from the object file created by an external assembler.
+                        let wrapper_name =
+                            format!("__global_asm_sym_wrapper{}", *global_asm_sym_index);
+                        *global_asm_sym_index += 1;
+                        let sig =
+                            get_function_sig(tcx, target_config.default_call_conv, instance);
+                        create_wrapper_function(module, sig, &wrapper_name, symbol.name);
+
+                        // For Mach-O, symbols need an underscore prefix
+                        if is_macho {
+                            global_asm.push('_');
+                        }
+                        global_asm.push_str(&wrapper_name);
                     }
                     GlobalAsmOperandRef::SymStatic { def_id } => {
                         if cfg!(not(feature = "inline_asm_sym")) {
@@ -133,6 +166,11 @@ fn codegen_global_asm_inner<'tcx>(
 
                         let instance = Instance::mono(tcx, def_id);
                         let symbol = tcx.symbol_name(instance);
+                        // For statics, we reference them directly as they should be visible.
+                        // Add Mach-O underscore prefix if needed.
+                        if is_macho {
+                            global_asm.push('_');
+                        }
                         global_asm.push_str(symbol.name);
                     }
                 }

@@ -575,7 +575,13 @@ impl<'tcx> InlineAssemblyGenerator<'_, 'tcx> {
                         CInlineAsmOperand::Const { ref value } => {
                             generated_asm.push_str(value);
                         }
-                        CInlineAsmOperand::Symbol { ref symbol } => generated_asm.push_str(symbol),
+                        CInlineAsmOperand::Symbol { ref symbol } => {
+                            // For Mach-O, symbols need an underscore prefix
+                            if binary_format == BinaryFormat::Macho {
+                                generated_asm.push('_');
+                            }
+                            generated_asm.push_str(symbol);
+                        }
                     }
                 }
             }
