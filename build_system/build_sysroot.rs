@@ -235,11 +235,7 @@ fn build_clif_sysroot_for_triple(
 
     if let Some(prefix) = env::var_os("CG_CLIF_STDLIB_REMAP_PATH_PREFIX") {
         rustflags.push("--remap-path-prefix".to_owned());
-        rustflags.push(format!(
-            "{}={}",
-            STDLIB_SRC.to_path(dirs).to_str().unwrap(),
-            prefix.to_str().unwrap()
-        ));
+        rustflags.push(format!("library/={}/library", prefix.to_str().unwrap()));
     }
     compiler.rustflags.extend(rustflags);
     let mut build_cmd = STANDARD_LIBRARY.build(&compiler, dirs);

@@ -152,15 +152,8 @@ rm tests/ui/errors/remap-path-prefix-sysroot.rs # different sysroot source path
 rm -r tests/run-make/export/extern-opt # something about rustc version mismatches
 rm -r tests/run-make/export # same
 rm -r tests/ui/compiletest-self-test/compile-flags-incremental.rs # needs compiletest compiled with panic=unwind
-rm tests/ui/async-await/in-trait/dont-project-to-specializable-projection.rs # something going wrong with stdlib source remapping
-rm tests/ui/consts/miri_unleashed/drop.rs # same
-rm tests/ui/error-emitter/multiline-removal-suggestion.rs # same
-rm tests/ui/lint/lint-const-item-mutation.rs # same
-rm tests/ui/lint/use-redundant/use-redundant-issue-71450.rs # same
-rm tests/ui/lint/use-redundant/use-redundant-prelude-rust-2021.rs # same
-rm tests/ui/specialization/const_trait_impl.rs # same
-rm tests/ui/thir-print/offset_of.rs # same
-rm tests/ui/traits/const-traits/const_closure-const_trait_impl-ice-113381.rs # same
+rm -r tests/ui/extern/extern-types-field-offset.rs # expects /rustc/<hash> rather than /rustc/FAKE_PREFIX
+rm -r tests/ui/process/println-with-broken-pipe.rs # same
 
 # genuine bugs
 # ============
