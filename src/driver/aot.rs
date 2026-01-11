@@ -518,6 +518,8 @@ fn codegen_cgu_content(
 
     let mut debug_context = DebugContext::new(tcx, module.isa(), false, cgu_name.as_str());
     let mut global_asm = String::new();
+    let mut global_asm_sym_index = 0u32;
+    let target_config = module.target_config();
     let mut type_dbg = TypeDebugContext::default();
     super::predefine_mono_items(tcx, module, &mono_items);
     let mut codegened_functions = vec![];
@@ -527,7 +529,13 @@ fn codegen_cgu_content(
                 let flags = tcx.codegen_instance_attrs(instance.def).flags;
                 if flags.contains(CodegenFnAttrFlags::NAKED) {
                     rustc_codegen_ssa::mir::naked_asm::codegen_naked_asm(
-                        &mut GlobalAsmContext { tcx, global_asm: &mut global_asm },
+                        &mut GlobalAsmContext {
+                            tcx,
+                            global_asm: &mut global_asm,
+                            module,
+                            target_config,
+                            global_asm_sym_index: &mut global_asm_sym_index,
+                        },
                         instance,
                         MonoItemData {
                             linkage: RLinkage::External,
@@ -560,7 +568,13 @@ fn codegen_cgu_content(
             }
             MonoItem::GlobalAsm(item_id) => {
                 rustc_codegen_ssa::base::codegen_global_asm(
-                    &mut GlobalAsmContext { tcx, global_asm: &mut global_asm },
+                    &mut GlobalAsmContext {
+                        tcx,
+                        global_asm: &mut global_asm,
+                        module,
+                        target_config,
+                        global_asm_sym_index: &mut global_asm_sym_index,
+                    },
                     item_id,
                 );
             }
