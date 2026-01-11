@@ -213,3 +213,8 @@ fn dep_symbol_lookup_fn(
         None
     })
 }
+
+#[unsafe(no_mangle)]
+extern "C" fn print_backtrace() {
+    println!("{:#}", std::backtrace::Backtrace::force_capture());
+}

@@ -257,17 +257,19 @@ impl UnwindContext {
     }
 
     #[cfg(all(feature = "jit", windows))]
-    pub(crate) unsafe fn register_jit(self, _jit_module: &cranelift_jit::JITModule) {}
+    pub(crate) unsafe fn register_jit(self, _jit_module: &cranelift_jit::JITModule) -> Vec<u8> {
+        vec![]
+    }
 
     #[cfg(all(feature = "jit", not(windows)))]
-    pub(crate) unsafe fn register_jit(self, jit_module: &cranelift_jit::JITModule) {
+    pub(crate) unsafe fn register_jit(self, jit_module: &cranelift_jit::JITModule) -> Vec<u8> {
         use std::mem::ManuallyDrop;
 
         let mut eh_frame = EhFrame::from(super::emit::WriterRelocate::new(self.endian));
         self.frame_table.write_eh_frame(&mut eh_frame).unwrap();
 
         if eh_frame.0.writer.slice().is_empty() {
-            return;
+            return vec![];
         }
 
         let mut eh_frame = eh_frame.0.relocate_for_jit(jit_module);
@@ -307,6 +309,8 @@ impl UnwindContext {
             // On other platforms, `__register_frame` will walk the FDEs until an entry of length 0
             unsafe { __register_frame(eh_frame.as_ptr()) };
         }
+
+        (*eh_frame).clone()
     }
 }
 
