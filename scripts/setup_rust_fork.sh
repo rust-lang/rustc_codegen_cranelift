@@ -49,6 +49,19 @@ std-features = ["panic-unwind"]
 EOF
 
 cat <<EOF | git apply -
+diff --git a/src/bootstrap/bootstrap.py b/src/bootstrap/bootstrap.py
+index 2e16f2cf27..3ac3df99a8 100644
+--- a/src/bootstrap/bootstrap.py
++++ b/src/bootstrap/bootstrap.py
+@@ -1147,6 +1147,8 @@ class RustBuild(object):
+             args += ["-Zwarnings"]
+             env["CARGO_BUILD_WARNINGS"] = "deny"
+
++        env["RUSTFLAGS"] += " -Zbinary-dep-depinfo"
++
+         # Add RUSTFLAGS_BOOTSTRAP to RUSTFLAGS for bootstrap compilation.
+         # Note that RUSTFLAGS_BOOTSTRAP should always be added to the end of
+         # RUSTFLAGS, since that causes RUSTFLAGS_BOOTSTRAP to override RUSTFLAGS.
 diff --git a/src/bootstrap/src/core/config/config.rs b/src/bootstrap/src/core/config/config.rs
 index a656927b1f6..44fc5546fac 100644
 --- a/src/bootstrap/src/core/config/config.rs
