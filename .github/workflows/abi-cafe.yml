@@ -43,26 +43,30 @@ jobs:
           #    TARGET_TRIPLE: x86_64-pc-windows-gnu
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: CPU features
-      if: matrix.os == 'ubuntu-latest'
-      run: cat /proc/cpuinfo
+      - name: CPU features
+        if: matrix.os == 'ubuntu-latest'
+        run: cat /proc/cpuinfo
 
-    - name: Cache cargo target dir
-      uses: actions/cache@v4
-      with:
-        path: build/cg_clif
-        key: ${{ runner.os }}-${{ matrix.env.TARGET_TRIPLE }}-cargo-build-target-${{ hashFiles('rust-toolchain', '**/Cargo.lock') }}
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        run: .github/scripts/free-disk-space.sh
 
-    - name: Set MinGW as the default toolchain
-      if: matrix.env.TARGET_TRIPLE == 'x86_64-pc-windows-gnu'
-      run: rustup set default-host x86_64-pc-windows-gnu
+      - name: Cache cargo target dir
+        uses: actions/cache@v4
+        with:
+          path: build/cg_clif
+          key: ${{ runner.os }}-${{ matrix.env.TARGET_TRIPLE }}-cargo-build-target-${{ hashFiles('rust-toolchain', '**/Cargo.lock') }}
 
-    - name: Build
-      run: ./y.sh build --sysroot none
+      - name: Set MinGW as the default toolchain
+        if: matrix.env.TARGET_TRIPLE == 'x86_64-pc-windows-gnu'
+        run: rustup set default-host x86_64-pc-windows-gnu
 
-    - name: Test abi-cafe
-      env:
-        TARGET_TRIPLE: ${{ matrix.env.TARGET_TRIPLE }}
-      run: ./y.sh abi-cafe
+      - name: Build
+        run: ./y.sh build --sysroot none
+
+      - name: Test abi-cafe
+        env:
+          TARGET_TRIPLE: ${{ matrix.env.TARGET_TRIPLE }}
+        run: ./y.sh abi-cafe
