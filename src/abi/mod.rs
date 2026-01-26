@@ -55,6 +55,9 @@ pub(crate) fn conv_to_call_conv(
     match c {
         CanonAbi::Rust | CanonAbi::RustCold | CanonAbi::C => default_call_conv,
 
+        // Cranelift doesn't currently have anything for this.
+        CanonAbi::RustPreserveNone => default_call_conv,
+
         // Functions with this calling convention can only be called from assembly, but it is
         // possible to declare an `extern "custom"` block, so the backend still needs a calling
         // convention for declaring foreign functions.
