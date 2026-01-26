@@ -50,6 +50,7 @@ rm -r tests/run-make/c-link-to-rust-va-list-fn # requires callee side vararg sup
 rm tests/ui/c-variadic/valid.rs # same
 rm tests/ui/c-variadic/trait-method.rs # same
 rm tests/ui/c-variadic/inherent-method.rs # same
+rm tests/ui/c-variadic/copy.rs # same
 rm tests/ui/sanitizer/kcfi-c-variadic.rs # same
 rm tests/ui/c-variadic/same-program-multiple-abis-x86_64.rs # variadics for calling conventions other than C unsupported
 rm tests/ui/delegation/fn-header.rs
@@ -147,6 +148,7 @@ rm -r tests/run-make-cargo/panic-immediate-abort-codegen # same
 rm -r tests/run-make/missing-unstable-trait-bound # This disables support for unstable features, but running cg_clif needs some unstable features
 rm -r tests/run-make/const-trait-stable-toolchain # same
 rm -r tests/run-make/print-request-help-stable-unstable # same
+rm -r tests/run-make/issue-149402-suggest-unresolve # same
 rm -r tests/run-make/incr-add-rust-src-component
 rm tests/ui/errors/remap-path-prefix-sysroot.rs # different sysroot source path
 rm -r tests/run-make/export/extern-opt # something about rustc version mismatches
