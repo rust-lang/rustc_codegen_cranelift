@@ -10,11 +10,6 @@ pushd rust
 
 command -v rg >/dev/null 2>&1 || cargo install ripgrep
 
-rm -r tests/ui/{lto/,linkage*} || true
-for test in $(rg --files-with-matches "lto" tests/{codegen-units,ui,incremental}); do
-  rm $test
-done
-
 # should-fail tests don't work when compiletest is compiled with panic=abort
 for test in $(rg --files-with-matches "//@ should-fail" tests/{codegen-units,ui,incremental}); do
   rm $test
@@ -38,6 +33,7 @@ rm tests/ui/simd/intrinsic/generic-arithmetic-pass.rs # unimplemented simd_funne
 rm -r tests/ui/scalable-vectors # scalable vectors are unsupported
 
 # exotic linkages
+rm -r tests/ui/linkage*
 rm tests/incremental/hashes/function_interfaces.rs
 rm tests/incremental/hashes/statics.rs
 rm -r tests/run-make/naked-symbol-visibility
@@ -80,6 +76,10 @@ rm -r tests/ui/eii # EII not yet implemented
 rm -r tests/run-make/forced-unwind-terminate-pof # forced unwinding doesn't take precedence
 
 # requires LTO
+rm -r tests/ui/lto
+for test in $(rg --files-with-matches "lto" tests/{codegen-units,ui,incremental}); do
+  rm $test
+done
 rm -r tests/run-make/cdylib
 rm -r tests/run-make/codegen-options-parsing
 rm -r tests/run-make/lto-*
