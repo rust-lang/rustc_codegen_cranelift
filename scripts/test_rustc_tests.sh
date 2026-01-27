@@ -165,11 +165,7 @@ rm -r tests/run-make/panic-abort-eh_frame # .eh_frame emitted with panic=abort
 # bugs in the test suite
 # ======================
 rm tests/ui/process/nofile-limit.rs # TODO some AArch64 linking issue
-rm tests/ui/backtrace/synchronized-panic-handler.rs # missing needs-unwind annotation
-rm tests/ui/lint/non-snake-case/lint-non-snake-case-crate.rs # same
-rm tests/ui/async-await/async-drop/async-drop-initial.rs # same (rust-lang/rust#140493)
 rm -r tests/ui/codegen/equal-pointers-unequal # make incorrect assumptions about the location of stack variables
-rm -r tests/run-make-cargo/rustdoc-scrape-examples-paths # FIXME(rust-lang/rust#145580) incr comp bug
 rm -r tests/incremental/extern_static/issue-49153.rs # assumes reference to undefined static gets optimized away
 
 rm tests/ui/intrinsics/panic-uninitialized-zeroed.rs # really slow with unoptimized libstd
