@@ -81,6 +81,27 @@ index a656927b1f6..44fc5546fac 100644
              // If download-ci-llvm=true we also want to check that CI llvm is available
              b && llvm::is_ci_llvm_available_for_target(&dwn_ctx.host_target, asserts)
          }
+diff --git a/src/build_helper/src/git.rs b/src/build_helper/src/git.rs
+index 330fb465de..a4593ed96f 100644
+--- a/src/build_helper/src/git.rs
++++ b/src/build_helper/src/git.rs
+@@ -218,15 +218,7 @@ pub fn get_closest_upstream_commit(
+     config: &GitConfig<'_>,
+     env: CiEnv,
+ ) -> Result<Option<String>, String> {
+-    let base = match env {
+-        CiEnv::None => "HEAD",
+-        CiEnv::GitHubActions => {
+-            // On CI, we should always have a non-upstream merge commit at the tip,
+-            // and our first parent should be the most recently merged upstream commit.
+-            // We thus simply return our first parent.
+-            return resolve_commit_sha(git_dir, "HEAD^1").map(Some);
+-        }
+-    };
++    let base = "HEAD";
+
+     let mut git = Command::new("git");
+
 EOF
 
 popd
