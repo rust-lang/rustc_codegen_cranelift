@@ -125,11 +125,6 @@ pub struct CraneliftCodegenBackend {
 }
 
 impl CodegenBackend for CraneliftCodegenBackend {
-    fn locale_resource(&self) -> &'static str {
-        // FIXME(rust-lang/rust#100717) - cranelift codegen backend is not yet translated
-        ""
-    }
-
     fn name(&self) -> &'static str {
         "cranelift"
     }
