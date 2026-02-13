@@ -332,6 +332,16 @@ fn main() {
         naked_test();
     }
 
+    // Test global_asm sym operand - calls sym_target() via assembly
+    #[cfg(all(
+        not(jit),
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        any(target_os = "linux", target_os = "macos")
+    ))]
+    unsafe {
+        assert_eq!(global_asm_sym_test(), 42);
+    }
+
     // Both statics have a reference that points to the same anonymous allocation.
     static REF1: &u8 = &42;
     static REF2: &u8 = REF1;
@@ -361,6 +371,15 @@ unsafe extern "C" {
     fn global_asm_test();
 }
 
+#[cfg(all(
+    not(jit),
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    any(target_os = "linux", target_os = "macos")
+))]
+unsafe extern "C" {
+    fn global_asm_sym_test() -> u64;
+}
+
 #[cfg(all(not(jit), target_arch = "x86_64", target_os = "linux"))]
 global_asm! {
     "
@@ -379,6 +398,57 @@ global_asm! {
     // comment that would normally be removed by LLVM
     ret
     "
+}
+
+// Test global_asm sym operands - the function referenced via sym may be private
+// to the codegen unit, so we create a wrapper function.
+#[cfg(all(
+    not(jit),
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    any(target_os = "linux", target_os = "macos")
+))]
+fn sym_target() -> u64 {
+    42
+}
+
+#[cfg(all(not(jit), target_arch = "x86_64", target_os = "linux"))]
+global_asm! {
+    "
+    .global global_asm_sym_test
+    global_asm_sym_test:
+    jmp {sym_fn}
+    ",
+    sym_fn = sym sym_target,
+}
+
+#[cfg(all(not(jit), target_arch = "x86_64", target_os = "macos"))]
+global_asm! {
+    "
+    .global _global_asm_sym_test
+    _global_asm_sym_test:
+    jmp {sym_fn}
+    ",
+    sym_fn = sym sym_target,
+}
+
+#[cfg(all(not(jit), target_arch = "aarch64", target_os = "linux"))]
+global_asm! {
+    "
+    .global global_asm_sym_test
+    global_asm_sym_test:
+    b {sym_fn}
+    ",
+    sym_fn = sym sym_target,
+}
+
+#[cfg(all(not(jit), target_arch = "aarch64", target_os = "macos"))]
+global_asm! {
+    "
+    .global _global_asm_sym_test
+    _global_asm_sym_test:
+    b {sym_fn}
+    ",
+    sym_fn = sym sym_target,
 }
 
 #[cfg(all(not(jit), target_arch = "x86_64"))]
