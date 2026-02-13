@@ -59,6 +59,7 @@ rm tests/ui/asm/x86_64/goto.rs # inline asm labels not supported
 rm tests/ui/asm/label-operand.rs # same
 rm tests/ui/asm/may_unwind.rs # asm unwinding not supported
 rm tests/ui/asm/aarch64/may_unwind.rs # same
+rm tests/ui/asm/x86_64/global_asm_escape.rs # rust-lang/rust#151955 needs to be applied to non-LLVM codegen backends too
 
 # misc unimplemented things
 rm tests/ui/target-feature/missing-plusminus.rs # error not implemented
@@ -127,6 +128,14 @@ rm -r tests/run-make/notify-all-emit-artifacts
 rm -r tests/run-make/reset-codegen-1
 rm -r tests/run-make/inline-always-many-cgu
 rm -r tests/run-make/intrinsic-unreachable
+rm -r tests/run-make/artifact-incr-cache
+rm -r tests/run-make/artifact-incr-cache-no-obj
+rm -r tests/run-make/emit
+rm -r tests/run-make/llvm-outputs
+rm -r tests/run-make/panic-impl-transitive
+rm -r tests/ui/debuginfo/debuginfo-emit-llvm-ir-and-split-debuginfo.rs
+rm -r tests/ui/statics/issue-91050-1.rs
+rm -r tests/ui/statics/issue-91050-2.rs
 
 # giving different but possibly correct results
 # =============================================
@@ -135,6 +144,7 @@ rm tests/ui/mir/mir_raw_fat_ptr.rs # same
 rm tests/ui/consts/issue-33537.rs # same
 rm tests/ui/consts/const-mut-refs-crate.rs # same
 rm tests/ui/abi/large-byval-align.rs # exceeds implementation limit of Cranelift
+rm -r tests/run-make/short-ice # ICE backtrace begin/end marker mismatch
 
 # doesn't work due to the way the rustc test suite is invoked.
 # should work when using ./x.py test the way it is intended
