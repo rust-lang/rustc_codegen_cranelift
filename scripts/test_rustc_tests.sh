@@ -59,7 +59,6 @@ rm tests/ui/asm/x86_64/goto.rs # inline asm labels not supported
 rm tests/ui/asm/label-operand.rs # same
 rm tests/ui/asm/may_unwind.rs # asm unwinding not supported
 rm tests/ui/asm/aarch64/may_unwind.rs # same
-rm tests/ui/asm/x86_64/global_asm_escape.rs # rust-lang/rust#151955 needs to be applied to non-LLVM codegen backends too
 
 # misc unimplemented things
 rm tests/ui/target-feature/missing-plusminus.rs # error not implemented
