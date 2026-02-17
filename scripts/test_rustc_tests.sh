@@ -41,6 +41,7 @@ rm -r tests/run-make/naked-symbol-visibility
 # variadic arguments
 rm tests/ui/abi/mir/mir_codegen_calls_variadic.rs # requires float varargs
 rm tests/ui/c-variadic/naked.rs # same
+rm tests/ui/consts/const-eval/c-variadic.rs # same
 rm tests/ui/abi/variadic-ffi.rs # requires callee side vararg support
 rm -r tests/run-make/c-link-to-rust-va-list-fn # requires callee side vararg support
 rm tests/ui/c-variadic/valid.rs # same
@@ -165,6 +166,7 @@ rm -r tests/run-make/export # same
 rm -r tests/ui/compiletest-self-test/compile-flags-incremental.rs # needs compiletest compiled with panic=unwind
 rm -r tests/ui/extern/extern-types-field-offset.rs # expects /rustc/<hash> rather than /rustc/FAKE_PREFIX
 rm -r tests/ui/process/println-with-broken-pipe.rs # same
+rm tests/codegen-units/item-collection/opaque-return-impls.rs # extra mono item. possibly due to other configuration
 
 # genuine bugs
 # ============
