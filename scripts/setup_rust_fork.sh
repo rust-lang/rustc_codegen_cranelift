@@ -66,42 +66,28 @@ diff --git a/src/bootstrap/src/core/config/config.rs b/src/bootstrap/src/core/co
 index a656927b1f6..44fc5546fac 100644
 --- a/src/bootstrap/src/core/config/config.rs
 +++ b/src/bootstrap/src/core/config/config.rs
-@@ -2249,14 +2249,6 @@ pub fn parse_download_ci_llvm<'a>(
-                 );
+@@ -2249,7 +2249,7 @@ pub fn parse_download_ci_llvm<'a>(
              }
 
--            #[cfg(not(test))]
+             #[cfg(not(test))]
 -            if b && dwn_ctx.is_running_on_ci && CiEnv::is_rust_lang_managed_ci_job() {
--                // On rust-lang CI, we must always rebuild LLVM if there were any modifications to it
--                panic!(
--                    "\`llvm.download-ci-llvm\` cannot be set to \`true\` on CI. Use \`if-unchanged\` instead."
--                );
--            }
--
-             // If download-ci-llvm=true we also want to check that CI llvm is available
-             b && llvm::is_ci_llvm_available_for_target(&dwn_ctx.host_target, asserts)
-         }
++            if false && dwn_ctx.is_running_on_ci && CiEnv::is_rust_lang_managed_ci_job() {
+                 // On rust-lang CI, we must always rebuild LLVM if there were any modifications to it
+                 panic!(
+                     "\`llvm.download-ci-llvm\` cannot be set to \`true\` on CI. Use \`if-unchanged\` instead."
 diff --git a/src/build_helper/src/git.rs b/src/build_helper/src/git.rs
 index 330fb465de..a4593ed96f 100644
 --- a/src/build_helper/src/git.rs
 +++ b/src/build_helper/src/git.rs
-@@ -218,15 +218,7 @@ pub fn get_closest_upstream_commit(
+@@ -218,7 +218,7 @@ pub fn get_closest_upstream_commit(
      config: &GitConfig<'_>,
      env: CiEnv,
  ) -> Result<Option<String>, String> {
 -    let base = match env {
--        CiEnv::None => "HEAD",
--        CiEnv::GitHubActions => {
--            // On CI, we should always have a non-upstream merge commit at the tip,
--            // and our first parent should be the most recently merged upstream commit.
--            // We thus simply return our first parent.
--            return resolve_commit_sha(git_dir, "HEAD^1").map(Some);
--        }
--    };
-+    let base = "HEAD";
-
-     let mut git = Command::new("git");
-
++    let base = match CiEnv::None {
+         CiEnv::None => "HEAD",
+         CiEnv::GitHubActions => {
+             // On CI, we should always have a non-upstream merge commit at the tip,
 EOF
 
 popd
