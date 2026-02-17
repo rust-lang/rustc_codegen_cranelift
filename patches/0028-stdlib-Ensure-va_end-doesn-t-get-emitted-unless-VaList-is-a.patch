@@ -13,9 +13,9 @@ index d0f1553..75129af 100644
 --- a/library/core/src/ffi/va_list.rs
 +++ b/library/core/src/ffi/va_list.rs
 @@ -217,6 +217,7 @@ impl Clone for VaList<'_> {
- }
- 
- impl<'f> Drop for VaList<'f> {
+
+ #[rustc_const_unstable(feature = "const_c_variadic", issue = "151787")]
+ impl<'f> const Drop for VaList<'f> {
 +    #[inline]
      fn drop(&mut self) {
          // SAFETY: this variable argument list is being dropped, so won't be read from again.
