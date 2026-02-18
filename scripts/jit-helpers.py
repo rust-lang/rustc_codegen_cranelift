@@ -1,11 +1,13 @@
 import gdb
 
+
 def jitmap_raw():
     pid = gdb.selected_inferior().pid
     jitmap_file = open("/tmp/perf-%d.map" % (pid,), "r")
     jitmap = jitmap_file.read()
     jitmap_file.close()
     return jitmap
+
 
 def jit_functions():
     jitmap = jitmap_raw()
@@ -17,6 +19,7 @@ def jit_functions():
 
     return functions
 
+
 class JitDecorator(gdb.FrameDecorator.FrameDecorator):
     def __init__(self, fobj, name):
         super(JitDecorator, self).__init__(fobj)
@@ -25,13 +28,14 @@ class JitDecorator(gdb.FrameDecorator.FrameDecorator):
     def function(self):
         return self.name
 
+
 class JitFilter:
     """
     A backtrace filter which reads perf map files produced by cranelift-jit.
     """
 
     def __init__(self):
-        self.name = 'JitFilter'
+        self.name = "JitFilter"
         self.enabled = True
         self.priority = 0
 
@@ -42,11 +46,12 @@ class JitFilter:
     def filter(self, frame_iter):
         for frame in frame_iter:
             frame_addr = frame.inferior_frame().pc()
-            for (addr, size, name) in jit_functions():
+            for addr, size, name in jit_functions():
                 if frame_addr >= addr and frame_addr < addr + size:
                     yield JitDecorator(frame, name)
                     break
             else:
                 yield frame
+
 
 JitFilter()
