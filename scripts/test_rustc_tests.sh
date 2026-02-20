@@ -20,7 +20,6 @@ for test in $(rg -i --files-with-matches "//(\[\w+\])?~[^\|]*\s*ERR|//@ error-pa
 done
 
 git checkout -- tests/ui/issues/auxiliary/issue-3136-a.rs # contains //~ERROR, but shouldn't be removed
-git checkout -- tests/ui/proc-macro/pretty-print-hack/
 git checkout -- tests/ui/entry-point/auxiliary/bad_main_functions.rs
 
 # missing features
