@@ -53,6 +53,7 @@ jobs:
           - os: ubuntu-latest
             env:
               TARGET_TRIPLE: x86_64-unknown-linux-gnu
+            apt_deps: valgrind
           - os: ubuntu-24.04-arm
             env:
               TARGET_TRIPLE: aarch64-unknown-linux-gnu
@@ -134,6 +135,11 @@ jobs:
 
     - name: Prepare dependencies
       run: ./y.sh prepare
+
+    - name: Install valgrind
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y valgrind
 
     - name: Disable JIT tests
       run: |
