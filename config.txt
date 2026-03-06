@@ -36,4 +36,5 @@ test.sysroot
 testsuite.extended_sysroot
 test.rust-random/rand
 test.regex
+test.graviola
 test.portable-simd
