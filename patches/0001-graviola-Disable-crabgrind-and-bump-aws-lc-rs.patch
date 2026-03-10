@@ -1,0 +1,95 @@
+From 77505617aa3a99339ea0f03b13198ec1d1c98444 Mon Sep 17 00:00:00 2001
+From: Cathal Mullan <contact@cathal.dev>
+Date: Tue, 10 Mar 2026 18:21:20 +0000
+Subject: [PATCH] Disable crabgrind and bump aws-lc-rs
+
+---
+ Cargo.lock             | 18 ++++--------------
+ graviola/Cargo.toml    |  5 +----
+ graviola/src/low/ct.rs |  2 +-
+ 3 files changed, 6 insertions(+), 19 deletions(-)
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 4fe007b1..9b05e186 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -140,9 +140,9 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
+ 
+ [[package]]
+ name = "aws-lc-rs"
+-version = "1.15.1"
++version = "1.16.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "6b5ce75405893cd713f9ab8e297d8e438f624dde7d706108285f7e17a25a180f"
++checksum = "94bffc006df10ac2a68c83692d734a465f8ee6c5b384d8545a636f81d858f4bf"
+ dependencies = [
+  "aws-lc-sys",
+  "zeroize",
+@@ -150,9 +150,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "aws-lc-sys"
+-version = "0.34.0"
++version = "0.38.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "179c3777a8b5e70e90ea426114ffc565b2c1a9f82f6c4a0c5a34aa6ef5e781b6"
++checksum = "4321e568ed89bb5a7d291a7f37997c2c0df89809d7b6d12062c81ddb54aa782e"
+ dependencies = [
+  "cc",
+  "cmake",
+@@ -463,15 +463,6 @@ dependencies = [
+  "libc",
+ ]
+ 
+-[[package]]
+-name = "crabgrind"
+-version = "0.1.9"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "bdbd43e4f32a9681a504577db2d4ea7d3f7b1bf2e97955561af98501ab600508"
+-dependencies = [
+- "cc",
+-]
+-
+ [[package]]
+ name = "criterion"
+ version = "0.7.0"
+@@ -874,7 +865,6 @@ version = "0.3.0"
+ dependencies = [
+  "aws-lc-rs",
+  "cfg-if",
+- "crabgrind",
+  "getrandom 0.3.4",
+  "hex",
+  "proptest",
+diff --git a/graviola/Cargo.toml b/graviola/Cargo.toml
+index b4738b44..16a264f4 100644
+--- a/graviola/Cargo.toml
++++ b/graviola/Cargo.toml
+@@ -17,11 +17,8 @@ cfg-if = "1"
+ getrandom = "0.3"
+ 
+ [dev-dependencies]
+-aws-lc-rs = { version = "1.13", default-features = false, features = ["alloc", "prebuilt-nasm", "non-fips"] }
++aws-lc-rs = { version = "1.16", default-features = false, features = ["alloc", "prebuilt-nasm", "non-fips"] }
+ hex = { version = "0.4", features = ["serde"] }
+ proptest = "1.5.0"
+ serde = { version = "1", features = ["derive"] }
+ serde_json = "1"
+-
+-[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dev-dependencies]
+-crabgrind = "=0.1.9" # compatible with valgrind package on GHA ubuntu-latest
+diff --git a/graviola/src/low/ct.rs b/graviola/src/low/ct.rs
+index 9932fdf5..36320334 100644
+--- a/graviola/src/low/ct.rs
++++ b/graviola/src/low/ct.rs
+@@ -2,7 +2,7 @@
+ // SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
+ 
+ cfg_if::cfg_if! {
+-    if #[cfg(all(test, target_os = "linux", target_arch = "x86_64"))] {
++    if #[cfg(false)] {
+         use crabgrind as cg;
+         use core::mem::size_of_val;
+ 
+-- 
+2.53.0
