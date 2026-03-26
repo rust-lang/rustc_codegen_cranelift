@@ -11,18 +11,22 @@ pub(crate) fn get_toolchain_binary(sess: &Session, tool: &str) -> PathBuf {
     let linker_file_name =
         linker.file_name().unwrap().to_str().expect("linker filename should be valid UTF-8");
 
-    if linker_file_name == "ld.lld" {
-        if tool != "ld" {
-            linker.set_file_name(tool)
-        }
+    let tool_file_name = if linker_file_name == "ld.lld" {
+        if tool == "ld" { "ld.lld".to_owned() } else { tool.to_owned() }
+    } else if let Some(prefix) = linker_file_name.strip_suffix("gcc") {
+        format!("{prefix}{tool}")
+    } else if let Some(prefix) = linker_file_name.strip_suffix("clang") {
+        format!("{prefix}{tool}")
+    } else if let Some(prefix) = linker_file_name.strip_suffix("cc") {
+        format!("{prefix}{tool}")
+    } else if let Some(prefix) = linker_file_name.strip_suffix("ld") {
+        format!("{prefix}{tool}")
     } else {
-        let tool_file_name = linker_file_name
-            .replace("ld", tool)
-            .replace("gcc", tool)
-            .replace("clang", tool)
-            .replace("cc", tool);
+        linker_file_name.to_owned()
+    };
 
-        linker.set_file_name(tool_file_name)
+    if tool_file_name != linker_file_name {
+        linker.set_file_name(tool_file_name);
     }
 
     linker
