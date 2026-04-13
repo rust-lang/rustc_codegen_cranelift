@@ -12,7 +12,7 @@ use cranelift_codegen::ir::{
 };
 use cranelift_codegen::isa::CallConv;
 use cranelift_module::ModuleError;
-use rustc_abi::{CanonAbi, ExternAbi, X86Call};
+use rustc_abi::{Align, CanonAbi, ExternAbi, X86Call};
 use rustc_codegen_ssa::base::is_call_from_compiler_builtins_to_upstream_monomorphization;
 use rustc_codegen_ssa::errors::CompilerBuiltinsCannotCall;
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
@@ -243,10 +243,17 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
         self::returning::codegen_return_param(fx, &ssa_analyzed, &mut block_params_iter);
     assert_eq!(fx.local_map.push(ret_place), RETURN_PLACE);
 
-    // None means pass_mode == NoPass
+    struct ArgValue<'tcx> {
+        value: Option<CValue<'tcx>>,
+        /// If set, the argument is a byval/byref pointer whose pointee alignment is smaller than
+        /// the Rust ABI alignment. In that case the argument must be copied to a sufficiently
+        /// aligned local stack slot before it can be treated as a place.
+        underaligned_pointee_align: Option<Align>,
+    }
+
     enum ArgKind<'tcx> {
-        Normal(Option<CValue<'tcx>>),
-        Spread(Vec<Option<CValue<'tcx>>>),
+        Normal(ArgValue<'tcx>),
+        Spread(Vec<ArgValue<'tcx>>),
     }
 
     // FIXME implement variadics in cranelift
@@ -280,17 +287,34 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
                 let mut params = Vec::new();
                 for (i, _arg_ty) in tupled_arg_tys.iter().enumerate() {
                     let arg_abi = arg_abis_iter.next().unwrap();
-                    let param =
+                    let value =
                         cvalue_for_param(fx, Some(local), Some(i), arg_abi, &mut block_params_iter);
-                    params.push(param);
+                    let underaligned_pointee_align =
+                        match arg_abi.mode {
+                            PassMode::Indirect { attrs, .. } => attrs
+                                .pointee_align
+                                .filter(|&pointee_align| pointee_align < arg_abi.layout.align.abi),
+                            _ => None,
+                        };
+                    params.push(ArgValue { value, underaligned_pointee_align });
                 }
 
                 (local, ArgKind::Spread(params), arg_ty)
             } else {
                 let arg_abi = arg_abis_iter.next().unwrap();
-                let param =
+                let value =
                     cvalue_for_param(fx, Some(local), None, arg_abi, &mut block_params_iter);
-                (local, ArgKind::Normal(param), arg_ty)
+                let underaligned_pointee_align = match arg_abi.mode {
+                    PassMode::Indirect { attrs, .. } => attrs
+                        .pointee_align
+                        .filter(|&pointee_align| pointee_align < arg_abi.layout.align.abi),
+                    _ => None,
+                };
+                (
+                    local,
+                    ArgKind::Normal(ArgValue { value, underaligned_pointee_align }),
+                    arg_ty,
+                )
             }
         })
         .collect::<Vec<(Local, ArgKind<'tcx>, Ty<'tcx>)>>();
@@ -311,7 +335,9 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
     for (local, arg_kind, ty) in func_params {
         // While this is normally an optimization to prevent an unnecessary copy when an argument is
         // not mutated by the current function, this is necessary to support unsized arguments.
-        if let ArgKind::Normal(Some(val)) = arg_kind {
+        if let ArgKind::Normal(ArgValue { value: Some(val), underaligned_pointee_align: None }) =
+            arg_kind
+        {
             if let Some((addr, meta)) = val.try_to_ptr() {
                 // Ownership of the value at the backing storage for an argument is passed to the
                 // callee per the ABI, so it is fine to borrow the backing storage of this argument
@@ -336,15 +362,74 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
         assert_eq!(fx.local_map.push(place), local);
 
         match arg_kind {
-            ArgKind::Normal(param) => {
-                if let Some(param) = param {
+            ArgKind::Normal(ArgValue { value: Some(param), underaligned_pointee_align }) => {
+                if let Some(pointee_align) = underaligned_pointee_align
+                    && let Some(dst_ptr) = place.try_to_ptr()
+                    && let Some((src_ptr, None)) = param.try_to_ptr()
+                    && layout.size != Size::ZERO
+                {
+                    let mut flags = MemFlags::new();
+                    flags.set_notrap();
+
+                    let to_addr = dst_ptr.get_addr(fx);
+                    let from_addr = src_ptr.get_addr(fx);
+                    let size = layout.size.bytes();
+
+                    // `emit_small_memory_copy` uses `u8` for alignments, just use the maximum
+                    // alignment that fits in a `u8` if the actual alignment is larger.
+                    let dst_align = layout.align.bytes().try_into().unwrap_or(128);
+                    let src_align = pointee_align.bytes().try_into().unwrap_or(128);
+
+                    fx.bcx.emit_small_memory_copy(
+                        fx.target_config,
+                        to_addr,
+                        from_addr,
+                        size,
+                        dst_align,
+                        src_align,
+                        true,
+                        flags,
+                    );
+                } else {
                     place.write_cvalue(fx, param);
                 }
             }
+            ArgKind::Normal(ArgValue { value: None, underaligned_pointee_align: _ }) => {}
             ArgKind::Spread(params) => {
-                for (i, param) in params.into_iter().enumerate() {
+                for (i, ArgValue { value: param, underaligned_pointee_align }) in
+                    params.into_iter().enumerate()
+                {
                     if let Some(param) = param {
-                        place.place_field(fx, FieldIdx::new(i)).write_cvalue(fx, param);
+                        let field_place = place.place_field(fx, FieldIdx::new(i));
+                        let field_layout = field_place.layout();
+                        if let Some(pointee_align) = underaligned_pointee_align
+                            && let Some(dst_ptr) = field_place.try_to_ptr()
+                            && let Some((src_ptr, None)) = param.try_to_ptr()
+                            && field_layout.size != Size::ZERO
+                        {
+                            let mut flags = MemFlags::new();
+                            flags.set_notrap();
+
+                            let to_addr = dst_ptr.get_addr(fx);
+                            let from_addr = src_ptr.get_addr(fx);
+                            let size = field_layout.size.bytes();
+
+                            let dst_align = field_layout.align.bytes().try_into().unwrap_or(128);
+                            let src_align = pointee_align.bytes().try_into().unwrap_or(128);
+
+                            fx.bcx.emit_small_memory_copy(
+                                fx.target_config,
+                                to_addr,
+                                from_addr,
+                                size,
+                                dst_align,
+                                src_align,
+                                true,
+                                flags,
+                            );
+                        } else {
+                            field_place.write_cvalue(fx, param);
+                        }
                     }
                 }
             }
