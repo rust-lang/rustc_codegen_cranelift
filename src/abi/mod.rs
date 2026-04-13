@@ -289,13 +289,12 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
                     let arg_abi = arg_abis_iter.next().unwrap();
                     let value =
                         cvalue_for_param(fx, Some(local), Some(i), arg_abi, &mut block_params_iter);
-                    let underaligned_pointee_align =
-                        match arg_abi.mode {
-                            PassMode::Indirect { attrs, .. } => attrs
-                                .pointee_align
-                                .filter(|&pointee_align| pointee_align < arg_abi.layout.align.abi),
-                            _ => None,
-                        };
+                    let underaligned_pointee_align = match arg_abi.mode {
+                        PassMode::Indirect { attrs, .. } => attrs
+                            .pointee_align
+                            .filter(|&pointee_align| pointee_align < arg_abi.layout.align.abi),
+                        _ => None,
+                    };
                     params.push(ArgValue { value, underaligned_pointee_align });
                 }
 
@@ -310,11 +309,7 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
                         .filter(|&pointee_align| pointee_align < arg_abi.layout.align.abi),
                     _ => None,
                 };
-                (
-                    local,
-                    ArgKind::Normal(ArgValue { value, underaligned_pointee_align }),
-                    arg_ty,
-                )
+                (local, ArgKind::Normal(ArgValue { value, underaligned_pointee_align }), arg_ty)
             }
         })
         .collect::<Vec<(Local, ArgKind<'tcx>, Ty<'tcx>)>>();
