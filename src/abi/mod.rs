@@ -31,6 +31,11 @@ use crate::base::codegen_unwind_terminate;
 use crate::debuginfo::EXCEPTION_HANDLER_CLEANUP;
 use crate::prelude::*;
 
+pub(super) struct ArgValue<'tcx> {
+    pub(super) value: Option<CValue<'tcx>>,
+    pub(super) underaligned_pointee_align: Option<Align>,
+}
+
 fn clif_sig_from_fn_abi<'tcx>(
     tcx: TyCtxt<'tcx>,
     default_call_conv: CallConv,
@@ -243,14 +248,6 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
         self::returning::codegen_return_param(fx, &ssa_analyzed, &mut block_params_iter);
     assert_eq!(fx.local_map.push(ret_place), RETURN_PLACE);
 
-    struct ArgValue<'tcx> {
-        value: Option<CValue<'tcx>>,
-        /// If set, the argument is a byval/byref pointer whose pointee alignment is smaller than
-        /// the Rust ABI alignment. In that case the argument must be copied to a sufficiently
-        /// aligned local stack slot before it can be treated as a place.
-        underaligned_pointee_align: Option<Align>,
-    }
-
     enum ArgKind<'tcx> {
         Normal(ArgValue<'tcx>),
         Spread(Vec<ArgValue<'tcx>>),
@@ -287,29 +284,20 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
                 let mut params = Vec::new();
                 for (i, _arg_ty) in tupled_arg_tys.iter().enumerate() {
                     let arg_abi = arg_abis_iter.next().unwrap();
-                    let value =
-                        cvalue_for_param(fx, Some(local), Some(i), arg_abi, &mut block_params_iter);
-                    let underaligned_pointee_align = match arg_abi.mode {
-                        PassMode::Indirect { attrs, .. } => attrs
-                            .pointee_align
-                            .filter(|&pointee_align| pointee_align < arg_abi.layout.align.abi),
-                        _ => None,
-                    };
-                    params.push(ArgValue { value, underaligned_pointee_align });
+                    params.push(cvalue_for_param(
+                        fx,
+                        Some(local),
+                        Some(i),
+                        arg_abi,
+                        &mut block_params_iter,
+                    ));
                 }
 
                 (local, ArgKind::Spread(params), arg_ty)
             } else {
                 let arg_abi = arg_abis_iter.next().unwrap();
-                let value =
-                    cvalue_for_param(fx, Some(local), None, arg_abi, &mut block_params_iter);
-                let underaligned_pointee_align = match arg_abi.mode {
-                    PassMode::Indirect { attrs, .. } => attrs
-                        .pointee_align
-                        .filter(|&pointee_align| pointee_align < arg_abi.layout.align.abi),
-                    _ => None,
-                };
-                (local, ArgKind::Normal(ArgValue { value, underaligned_pointee_align }), arg_ty)
+                let arg = cvalue_for_param(fx, Some(local), None, arg_abi, &mut block_params_iter);
+                (local, ArgKind::Normal(arg), arg_ty)
             }
         })
         .collect::<Vec<(Local, ArgKind<'tcx>, Ty<'tcx>)>>();
@@ -318,8 +306,8 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
     if fx.instance.def.requires_caller_location(fx.tcx) {
         // Store caller location for `#[track_caller]`.
         let arg_abi = arg_abis_iter.next().unwrap();
-        fx.caller_location =
-            Some(cvalue_for_param(fx, None, None, arg_abi, &mut block_params_iter).unwrap());
+        let arg = cvalue_for_param(fx, None, None, arg_abi, &mut block_params_iter);
+        fx.caller_location = Some(arg.value.unwrap());
     }
 
     assert_eq!(arg_abis_iter.next(), None, "ArgAbi left behind for {:?}", fx.fn_abi);
@@ -358,33 +346,8 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
 
         match arg_kind {
             ArgKind::Normal(ArgValue { value: Some(param), underaligned_pointee_align }) => {
-                if let Some(pointee_align) = underaligned_pointee_align
-                    && let Some(dst_ptr) = place.try_to_ptr()
-                    && let Some((src_ptr, None)) = param.try_to_ptr()
-                    && layout.size != Size::ZERO
-                {
-                    let mut flags = MemFlags::new();
-                    flags.set_notrap();
-
-                    let to_addr = dst_ptr.get_addr(fx);
-                    let from_addr = src_ptr.get_addr(fx);
-                    let size = layout.size.bytes();
-
-                    // `emit_small_memory_copy` uses `u8` for alignments, just use the maximum
-                    // alignment that fits in a `u8` if the actual alignment is larger.
-                    let dst_align = layout.align.bytes().try_into().unwrap_or(128);
-                    let src_align = pointee_align.bytes().try_into().unwrap_or(128);
-
-                    fx.bcx.emit_small_memory_copy(
-                        fx.target_config,
-                        to_addr,
-                        from_addr,
-                        size,
-                        dst_align,
-                        src_align,
-                        true,
-                        flags,
-                    );
+                if underaligned_pointee_align.is_some() {
+                    place.write_cvalue_transmute(fx, param);
                 } else {
                     place.write_cvalue(fx, param);
                 }
@@ -396,32 +359,8 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
                 {
                     if let Some(param) = param {
                         let field_place = place.place_field(fx, FieldIdx::new(i));
-                        let field_layout = field_place.layout();
-                        if let Some(pointee_align) = underaligned_pointee_align
-                            && let Some(dst_ptr) = field_place.try_to_ptr()
-                            && let Some((src_ptr, None)) = param.try_to_ptr()
-                            && field_layout.size != Size::ZERO
-                        {
-                            let mut flags = MemFlags::new();
-                            flags.set_notrap();
-
-                            let to_addr = dst_ptr.get_addr(fx);
-                            let from_addr = src_ptr.get_addr(fx);
-                            let size = field_layout.size.bytes();
-
-                            let dst_align = field_layout.align.bytes().try_into().unwrap_or(128);
-                            let src_align = pointee_align.bytes().try_into().unwrap_or(128);
-
-                            fx.bcx.emit_small_memory_copy(
-                                fx.target_config,
-                                to_addr,
-                                from_addr,
-                                size,
-                                dst_align,
-                                src_align,
-                                true,
-                                flags,
-                            );
+                        if underaligned_pointee_align.is_some() {
+                            field_place.write_cvalue_transmute(fx, param);
                         } else {
                             field_place.write_cvalue(fx, param);
                         }

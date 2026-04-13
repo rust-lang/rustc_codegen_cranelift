@@ -1,12 +1,13 @@
 //! Argument passing
 
 use cranelift_codegen::ir::ArgumentPurpose;
-use rustc_abi::{Reg, RegKind};
+use rustc_abi::{Align, Reg, RegKind};
 use rustc_target::callconv::{
     ArgAbi, ArgAttributes, ArgExtension as RustcArgExtension, CastTarget, PassMode,
 };
 use smallvec::{SmallVec, smallvec};
 
+use super::ArgValue;
 use crate::prelude::*;
 use crate::value_and_place::assert_assignable;
 
@@ -284,7 +285,7 @@ pub(super) fn cvalue_for_param<'tcx>(
     local_field: Option<usize>,
     arg_abi: &ArgAbi<'tcx, Ty<'tcx>>,
     block_params_iter: &mut impl Iterator<Item = Value>,
-) -> Option<CValue<'tcx>> {
+) -> ArgValue<'tcx> {
     let block_params = arg_abi
         .get_abi_param(fx.tcx)
         .into_iter()
@@ -305,7 +306,8 @@ pub(super) fn cvalue_for_param<'tcx>(
         arg_abi.layout,
     );
 
-    match arg_abi.mode {
+    let mut underaligned_pointee_align: Option<Align> = None;
+    let value = match arg_abi.mode {
         PassMode::Ignore => None,
         PassMode::Direct(_) => {
             assert_eq!(block_params.len(), 1, "{:?}", block_params);
@@ -318,9 +320,22 @@ pub(super) fn cvalue_for_param<'tcx>(
         PassMode::Cast { ref cast, .. } => {
             Some(from_casted_value(fx, &block_params, arg_abi.layout, cast))
         }
-        PassMode::Indirect { attrs: _, meta_attrs: None, on_stack: _ } => {
+        PassMode::Indirect { attrs, meta_attrs: None, on_stack: _ } => {
             assert_eq!(block_params.len(), 1, "{:?}", block_params);
-            Some(CValue::by_ref(Pointer::new(block_params[0]), arg_abi.layout))
+            if let Some(pointee_align) = attrs.pointee_align
+                && pointee_align < arg_abi.layout.align.abi
+                && arg_abi.layout.is_sized()
+                && arg_abi.layout.size != Size::ZERO
+            {
+                underaligned_pointee_align = Some(pointee_align);
+                // Underaligned pointer: treat as `[u8; size]` and transmute-copy into the real type.
+                let len = ty::Const::from_target_usize(fx.tcx, arg_abi.layout.size.bytes());
+                let bytes_ty = fx.tcx.mk_ty_from_kind(ty::Array(fx.tcx.types.u8, len));
+                let bytes_layout = fx.layout_of(bytes_ty);
+                Some(CValue::by_ref(Pointer::new(block_params[0]), bytes_layout))
+            } else {
+                Some(CValue::by_ref(Pointer::new(block_params[0]), arg_abi.layout))
+            }
         }
         PassMode::Indirect { attrs: _, meta_attrs: Some(_), on_stack: _ } => {
             assert_eq!(block_params.len(), 2, "{:?}", block_params);
@@ -330,5 +345,7 @@ pub(super) fn cvalue_for_param<'tcx>(
                 arg_abi.layout,
             ))
         }
-    }
+    };
+
+    ArgValue { value, underaligned_pointee_align }
 }
