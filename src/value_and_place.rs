@@ -204,7 +204,14 @@ impl<'tcx> CValue<'tcx> {
                 let (field_ptr, field_layout) = codegen_field(fx, ptr, None, layout, field);
                 CValue::by_ref(field_ptr, field_layout)
             }
-            CValueInner::ByRef(_, Some(_)) => todo!(),
+            CValueInner::ByRef(ptr, Some(extra)) => {
+                let (field_ptr, field_layout) = codegen_field(fx, ptr, Some(extra), layout, field);
+                if fx.tcx.type_has_metadata(field_layout.ty, ty::TypingEnv::fully_monomorphized()) {
+                    CValue::by_ref_unsized(field_ptr, extra, field_layout)
+                } else {
+                    CValue::by_ref(field_ptr, field_layout)
+                }
+            }
         }
     }
 
@@ -655,7 +662,26 @@ impl<'tcx> CPlace<'tcx> {
                             flags,
                         );
                     }
-                    CValueInner::ByRef(_, Some(_)) => todo!(),
+                    CValueInner::ByRef(from_ptr, Some(_extra)) => {
+                        // Unsized values shouldn't normally be written into sized places. However,
+                        // if this happens, we can still copy the sized prefix using the destination layout's fixed size.
+                        let from_addr = from_ptr.get_addr(fx);
+                        let to_addr = to_ptr.get_addr(fx);
+                        let src_layout = from.1;
+                        let size = dst_layout.size.bytes();
+                        let src_align = src_layout.align.bytes().try_into().unwrap_or(128);
+                        let dst_align = dst_layout.align.bytes().try_into().unwrap_or(128);
+                        fx.bcx.emit_small_memory_copy(
+                            fx.target_config,
+                            to_addr,
+                            from_addr,
+                            size,
+                            dst_align,
+                            src_align,
+                            true,
+                            flags,
+                        );
+                    }
                 }
             }
         }
