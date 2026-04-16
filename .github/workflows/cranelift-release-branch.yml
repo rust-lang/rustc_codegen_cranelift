@@ -2,13 +2,8 @@ name: Test upcoming Cranelift release branch
 
 on:
   schedule:
-    # Run daily so we don't miss the release branch cut.
-    - cron: "0 3 * * *"
+    - cron: "0 3 6 * *"
   workflow_dispatch: {}
-
-defaults:
-  run:
-    shell: bash
 
 permissions: {}
 
@@ -42,77 +37,40 @@ jobs:
           echo "Latest release branch: ${latest}"
           echo "branch=${latest}" >> "$GITHUB_OUTPUT"
 
-      - name: Skip if already tested
-        id: tested_cache
-        uses: actions/cache@v5
-        with:
-          path: .ci/cranelift-release-tested
-          key: cranelift-release-tested-${{ steps.wasmtime_release_branch.outputs.branch }}
-
-      - name: Mark tested (cache payload)
-        if: steps.tested_cache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p .ci/cranelift-release-tested
-          echo "${{ steps.wasmtime_release_branch.outputs.branch }}" > .ci/cranelift-release-tested/branch.txt
-
       - name: Patch Cargo.toml to use release branch Cranelift
-        if: steps.tested_cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          branch="${{ steps.wasmtime_release_branch.outputs.branch }}"
-
           python3 - <<'PY'
-          import pathlib, re, os
+          import pathlib
+          import os
+
           cargo_toml = pathlib.Path("Cargo.toml")
           s = cargo_toml.read_text(encoding="utf-8")
 
           branch = os.environ["WASMTIME_RELEASE_BRANCH"]
-          patch_lines = "\n".join([
+          patch_block = "\n".join([
+              "",
+              "[patch.crates-io]",
               f'cranelift-codegen = {{ git = "https://github.com/bytecodealliance/wasmtime.git", branch = "{branch}" }}',
               f'cranelift-frontend = {{ git = "https://github.com/bytecodealliance/wasmtime.git", branch = "{branch}" }}',
               f'cranelift-module = {{ git = "https://github.com/bytecodealliance/wasmtime.git", branch = "{branch}" }}',
               f'cranelift-native = {{ git = "https://github.com/bytecodealliance/wasmtime.git", branch = "{branch}" }}',
               f'cranelift-jit = {{ git = "https://github.com/bytecodealliance/wasmtime.git", branch = "{branch}" }}',
               f'cranelift-object = {{ git = "https://github.com/bytecodealliance/wasmtime.git", branch = "{branch}" }}',
+              "",
           ])
-
-          # Ensure a [patch.crates-io] section exists.
-          if "[patch.crates-io]" not in s:
-              s += "\n\n[patch.crates-io]\n"
-
-          # Remove any previous CI-inserted patch block.
-          s = re.sub(
-              r"(?ms)^\n?# BEGIN CI WASMTIME RELEASE PATCH\n.*?^\# END CI WASMTIME RELEASE PATCH\n",
-              "\n",
-              s,
-          )
-
-          # Insert immediately after the [patch.crates-io] header.
-          s = re.sub(
-              r"(?m)^\[patch\.crates-io\]\s*$",
-              "[patch.crates-io]\n"
-              "# BEGIN CI WASMTIME RELEASE PATCH\n"
-              f"{patch_lines}\n"
-              "# END CI WASMTIME RELEASE PATCH",
-              s,
-              count=1,
-          )
-
-          cargo_toml.write_text(s, encoding="utf-8")
+          cargo_toml.write_text(s.rstrip() + patch_block, encoding="utf-8")
           PY
         env:
           WASMTIME_RELEASE_BRANCH: ${{ steps.wasmtime_release_branch.outputs.branch }}
 
       - name: Prepare dependencies
-        if: steps.tested_cache.outputs.cache-hit != 'true'
         run: ./y.sh prepare
 
       - name: Build (sysroot none)
-        if: steps.tested_cache.outputs.cache-hit != 'true'
         run: ./y.sh build --sysroot none
 
       - name: Test
-        if: steps.tested_cache.outputs.cache-hit != 'true'
         env:
           TARGET_TRIPLE: x86_64-unknown-linux-gnu
         run: ./y.sh test
