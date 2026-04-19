@@ -414,48 +414,60 @@ fn define_all_allocs(tcx: TyCtxt<'_>, module: &mut dyn Module, cx: &mut Constant
         data.set_align(alloc.align.bytes());
 
         if let Some(section_name) = section_name {
-            let (segment_name, section_name) = if tcx.sess.target.is_like_darwin {
+            let (segment_name, section_name, macho_flags) = if tcx.sess.target.is_like_darwin {
                 // See https://github.com/llvm/llvm-project/blob/main/llvm/lib/MC/MCSectionMachO.cpp
                 let mut parts = section_name.as_str().split(',');
-                let Some(segment_name) = parts.next() else {
+
+                let section_err = |msg| -> ! {
                     tcx.dcx().fatal(format!(
-                        "#[link_section = \"{}\"] is not valid for macos target: must be segment and section separated by comma",
-                        section_name
-                    ));
+                        "#[link_section = {section_name:?}] is not valid for Mach-O target: {msg}",
+                    ))
                 };
+
+                let Some(segment_name) = parts.next() else {
+                    section_err("must be segment and section separated by comma");
+                };
+
                 let Some(section_name) = parts.next() else {
-                    tcx.dcx().fatal(format!(
-                        "#[link_section = \"{}\"] is not valid for macos target: must be segment and section separated by comma",
-                        section_name
-                    ));
+                    section_err("must be segment and section separated by comma");
                 };
                 if section_name.len() > 16 {
-                    tcx.dcx().fatal(format!(
-                        "#[link_section = \"{}\"] is not valid for macos target: section name bigger than 16 bytes",
-                        section_name
-                    ));
+                    section_err("section name bigger than 16 bytes");
                 }
+
                 let section_type = parts.next().unwrap_or("regular");
-                if section_type != "regular" && section_type != "cstring_literals" {
-                    tcx.dcx().fatal(format!(
-                        "#[link_section = \"{}\"] is not supported: unsupported section type {}",
-                        section_name, section_type,
-                    ));
+
+                // The custom Mach-O section flags.
+                // The flags are the section type packed together with the attributes.
+                let mut macho_flags = if let Some((_, val)) =
+                    MACHO_SECTION_TYPES.iter().find(|(name, _)| *name == section_type)
+                {
+                    *val
+                } else {
+                    section_err(&format!("unsupported section type {section_type:?}"));
+                };
+
+                if let Some(section_attributes) = parts.next() {
+                    for attr in section_attributes.split('+') {
+                        macho_flags |= if let Some((_, val)) =
+                            MACHO_SECTION_ATTRIBUTES.iter().find(|(name, _)| *name == attr)
+                        {
+                            *val
+                        } else {
+                            section_err(&format!("unsupported section attribute {attr:?}"));
+                        };
+                    }
                 }
-                let _attrs = parts.next();
+
                 if parts.next().is_some() {
-                    tcx.dcx().fatal(format!(
-                        "#[link_section = \"{}\"] is not valid for macos target: too many components",
-                        section_name
-                    ));
+                    section_err("too many components");
                 }
-                // FIXME(bytecodealliance/wasmtime#8901) set S_CSTRING_LITERALS section type when
-                // cstring_literals is specified
-                (segment_name, section_name)
+
+                (segment_name, section_name, macho_flags)
             } else {
-                ("", section_name.as_str())
+                ("", section_name.as_str(), 0)
             };
-            data.set_segment_section(segment_name, section_name);
+            data.set_segment_section(segment_name, section_name, macho_flags);
         }
 
         let bytes = alloc.inspect_with_uninit_and_ptr_outside_interpreter(0..alloc.len()).to_vec();
@@ -649,3 +661,45 @@ pub(crate) fn mir_operand_get_const_val<'tcx>(
         }
     }
 }
+
+// We support the same custom section type / attrs naming as LLVM:
+// <https://github.com/llvm/llvm-project/blob/llvmorg-22.1.3/llvm/lib/MC/MCSectionMachO.cpp#L23-L91>
+// <https://github.com/llvm/llvm-project/blob/llvmorg-22.1.3/llvm/include/llvm/BinaryFormat/MachO.h#L120-L223>
+const MACHO_SECTION_TYPES: &[(&str, u32)] = &[
+    ("regular", object::macho::S_REGULAR),
+    ("zerofill", object::macho::S_ZEROFILL),
+    ("cstring_literals", object::macho::S_CSTRING_LITERALS),
+    ("4byte_literals", object::macho::S_4BYTE_LITERALS),
+    ("8byte_literals", object::macho::S_8BYTE_LITERALS),
+    ("literal_pointers", object::macho::S_LITERAL_POINTERS),
+    ("non_lazy_symbol_pointers", object::macho::S_NON_LAZY_SYMBOL_POINTERS),
+    ("lazy_symbol_pointers", object::macho::S_LAZY_SYMBOL_POINTERS),
+    ("symbol_stubs", object::macho::S_SYMBOL_STUBS),
+    ("mod_init_funcs", object::macho::S_MOD_INIT_FUNC_POINTERS),
+    ("mod_term_funcs", object::macho::S_MOD_TERM_FUNC_POINTERS),
+    ("coalesced", object::macho::S_COALESCED),
+    // S_GB_ZEROFILL (not supported by LLVM)
+    ("interposing", object::macho::S_INTERPOSING),
+    ("16byte_literals", object::macho::S_16BYTE_LITERALS),
+    // S_DTRACE_DOF (not supported by LLVM)
+    // S_LAZY_DYLIB_SYMBOL_POINTERS (not supported by LLVM)
+    ("thread_local_regular", object::macho::S_THREAD_LOCAL_REGULAR),
+    ("thread_local_zerofill", object::macho::S_THREAD_LOCAL_ZEROFILL),
+    ("thread_local_variables", object::macho::S_THREAD_LOCAL_VARIABLES),
+    ("thread_local_variable_pointers", object::macho::S_THREAD_LOCAL_VARIABLE_POINTERS),
+    ("thread_local_init_function_pointers", object::macho::S_THREAD_LOCAL_INIT_FUNCTION_POINTERS),
+    // S_INIT_FUNC_OFFSETS (not supported by LLVM)
+];
+const MACHO_SECTION_ATTRIBUTES: &[(&str, u32)] = &[
+    ("pure_instructions", object::macho::S_ATTR_PURE_INSTRUCTIONS),
+    ("no_toc", object::macho::S_ATTR_NO_TOC),
+    ("strip_static_syms", object::macho::S_ATTR_STRIP_STATIC_SYMS),
+    ("no_dead_strip", object::macho::S_ATTR_NO_DEAD_STRIP),
+    ("live_support", object::macho::S_ATTR_LIVE_SUPPORT),
+    ("self_modifying_code", object::macho::S_ATTR_SELF_MODIFYING_CODE),
+    ("debug", object::macho::S_ATTR_DEBUG),
+    // System settable attributes are not supported by LLVM:
+    // S_ATTR_SOME_INSTRUCTIONS
+    // S_ATTR_EXT_RELOC
+    // S_ATTR_LOC_RELOC
+];
