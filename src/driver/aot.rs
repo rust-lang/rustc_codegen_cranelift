@@ -19,7 +19,7 @@ use rustc_data_structures::sync::{IntoDynSyncSend, par_map};
 use rustc_hir::attrs::Linkage as RLinkage;
 use rustc_middle::dep_graph::{WorkProduct, WorkProductId};
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
-use rustc_middle::mir::mono::{CodegenUnit, MonoItem, MonoItemData, Visibility};
+use rustc_middle::mono::{CodegenUnit, MonoItem, MonoItemData, Visibility};
 use rustc_session::Session;
 use rustc_session::config::{OutputFilenames, OutputType};
 
@@ -45,8 +45,8 @@ enum OngoingModuleCodegen {
     Async(JoinHandle<Result<ModuleCodegenResult, String>>),
 }
 
-impl<HCX> HashStable<HCX> for OngoingModuleCodegen {
-    fn hash_stable(&self, _: &mut HCX, _: &mut StableHasher) {
+impl<Hcx> HashStable<Hcx> for OngoingModuleCodegen {
+    fn hash_stable(&self, _: &mut Hcx, _: &mut StableHasher) {
         // do nothing
     }
 }
@@ -380,11 +380,9 @@ fn codegen_cgu_content(
 
 fn module_codegen(
     tcx: TyCtxt<'_>,
-    (global_asm_config, cgu_name, token): (
-        Arc<GlobalAsmConfig>,
-        rustc_span::Symbol,
-        ConcurrencyLimiterToken,
-    ),
+    global_asm_config: Arc<GlobalAsmConfig>,
+    cgu_name: rustc_span::Symbol,
+    token: ConcurrencyLimiterToken,
 ) -> OngoingModuleCodegen {
     let mut module = make_module(tcx.sess, cgu_name.as_str().to_string());
 
@@ -513,8 +511,14 @@ pub(crate) fn run_aot(tcx: TyCtxt<'_>) -> Box<OngoingCodegen> {
                 let (module, _) = tcx.dep_graph.with_task(
                     dep_node,
                     tcx,
-                    (global_asm_config.clone(), cgu.name(), concurrency_limiter.acquire(tcx.dcx())),
-                    module_codegen,
+                    || {
+                        module_codegen(
+                            tcx,
+                            global_asm_config.clone(),
+                            cgu.name(),
+                            concurrency_limiter.acquire(tcx.dcx()),
+                        )
+                    },
                     Some(rustc_middle::dep_graph::hash_result),
                 );
                 IntoDynSyncSend(module)
