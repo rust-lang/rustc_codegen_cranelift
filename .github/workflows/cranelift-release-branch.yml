@@ -22,7 +22,6 @@ jobs:
       - name: Determine latest Wasmtime release branch
         id: wasmtime_release_branch
         run: |
-          set -euo pipefail
           branches="$(
             git ls-remote --heads https://github.com/bytecodealliance/wasmtime.git "refs/heads/release-*" \
               | awk '{print $2}' \
