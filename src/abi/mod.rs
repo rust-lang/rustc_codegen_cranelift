@@ -12,7 +12,7 @@ use cranelift_codegen::ir::{
 };
 use cranelift_codegen::isa::CallConv;
 use cranelift_module::ModuleError;
-use rustc_abi::{Align, CanonAbi, ExternAbi, X86Call};
+use rustc_abi::{CanonAbi, ExternAbi, X86Call};
 use rustc_codegen_ssa::base::is_call_from_compiler_builtins_to_upstream_monomorphization;
 use rustc_codegen_ssa::errors::CompilerBuiltinsCannotCall;
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
@@ -33,7 +33,7 @@ use crate::prelude::*;
 
 pub(super) struct ArgValue<'tcx> {
     pub(super) value: Option<CValue<'tcx>>,
-    pub(super) underaligned_pointee_align: Option<Align>,
+    pub(super) is_underaligned_pointee: bool,
 }
 
 fn clif_sig_from_fn_abi<'tcx>(
@@ -307,6 +307,10 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
         // Store caller location for `#[track_caller]`.
         let arg_abi = arg_abis_iter.next().unwrap();
         let arg = cvalue_for_param(fx, None, None, arg_abi, &mut block_params_iter);
+        assert!(
+            !arg.is_underaligned_pointee,
+            "caller location argument should not be underaligned",
+        );
         fx.caller_location = Some(arg.value.unwrap());
     }
 
@@ -318,7 +322,7 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
     for (local, arg_kind, ty) in func_params {
         // While this is normally an optimization to prevent an unnecessary copy when an argument is
         // not mutated by the current function, this is necessary to support unsized arguments.
-        if let ArgKind::Normal(ArgValue { value: Some(val), underaligned_pointee_align: None }) =
+        if let ArgKind::Normal(ArgValue { value: Some(val), is_underaligned_pointee: false }) =
             arg_kind
         {
             if let Some((addr, meta)) = val.try_to_ptr() {
@@ -345,21 +349,21 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
         assert_eq!(fx.local_map.push(place), local);
 
         match arg_kind {
-            ArgKind::Normal(ArgValue { value: Some(param), underaligned_pointee_align }) => {
-                if underaligned_pointee_align.is_some() {
+            ArgKind::Normal(ArgValue { value: Some(param), is_underaligned_pointee }) => {
+                if is_underaligned_pointee {
                     place.write_cvalue_transmute(fx, param);
                 } else {
                     place.write_cvalue(fx, param);
                 }
             }
-            ArgKind::Normal(ArgValue { value: None, underaligned_pointee_align: _ }) => {}
+            ArgKind::Normal(ArgValue { value: None, is_underaligned_pointee: _ }) => {}
             ArgKind::Spread(params) => {
-                for (i, ArgValue { value: param, underaligned_pointee_align }) in
+                for (i, ArgValue { value: param, is_underaligned_pointee }) in
                     params.into_iter().enumerate()
                 {
                     if let Some(param) = param {
                         let field_place = place.place_field(fx, FieldIdx::new(i));
-                        if underaligned_pointee_align.is_some() {
+                        if is_underaligned_pointee {
                             field_place.write_cvalue_transmute(fx, param);
                         } else {
                             field_place.write_cvalue(fx, param);

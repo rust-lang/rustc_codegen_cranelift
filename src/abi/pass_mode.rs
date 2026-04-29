@@ -1,7 +1,7 @@
 //! Argument passing
 
 use cranelift_codegen::ir::ArgumentPurpose;
-use rustc_abi::{Align, Reg, RegKind};
+use rustc_abi::{Reg, RegKind};
 use rustc_target::callconv::{
     ArgAbi, ArgAttributes, ArgExtension as RustcArgExtension, CastTarget, PassMode,
 };
@@ -306,7 +306,7 @@ pub(super) fn cvalue_for_param<'tcx>(
         arg_abi.layout,
     );
 
-    let mut underaligned_pointee_align: Option<Align> = None;
+    let mut is_underaligned_pointee = false;
     let value = match arg_abi.mode {
         PassMode::Ignore => None,
         PassMode::Direct(_) => {
@@ -327,10 +327,9 @@ pub(super) fn cvalue_for_param<'tcx>(
                 && arg_abi.layout.is_sized()
                 && arg_abi.layout.size != Size::ZERO
             {
-                underaligned_pointee_align = Some(pointee_align);
+                is_underaligned_pointee = true;
                 // Underaligned pointer: treat as `[u8; size]` and transmute-copy into the real type.
-                let len = ty::Const::from_target_usize(fx.tcx, arg_abi.layout.size.bytes());
-                let bytes_ty = fx.tcx.mk_ty_from_kind(ty::Array(fx.tcx.types.u8, len));
+                let bytes_ty = Ty::new_array(fx.tcx, fx.tcx.types.u8, arg_abi.layout.size.bytes());
                 let bytes_layout = fx.layout_of(bytes_ty);
                 Some(CValue::by_ref(Pointer::new(block_params[0]), bytes_layout))
             } else {
@@ -347,5 +346,5 @@ pub(super) fn cvalue_for_param<'tcx>(
         }
     };
 
-    ArgValue { value, underaligned_pointee_align }
+    ArgValue { value, is_underaligned_pointee }
 }
