@@ -285,7 +285,7 @@ pub(super) fn cvalue_for_param<'tcx>(
     local_field: Option<usize>,
     arg_abi: &ArgAbi<'tcx, Ty<'tcx>>,
     block_params_iter: &mut impl Iterator<Item = Value>,
-) -> ArgValue<'tcx> {
+) -> Option<ArgValue<'tcx>> {
     let block_params = arg_abi
         .get_abi_param(fx.tcx)
         .into_iter()
@@ -306,19 +306,18 @@ pub(super) fn cvalue_for_param<'tcx>(
         arg_abi.layout,
     );
 
-    let mut is_underaligned_pointee = false;
     let value = match arg_abi.mode {
-        PassMode::Ignore => None,
+        PassMode::Ignore => return None,
         PassMode::Direct(_) => {
             assert_eq!(block_params.len(), 1, "{:?}", block_params);
-            Some(CValue::by_val(block_params[0], arg_abi.layout))
+            CValue::by_val(block_params[0], arg_abi.layout)
         }
         PassMode::Pair(_, _) => {
             assert_eq!(block_params.len(), 2, "{:?}", block_params);
-            Some(CValue::by_val_pair(block_params[0], block_params[1], arg_abi.layout))
+            CValue::by_val_pair(block_params[0], block_params[1], arg_abi.layout)
         }
         PassMode::Cast { ref cast, .. } => {
-            Some(from_casted_value(fx, &block_params, arg_abi.layout, cast))
+            from_casted_value(fx, &block_params, arg_abi.layout, cast)
         }
         PassMode::Indirect { attrs, meta_attrs: None, on_stack: _ } => {
             assert_eq!(block_params.len(), 1, "{:?}", block_params);
@@ -327,24 +326,22 @@ pub(super) fn cvalue_for_param<'tcx>(
                 && arg_abi.layout.is_sized()
                 && arg_abi.layout.size != Size::ZERO
             {
-                is_underaligned_pointee = true;
                 // Underaligned pointer: treat as `[u8; size]` and transmute-copy into the real type.
                 let bytes_ty = Ty::new_array(fx.tcx, fx.tcx.types.u8, arg_abi.layout.size.bytes());
                 let bytes_layout = fx.layout_of(bytes_ty);
-                Some(CValue::by_ref(Pointer::new(block_params[0]), bytes_layout))
+                return Some(ArgValue {
+                    value: CValue::by_ref(Pointer::new(block_params[0]), bytes_layout),
+                    is_underaligned_pointee: true,
+                });
             } else {
-                Some(CValue::by_ref(Pointer::new(block_params[0]), arg_abi.layout))
+                CValue::by_ref(Pointer::new(block_params[0]), arg_abi.layout)
             }
         }
         PassMode::Indirect { attrs: _, meta_attrs: Some(_), on_stack: _ } => {
             assert_eq!(block_params.len(), 2, "{:?}", block_params);
-            Some(CValue::by_ref_unsized(
-                Pointer::new(block_params[0]),
-                block_params[1],
-                arg_abi.layout,
-            ))
+            CValue::by_ref_unsized(Pointer::new(block_params[0]), block_params[1], arg_abi.layout)
         }
     };
 
-    ArgValue { value, is_underaligned_pointee }
+    Some(ArgValue { value, is_underaligned_pointee: false })
 }

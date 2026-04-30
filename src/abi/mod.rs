@@ -31,9 +31,9 @@ use crate::base::codegen_unwind_terminate;
 use crate::debuginfo::EXCEPTION_HANDLER_CLEANUP;
 use crate::prelude::*;
 
-pub(super) struct ArgValue<'tcx> {
-    pub(super) value: Option<CValue<'tcx>>,
-    pub(super) is_underaligned_pointee: bool,
+struct ArgValue<'tcx> {
+    value: CValue<'tcx>,
+    is_underaligned_pointee: bool,
 }
 
 fn clif_sig_from_fn_abi<'tcx>(
@@ -248,9 +248,10 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
         self::returning::codegen_return_param(fx, &ssa_analyzed, &mut block_params_iter);
     assert_eq!(fx.local_map.push(ret_place), RETURN_PLACE);
 
+    // None means pass_mode == NoPass
     enum ArgKind<'tcx> {
-        Normal(ArgValue<'tcx>),
-        Spread(Vec<ArgValue<'tcx>>),
+        Normal(Option<ArgValue<'tcx>>),
+        Spread(Vec<Option<ArgValue<'tcx>>>),
     }
 
     // FIXME implement variadics in cranelift
@@ -284,20 +285,17 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
                 let mut params = Vec::new();
                 for (i, _arg_ty) in tupled_arg_tys.iter().enumerate() {
                     let arg_abi = arg_abis_iter.next().unwrap();
-                    params.push(cvalue_for_param(
-                        fx,
-                        Some(local),
-                        Some(i),
-                        arg_abi,
-                        &mut block_params_iter,
-                    ));
+                    let param =
+                        cvalue_for_param(fx, Some(local), Some(i), arg_abi, &mut block_params_iter);
+                    params.push(param);
                 }
 
                 (local, ArgKind::Spread(params), arg_ty)
             } else {
                 let arg_abi = arg_abis_iter.next().unwrap();
-                let arg = cvalue_for_param(fx, Some(local), None, arg_abi, &mut block_params_iter);
-                (local, ArgKind::Normal(arg), arg_ty)
+                let param =
+                    cvalue_for_param(fx, Some(local), None, arg_abi, &mut block_params_iter);
+                (local, ArgKind::Normal(param), arg_ty)
             }
         })
         .collect::<Vec<(Local, ArgKind<'tcx>, Ty<'tcx>)>>();
@@ -306,12 +304,12 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
     if fx.instance.def.requires_caller_location(fx.tcx) {
         // Store caller location for `#[track_caller]`.
         let arg_abi = arg_abis_iter.next().unwrap();
-        let arg = cvalue_for_param(fx, None, None, arg_abi, &mut block_params_iter);
+        let param = cvalue_for_param(fx, None, None, arg_abi, &mut block_params_iter).unwrap();
         assert!(
-            !arg.is_underaligned_pointee,
+            !param.is_underaligned_pointee,
             "caller location argument should not be underaligned",
         );
-        fx.caller_location = Some(arg.value.unwrap());
+        fx.caller_location = Some(param.value);
     }
 
     assert_eq!(arg_abis_iter.next(), None, "ArgAbi left behind for {:?}", fx.fn_abi);
@@ -322,7 +320,7 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
     for (local, arg_kind, ty) in func_params {
         // While this is normally an optimization to prevent an unnecessary copy when an argument is
         // not mutated by the current function, this is necessary to support unsized arguments.
-        if let ArgKind::Normal(ArgValue { value: Some(val), is_underaligned_pointee: false }) =
+        if let ArgKind::Normal(Some(ArgValue { value: val, is_underaligned_pointee: false })) =
             arg_kind
         {
             if let Some((addr, meta)) = val.try_to_ptr() {
@@ -349,24 +347,23 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
         assert_eq!(fx.local_map.push(place), local);
 
         match arg_kind {
-            ArgKind::Normal(ArgValue { value: Some(param), is_underaligned_pointee }) => {
-                if is_underaligned_pointee {
-                    place.write_cvalue_transmute(fx, param);
-                } else {
-                    place.write_cvalue(fx, param);
+            ArgKind::Normal(param) => {
+                if let Some(param) = param {
+                    if param.is_underaligned_pointee {
+                        place.write_cvalue_transmute(fx, param.value);
+                    } else {
+                        place.write_cvalue(fx, param.value);
+                    }
                 }
             }
-            ArgKind::Normal(ArgValue { value: None, is_underaligned_pointee: _ }) => {}
             ArgKind::Spread(params) => {
-                for (i, ArgValue { value: param, is_underaligned_pointee }) in
-                    params.into_iter().enumerate()
-                {
+                for (i, param) in params.into_iter().enumerate() {
                     if let Some(param) = param {
                         let field_place = place.place_field(fx, FieldIdx::new(i));
-                        if is_underaligned_pointee {
-                            field_place.write_cvalue_transmute(fx, param);
+                        if param.is_underaligned_pointee {
+                            field_place.write_cvalue_transmute(fx, param.value);
                         } else {
-                            field_place.write_cvalue(fx, param);
+                            field_place.write_cvalue(fx, param.value);
                         }
                     }
                 }
