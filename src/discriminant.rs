@@ -32,9 +32,7 @@ pub(crate) fn codegen_set_discriminant<'tcx>(
             let to = layout.ty.discriminant_for_variant(fx.tcx, variant_index).unwrap().val;
             let to = match ptr.layout().ty.kind() {
                 ty::Uint(UintTy::U128) | ty::Int(IntTy::I128) => {
-                    let lsb = fx.bcx.ins().iconst(types::I64, to as u64 as i64);
-                    let msb = fx.bcx.ins().iconst(types::I64, (to >> 64) as u64 as i64);
-                    fx.bcx.ins().iconcat(lsb, msb)
+                    codegen_iconst_u128(&mut fx.bcx, to)
                 }
                 ty::Uint(_) | ty::Int(_) => {
                     let clif_ty = fx.clif_type(ptr.layout().ty).unwrap();
@@ -58,12 +56,7 @@ pub(crate) fn codegen_set_discriminant<'tcx>(
                 let niche_value = variant_index.as_u32() - niche_variants.start().as_u32();
                 let niche_value = (niche_value as u128).wrapping_add(niche_start);
                 let niche_value = match niche_type {
-                    types::I128 => {
-                        let lsb = fx.bcx.ins().iconst(types::I64, niche_value as u64 as i64);
-                        let msb =
-                            fx.bcx.ins().iconst(types::I64, (niche_value >> 64) as u64 as i64);
-                        fx.bcx.ins().iconcat(lsb, msb)
-                    }
+                    types::I128 => codegen_iconst_u128(&mut fx.bcx, niche_value),
                     ty => fx.bcx.ins().iconst(ty, niche_value as i64),
                 };
                 let niche_llval = CValue::by_val(niche_value, niche.layout());
@@ -95,9 +88,7 @@ pub(crate) fn codegen_get_discriminant<'tcx>(
 
             let val = match dest_layout.ty.kind() {
                 ty::Uint(UintTy::U128) | ty::Int(IntTy::I128) => {
-                    let lsb = fx.bcx.ins().iconst(types::I64, discr_val as u64 as i64);
-                    let msb = fx.bcx.ins().iconst(types::I64, (discr_val >> 64) as u64 as i64);
-                    fx.bcx.ins().iconcat(lsb, msb)
+                    codegen_iconst_u128(&mut fx.bcx, discr_val)
                 }
                 ty::Uint(_) | ty::Int(_) => {
                     let clif_ty = fx.clif_type(dest_layout.ty).unwrap();
@@ -168,12 +159,7 @@ pub(crate) fn codegen_get_discriminant<'tcx>(
                 // The special cases don't apply, so we'll have to go with
                 // the general algorithm.
                 let niche_start = match fx.bcx.func.dfg.value_type(tag) {
-                    types::I128 => {
-                        let lsb = fx.bcx.ins().iconst(types::I64, niche_start as u64 as i64);
-                        let msb =
-                            fx.bcx.ins().iconst(types::I64, (niche_start >> 64) as u64 as i64);
-                        fx.bcx.ins().iconcat(lsb, msb)
-                    }
+                    types::I128 => codegen_iconst_u128(&mut fx.bcx, niche_start),
                     ty => fx.bcx.ins().iconst(ty, niche_start as i64),
                 };
                 let relative_discr = fx.bcx.ins().isub(tag, niche_start);
@@ -191,21 +177,14 @@ pub(crate) fn codegen_get_discriminant<'tcx>(
                 tagged_discr
             } else {
                 let delta = match cast_to {
-                    types::I128 => {
-                        let lsb = fx.bcx.ins().iconst(types::I64, delta as u64 as i64);
-                        let msb = fx.bcx.ins().iconst(types::I64, (delta >> 64) as u64 as i64);
-                        fx.bcx.ins().iconcat(lsb, msb)
-                    }
+                    types::I128 => codegen_iconst_u128(&mut fx.bcx, delta),
                     ty => fx.bcx.ins().iconst(ty, delta as i64),
                 };
                 fx.bcx.ins().iadd(tagged_discr, delta)
             };
 
             let untagged_variant = if cast_to == types::I128 {
-                let zero = fx.bcx.ins().iconst(types::I64, 0);
-                let untagged_variant =
-                    fx.bcx.ins().iconst(types::I64, i64::from(untagged_variant.as_u32()));
-                fx.bcx.ins().iconcat(untagged_variant, zero)
+                codegen_iconst_u128(&mut fx.bcx, u128::from(untagged_variant.as_u32()))
             } else {
                 fx.bcx.ins().iconst(cast_to, i64::from(untagged_variant.as_u32()))
             };

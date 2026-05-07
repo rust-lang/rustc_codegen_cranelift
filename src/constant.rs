@@ -119,12 +119,7 @@ pub(crate) fn codegen_const_value<'tcx>(
                         2 => fx.bcx.ins().iconst(types::I16, raw_val as i64),
                         4 => fx.bcx.ins().iconst(types::I32, raw_val as i64),
                         8 => fx.bcx.ins().iconst(types::I64, raw_val as i64),
-                        16 => {
-                            let lsb = fx.bcx.ins().iconst(types::I64, raw_val as u64 as i64);
-                            let msb =
-                                fx.bcx.ins().iconst(types::I64, (raw_val >> 64) as u64 as i64);
-                            fx.bcx.ins().iconcat(lsb, msb)
-                        }
+                        16 => codegen_iconst_u128(&mut fx.bcx, raw_val),
                         _ => unreachable!(),
                     };
 

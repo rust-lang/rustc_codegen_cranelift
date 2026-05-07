@@ -101,6 +101,12 @@ fn clif_pair_type_from_ty<'tcx>(
     })
 }
 
+pub(crate) fn codegen_iconst_u128(bcx: &mut FunctionBuilder<'_>, val: u128) -> Value {
+    let lsb = bcx.ins().iconst(types::I64, (val as u64).cast_signed());
+    let msb = bcx.ins().iconst(types::I64, ((val >> 64) as u64).cast_signed());
+    bcx.ins().iconcat(lsb, msb)
+}
+
 pub(crate) fn codegen_icmp_imm(
     fx: &mut FunctionCx<'_, '_, '_>,
     intcc: IntCC,
@@ -172,22 +178,13 @@ pub(crate) fn type_min_max_value(
 
     if ty == types::I128 {
         if signed {
-            let min = i128::MIN as u128;
-            let min_lsb = bcx.ins().iconst(types::I64, min as u64 as i64);
-            let min_msb = bcx.ins().iconst(types::I64, (min >> 64) as u64 as i64);
-            let min = bcx.ins().iconcat(min_lsb, min_msb);
-
-            let max = i128::MAX as u128;
-            let max_lsb = bcx.ins().iconst(types::I64, max as u64 as i64);
-            let max_msb = bcx.ins().iconst(types::I64, (max >> 64) as u64 as i64);
-            let max = bcx.ins().iconcat(max_lsb, max_msb);
-
+            let min = codegen_iconst_u128(bcx, i128::MIN.cast_unsigned());
+            let max = codegen_iconst_u128(bcx, i128::MAX.cast_unsigned());
             return (min, max);
         } else {
-            let min_half = bcx.ins().iconst(types::I64, 0);
-            let min = bcx.ins().iconcat(min_half, min_half);
+            let min = type_zero_value(bcx, types::I128);
 
-            let max_half = bcx.ins().iconst(types::I64, u64::MAX as i64);
+            let max_half = bcx.ins().iconst(types::I64, u64::MAX.cast_signed());
             let max = bcx.ins().iconcat(max_half, max_half);
 
             return (min, max);

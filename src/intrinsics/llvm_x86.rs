@@ -388,8 +388,7 @@ pub(super) fn codegen_x86_llvm_intrinsic_call<'tcx>(
                 let high_or_low = fx.bcx.ins().band_imm(control, 0b0001);
                 let is_zero = fx.bcx.ins().band_imm(control, 0b1000);
 
-                let zero = fx.bcx.ins().iconst(types::I64, 0);
-                let zero = fx.bcx.ins().iconcat(zero, zero);
+                let zero = type_zero_value(&mut fx.bcx, types::I128);
 
                 let res_a = fx.bcx.ins().select(high_or_low, a_high, a_low);
                 let res_b = fx.bcx.ins().select(high_or_low, b_high, b_low);

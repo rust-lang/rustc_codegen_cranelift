@@ -296,10 +296,7 @@ impl<'tcx> CValue<'tcx> {
 
         let val = match layout.ty.kind() {
             ty::Uint(UintTy::U128) | ty::Int(IntTy::I128) => {
-                let const_val = const_val.to_bits(layout.size);
-                let lsb = fx.bcx.ins().iconst(types::I64, const_val as u64 as i64);
-                let msb = fx.bcx.ins().iconst(types::I64, (const_val >> 64) as u64 as i64);
-                fx.bcx.ins().iconcat(lsb, msb)
+                codegen_iconst_u128(&mut fx.bcx, const_val.to_bits(layout.size))
             }
             ty::Bool
             | ty::Char
