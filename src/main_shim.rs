@@ -91,7 +91,7 @@ pub(crate) fn maybe_create_entry_wrapper(
             bcx.switch_to_block(block);
             let arg_argc = bcx.append_block_param(block, m.target_config().pointer_type());
             let arg_argv = bcx.append_block_param(block, m.target_config().pointer_type());
-            let arg_sigpipe = bcx.ins().iconst(types::I8, sigpipe as i64);
+            let arg_sigpipe = bcx.ins().iconst(types::I8, i64::from(sigpipe));
 
             let main_func_ref = m.declare_func_in_func(main_func_id, bcx.func);
 

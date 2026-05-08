@@ -36,7 +36,7 @@ fn codegen_field<'tcx>(
             // For packed types, we need to cap alignment.
             if let ty::Adt(def, _) = layout.ty.kind() {
                 if let Some(packed) = def.repr().pack {
-                    let packed = fx.bcx.ins().iconst(fx.pointer_type, packed.bytes() as i64);
+                    let packed = fx.bcx.ins().iconst(fx.pointer_type, packed.bytes().cast_signed());
                     let cmp = fx.bcx.ins().icmp(IntCC::UnsignedLessThan, unsized_align, packed);
                     unsized_align = fx.bcx.ins().select(cmp, unsized_align, packed);
                 }
@@ -295,9 +295,6 @@ impl<'tcx> CValue<'tcx> {
         let clif_ty = fx.clif_type(layout.ty).unwrap();
 
         let val = match layout.ty.kind() {
-            ty::Uint(UintTy::U128) | ty::Int(IntTy::I128) => {
-                codegen_iconst_u128(&mut fx.bcx, const_val.to_bits(layout.size))
-            }
             ty::Bool
             | ty::Char
             | ty::Uint(_)
@@ -305,8 +302,7 @@ impl<'tcx> CValue<'tcx> {
             | ty::Ref(..)
             | ty::RawPtr(..)
             | ty::FnPtr(..) => {
-                let raw_val = const_val.size().truncate(const_val.to_bits(layout.size));
-                fx.bcx.ins().iconst(clif_ty, raw_val as i64)
+                codegen_iconst_unsigned(&mut fx.bcx, clif_ty, const_val.to_bits(layout.size))
             }
             ty::Float(FloatTy::F16) => {
                 fx.bcx.ins().f16const(Ieee16::with_bits(u16::from(const_val)))

@@ -101,10 +101,23 @@ fn clif_pair_type_from_ty<'tcx>(
     })
 }
 
-pub(crate) fn codegen_iconst_u128(bcx: &mut FunctionBuilder<'_>, val: u128) -> Value {
-    let lsb = bcx.ins().iconst(types::I64, (val as u64).cast_signed());
-    let msb = bcx.ins().iconst(types::I64, ((val >> 64) as u64).cast_signed());
-    bcx.ins().iconcat(lsb, msb)
+pub(crate) fn codegen_iconst_unsigned(bcx: &mut FunctionBuilder<'_>, ty: Type, val: u128) -> Value {
+    if ty == types::I128 {
+        if val == 0 {
+            let zero = bcx.ins().iconst(types::I64, 0);
+            return bcx.ins().iconcat(zero, zero);
+        }
+
+        let lsb = bcx.ins().iconst(types::I64, (val as u64).cast_signed());
+        let msb = bcx.ins().iconst(types::I64, ((val >> 64) as u64).cast_signed());
+        bcx.ins().iconcat(lsb, msb)
+    } else if ty == types::I64 {
+        bcx.ins().iconst(ty, val as i64)
+    } else {
+        let shift = 128 - ty.bits();
+        let val = (val << shift) >> shift;
+        bcx.ins().iconst(ty, val as i64)
+    }
 }
 
 pub(crate) fn codegen_icmp_imm(
@@ -118,7 +131,10 @@ pub(crate) fn codegen_icmp_imm(
         // FIXME legalize `icmp_imm.i128` in Cranelift
 
         let (lhs_lsb, lhs_msb) = fx.bcx.ins().isplit(lhs);
-        let (rhs_lsb, rhs_msb) = (rhs as u128 as u64 as i64, (rhs as u128 >> 64) as u64 as i64);
+        let (rhs_lsb, rhs_msb) = (
+            (rhs.cast_unsigned() as u64).cast_signed(),
+            ((rhs.cast_unsigned() >> 64) as u64).cast_signed(),
+        );
 
         match intcc {
             IntCC::Equal => {
@@ -161,12 +177,7 @@ pub(crate) fn codegen_bitcast(fx: &mut FunctionCx<'_, '_, '_>, dst_ty: Type, val
 }
 
 pub(crate) fn type_zero_value(bcx: &mut FunctionBuilder<'_>, ty: Type) -> Value {
-    if ty == types::I128 {
-        let zero = bcx.ins().iconst(types::I64, 0);
-        bcx.ins().iconcat(zero, zero)
-    } else {
-        bcx.ins().iconst(ty, 0)
-    }
+    codegen_iconst_unsigned(bcx, ty, 0)
 }
 
 pub(crate) fn type_min_max_value(
@@ -178,8 +189,8 @@ pub(crate) fn type_min_max_value(
 
     if ty == types::I128 {
         if signed {
-            let min = codegen_iconst_u128(bcx, i128::MIN.cast_unsigned());
-            let max = codegen_iconst_u128(bcx, i128::MAX.cast_unsigned());
+            let min = codegen_iconst_unsigned(bcx, types::I128, i128::MIN.cast_unsigned());
+            let max = codegen_iconst_unsigned(bcx, types::I128, i128::MAX.cast_unsigned());
             return (min, max);
         } else {
             let min = type_zero_value(bcx, types::I128);
@@ -206,10 +217,10 @@ pub(crate) fn type_min_max_value(
         (types::I8, false) => i64::from(u8::MAX),
         (types::I16, false) => i64::from(u16::MAX),
         (types::I32, false) => i64::from(u32::MAX),
-        (types::I64, false) => u64::MAX as i64,
-        (types::I8, true) => i64::from(i8::MAX as u8),
-        (types::I16, true) => i64::from(i16::MAX as u16),
-        (types::I32, true) => i64::from(i32::MAX as u32),
+        (types::I64, false) => u64::MAX.cast_signed(),
+        (types::I8, true) => i64::from(i8::MAX.cast_unsigned()),
+        (types::I16, true) => i64::from(i16::MAX.cast_unsigned()),
+        (types::I32, true) => i64::from(i32::MAX.cast_unsigned()),
         (types::I64, true) => i64::MAX,
         _ => unreachable!(),
     };

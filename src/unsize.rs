@@ -28,7 +28,9 @@ pub(crate) fn unsized_info<'tcx>(
     match (&source.kind(), &target.kind()) {
         (&ty::Array(_, len), &ty::Slice(_)) => fx.bcx.ins().iconst(
             fx.pointer_type,
-            len.try_to_target_usize(fx.tcx).expect("expected monomorphic const in codegen") as i64,
+            len.try_to_target_usize(fx.tcx)
+                .expect("expected monomorphic const in codegen")
+                .cast_signed(),
         ),
         (&ty::Dynamic(data_a, _), &ty::Dynamic(data_b, _)) => {
             let old_info =
@@ -171,8 +173,8 @@ pub(crate) fn size_and_align_of<'tcx>(
 ) -> (Value, Value) {
     if layout.is_sized() {
         return (
-            fx.bcx.ins().iconst(fx.pointer_type, layout.size.bytes() as i64),
-            fx.bcx.ins().iconst(fx.pointer_type, layout.align.bytes() as i64),
+            fx.bcx.ins().iconst(fx.pointer_type, layout.size.bytes().cast_signed()),
+            fx.bcx.ins().iconst(fx.pointer_type, layout.align.bytes().cast_signed()),
         );
     }
 
@@ -190,8 +192,8 @@ pub(crate) fn size_and_align_of<'tcx>(
             // The info in this case is the length of the str, so the size is that
             // times the unit size.
             (
-                fx.bcx.ins().imul_imm(info.unwrap(), unit.size.bytes() as i64),
-                fx.bcx.ins().iconst(fx.pointer_type, unit.align.bytes() as i64),
+                fx.bcx.ins().imul_imm(info.unwrap(), unit.size.bytes().cast_signed()),
+                fx.bcx.ins().iconst(fx.pointer_type, unit.align.bytes().cast_signed()),
             )
         }
         ty::Foreign(_) => {
@@ -228,9 +230,9 @@ pub(crate) fn size_and_align_of<'tcx>(
             let i = layout.fields.count() - 1;
             let unsized_offset_unadjusted = layout.fields.offset(i).bytes();
             let unsized_offset_unadjusted =
-                fx.bcx.ins().iconst(fx.pointer_type, unsized_offset_unadjusted as i64);
+                fx.bcx.ins().iconst(fx.pointer_type, unsized_offset_unadjusted.cast_signed());
             let sized_align = layout.align.bytes();
-            let sized_align = fx.bcx.ins().iconst(fx.pointer_type, sized_align as i64);
+            let sized_align = fx.bcx.ins().iconst(fx.pointer_type, sized_align.cast_signed());
 
             // Recurse to get the size of the dynamically sized field (must be
             // the last field).
@@ -247,7 +249,8 @@ pub(crate) fn size_and_align_of<'tcx>(
                         unsized_align = fx.bcx.ins().iconst(fx.pointer_type, 1);
                     } else {
                         // We have to dynamically compute `min(unsized_align, packed)`.
-                        let packed = fx.bcx.ins().iconst(fx.pointer_type, packed.bytes() as i64);
+                        let packed =
+                            fx.bcx.ins().iconst(fx.pointer_type, packed.bytes().cast_signed());
                         let cmp = fx.bcx.ins().icmp(IntCC::UnsignedLessThan, unsized_align, packed);
                         unsized_align = fx.bcx.ins().select(cmp, unsized_align, packed);
                     }

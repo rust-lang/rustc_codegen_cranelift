@@ -826,7 +826,7 @@ fn codegen_stmt<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, cur_block: Block, stmt:
                     if operand.layout().size.bytes() == 0 {
                         // Do nothing for ZST's
                     } else if fx.clif_type(operand.layout().ty) == Some(types::I8) {
-                        let times = fx.bcx.ins().iconst(fx.pointer_type, times as i64);
+                        let times = fx.bcx.ins().iconst(fx.pointer_type, times.cast_signed());
                         // FIXME use emit_small_memset where possible
                         let addr = lval.to_ptr().get_addr(fx);
                         let val = operand.load_scalar(fx);
@@ -955,8 +955,8 @@ fn codegen_array_len<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, place: CPlace<'tcx
             let len = fx
                 .monomorphize(len)
                 .try_to_target_usize(fx.tcx)
-                .expect("expected monomorphic const in codegen") as i64;
-            fx.bcx.ins().iconst(fx.pointer_type, len)
+                .expect("expected monomorphic const in codegen");
+            fx.bcx.ins().iconst(fx.pointer_type, len.cast_signed())
         }
         ty::Slice(_elem_ty) => place.to_ptr_unsized().1,
         _ => bug!("Rvalue::Len({:?})", place),
@@ -988,7 +988,7 @@ pub(crate) fn codegen_place<'tcx>(
             PlaceElem::ConstantIndex { offset, min_length: _, from_end } => {
                 let offset: u64 = offset;
                 let index = if !from_end {
-                    fx.bcx.ins().iconst(fx.pointer_type, offset as i64)
+                    fx.bcx.ins().iconst(fx.pointer_type, offset.cast_signed())
                 } else {
                     let len = codegen_array_len(fx, cplace);
                     fx.bcx.ins().iadd_imm(len, -(offset as i64))

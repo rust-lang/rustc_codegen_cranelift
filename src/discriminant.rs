@@ -30,17 +30,8 @@ pub(crate) fn codegen_set_discriminant<'tcx>(
         } => {
             let ptr = place.place_field(fx, tag_field);
             let to = layout.ty.discriminant_for_variant(fx.tcx, variant_index).unwrap().val;
-            let to = match ptr.layout().ty.kind() {
-                ty::Uint(UintTy::U128) | ty::Int(IntTy::I128) => {
-                    codegen_iconst_u128(&mut fx.bcx, to)
-                }
-                ty::Uint(_) | ty::Int(_) => {
-                    let clif_ty = fx.clif_type(ptr.layout().ty).unwrap();
-                    let raw_val = ptr.layout().size.truncate(to);
-                    fx.bcx.ins().iconst(clif_ty, raw_val as i64)
-                }
-                _ => unreachable!(),
-            };
+            let clif_ty = fx.clif_type(ptr.layout().ty).unwrap();
+            let to = codegen_iconst_unsigned(&mut fx.bcx, clif_ty, to);
             let discr = CValue::by_val(to, ptr.layout());
             ptr.write_cvalue(fx, discr);
         }
@@ -55,10 +46,7 @@ pub(crate) fn codegen_set_discriminant<'tcx>(
                 let niche_type = fx.clif_type(niche.layout().ty).unwrap();
                 let niche_value = variant_index.as_u32() - niche_variants.start().as_u32();
                 let niche_value = (niche_value as u128).wrapping_add(niche_start);
-                let niche_value = match niche_type {
-                    types::I128 => codegen_iconst_u128(&mut fx.bcx, niche_value),
-                    ty => fx.bcx.ins().iconst(ty, niche_value as i64),
-                };
+                let niche_value = codegen_iconst_unsigned(&mut fx.bcx, niche_type, niche_value);
                 let niche_llval = CValue::by_val(niche_value, niche.layout());
                 niche.write_cvalue(fx, niche_llval);
             }
@@ -86,17 +74,8 @@ pub(crate) fn codegen_get_discriminant<'tcx>(
                 .discriminant_for_variant(fx.tcx, *index)
                 .map_or(u128::from(index.as_u32()), |discr| discr.val);
 
-            let val = match dest_layout.ty.kind() {
-                ty::Uint(UintTy::U128) | ty::Int(IntTy::I128) => {
-                    codegen_iconst_u128(&mut fx.bcx, discr_val)
-                }
-                ty::Uint(_) | ty::Int(_) => {
-                    let clif_ty = fx.clif_type(dest_layout.ty).unwrap();
-                    let raw_val = dest_layout.size.truncate(discr_val);
-                    fx.bcx.ins().iconst(clif_ty, raw_val as i64)
-                }
-                _ => unreachable!(),
-            };
+            let clif_ty = fx.clif_type(dest_layout.ty).unwrap();
+            let val = codegen_iconst_unsigned(&mut fx.bcx, clif_ty, discr_val);
             let res = CValue::by_val(val, dest_layout);
             dest.write_cvalue(fx, res);
             return;
@@ -151,16 +130,16 @@ pub(crate) fn codegen_get_discriminant<'tcx>(
                 // } else {
                 //     untagged_variant
                 // }
-                let is_niche = codegen_icmp_imm(fx, IntCC::Equal, tag, niche_start as i128);
+                let is_niche = codegen_icmp_imm(fx, IntCC::Equal, tag, niche_start.cast_signed());
                 let tagged_discr =
-                    fx.bcx.ins().iconst(cast_to, niche_variants.start().as_u32() as i64);
+                    fx.bcx.ins().iconst(cast_to, i64::from(niche_variants.start().as_u32()));
                 (is_niche, tagged_discr, 0)
             } else {
                 // The special cases don't apply, so we'll have to go with
                 // the general algorithm.
                 let niche_start = match fx.bcx.func.dfg.value_type(tag) {
-                    types::I128 => codegen_iconst_u128(&mut fx.bcx, niche_start),
-                    ty => fx.bcx.ins().iconst(ty, niche_start as i64),
+                    // FIXME remove match
+                    ty => codegen_iconst_unsigned(&mut fx.bcx, ty, niche_start),
                 };
                 let relative_discr = fx.bcx.ins().isub(tag, niche_start);
                 let cast_tag = clif_intcast(fx, relative_discr, cast_to, false);
@@ -177,17 +156,17 @@ pub(crate) fn codegen_get_discriminant<'tcx>(
                 tagged_discr
             } else {
                 let delta = match cast_to {
-                    types::I128 => codegen_iconst_u128(&mut fx.bcx, delta),
-                    ty => fx.bcx.ins().iconst(ty, delta as i64),
+                    // FIXME remove match
+                    ty => codegen_iconst_unsigned(&mut fx.bcx, ty, delta),
                 };
                 fx.bcx.ins().iadd(tagged_discr, delta)
             };
 
-            let untagged_variant = if cast_to == types::I128 {
-                codegen_iconst_u128(&mut fx.bcx, u128::from(untagged_variant.as_u32()))
-            } else {
-                fx.bcx.ins().iconst(cast_to, i64::from(untagged_variant.as_u32()))
-            };
+            let untagged_variant = codegen_iconst_unsigned(
+                &mut fx.bcx,
+                cast_to,
+                u128::from(untagged_variant.as_u32()),
+            );
             let discr = fx.bcx.ins().select(is_niche, tagged_discr, untagged_variant);
             let res = CValue::by_val(discr, dest_layout);
             dest.write_cvalue(fx, res);

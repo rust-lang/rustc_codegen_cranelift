@@ -113,15 +113,11 @@ pub(crate) fn codegen_const_value<'tcx>(
                 if fx.clif_type(layout.ty).is_some() {
                     CValue::const_val(fx, layout, int)
                 } else {
-                    let raw_val = int.size().truncate(int.to_bits(int.size()));
-                    let val = match int.size().bytes() {
-                        1 => fx.bcx.ins().iconst(types::I8, raw_val as i64),
-                        2 => fx.bcx.ins().iconst(types::I16, raw_val as i64),
-                        4 => fx.bcx.ins().iconst(types::I32, raw_val as i64),
-                        8 => fx.bcx.ins().iconst(types::I64, raw_val as i64),
-                        16 => codegen_iconst_u128(&mut fx.bcx, raw_val),
-                        _ => unreachable!(),
-                    };
+                    let val = codegen_iconst_unsigned(
+                        &mut fx.bcx,
+                        Type::int_with_byte_size(int.size().bytes() as u16).unwrap(),
+                        int.to_bits(int.size()),
+                    );
 
                     // FIXME avoid this extra copy to the stack and directly write to the final
                     // destination
@@ -136,7 +132,9 @@ pub(crate) fn codegen_const_value<'tcx>(
                 let base_addr = match fx.tcx.global_alloc(alloc_id) {
                     GlobalAlloc::Memory(alloc) => {
                         if alloc.inner().len() == 0 {
-                            fx.bcx.ins().iconst(fx.pointer_type, alloc.inner().align.bytes() as i64)
+                            fx.bcx
+                                .ins()
+                                .iconst(fx.pointer_type, alloc.inner().align.bytes().cast_signed())
                         } else {
                             let data_id = data_id_for_alloc_id(
                                 &mut fx.constants_cx,
@@ -217,7 +215,7 @@ pub(crate) fn codegen_const_value<'tcx>(
         ),
         ConstValue::Slice { alloc_id, meta } => {
             let ptr = pointer_for_allocation(fx, alloc_id);
-            let len = fx.bcx.ins().iconst(fx.pointer_type, meta as i64);
+            let len = fx.bcx.ins().iconst(fx.pointer_type, meta.cast_signed());
             CValue::by_val_pair(ptr, len, layout)
         }
     }
