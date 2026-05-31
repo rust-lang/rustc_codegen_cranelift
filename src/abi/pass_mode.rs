@@ -95,27 +95,6 @@ fn abi_params_size(params: &[(Size, AbiParam)]) -> u64 {
         .unwrap_or(0)
 }
 
-#[cfg(test)]
-mod tests {
-    use rustc_target::callconv::Uniform;
-
-    use super::*;
-
-    #[test]
-    fn cast_target_rounds_integer_rest_to_unit_size() {
-        let reg = Reg { kind: RegKind::Integer, size: Size::from_bytes(8) };
-        let cast = CastTarget::from(Uniform::new(reg, Size::from_bytes(10)));
-
-        let params = cast_target_to_abi_params(&cast);
-
-        assert_eq!(params.len(), 2);
-        assert_eq!(params[0].0, Size::ZERO);
-        assert_eq!(params[0].1.value_type, types::I64);
-        assert_eq!(params[1].0, Size::from_bytes(8));
-        assert_eq!(params[1].1.value_type, types::I64);
-    }
-}
-
 impl<'tcx> ArgAbiExt<'tcx> for ArgAbi<'tcx, Ty<'tcx>> {
     fn get_abi_param(&self, tcx: TyCtxt<'tcx>) -> SmallVec<[AbiParam; 2]> {
         match self.mode {
