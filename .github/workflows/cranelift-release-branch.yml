@@ -38,7 +38,7 @@ jobs:
 
       - name: Patch Cargo.toml to use release branch Cranelift
         run: |
-          sed -i -E 's/"0\.13[0-9]\.[0-9]+"/"*"/g' Cargo.toml
+          sed -i -E '/cranelift-/s/"0\.[0-9]+\.0"/"*"/g' Cargo.toml
 
           cat >>Cargo.toml <<EOF
           [patch.crates-io]
