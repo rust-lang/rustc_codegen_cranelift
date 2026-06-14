@@ -12,6 +12,7 @@ pub(crate) fn prepare(dirs: &Dirs) {
     crate::tests::RAND_REPO.fetch(dirs);
     crate::tests::REGEX_REPO.fetch(dirs);
     crate::tests::GRAVIOLA_REPO.fetch(dirs);
+    crate::tests::STDARCH_REPO.fetch(dirs);
 }
 
 pub(crate) struct GitRepo {

@@ -28,7 +28,6 @@ aot.track-caller-attribute
 aot.float-minmax-pass
 aot.issue-72793
 aot.issue-59326
-aot.neon
 aot.gen_block_iterate
 aot.raw-dylib
 test.sysroot
@@ -38,3 +37,5 @@ test.rust-random/rand
 test.regex
 test.graviola
 test.portable-simd
+test.stdarch-core
+test.stdarch-intrinsics
