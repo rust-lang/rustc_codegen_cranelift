@@ -234,6 +234,11 @@ impl CodegenBackend for CraneliftCodegenBackend {
                         ));
                     }
 
+                    // #[cfg(feature = "lto")]
+                    // return Box::new(rustc_codegen_ssa::base::codegen_crate(
+                    //     driver::lto::LtoDriver,
+                    //     tcx,
+                    // ));
                     #[cfg(feature = "lto")]
                     return driver::lto::run_lto(tcx);
 
@@ -257,11 +262,20 @@ impl CodegenBackend for CraneliftCodegenBackend {
         {
             Ok(ongoing_codegen) => ongoing_codegen.join(sess, crate_info),
             Err(ongoing_codegen) => {
-                #[cfg(feature = "lto")]
-                return ongoing_codegen
-                    .downcast::<driver::lto::OngoingCodegen>()
-                    .unwrap()
-                    .join(sess, outputs, crate_info);
+                //#[cfg(feature = "lto")]
+                match ongoing_codegen
+                    .downcast::<rustc_codegen_ssa::back::write::OngoingCodegen<driver::lto::LtoDriver>>()
+                {
+                    Ok(ongoing_codegen) => {
+                        return ongoing_codegen.join(sess, crate_info);
+                    }
+                    Err(ongoing_codegen) => {
+                        return ongoing_codegen
+                            .downcast::<driver::lto::OngoingCodegen>()
+                            .unwrap()
+                            .join(sess, outputs, crate_info);
+                    }
+                }
 
                 #[cfg(not(feature = "lto"))]
                 unreachable!();
