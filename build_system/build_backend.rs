@@ -19,8 +19,11 @@ pub(crate) fn build_backend(
     let mut cmd = CG_CLIF.build(bootstrap_host_compiler, dirs);
 
     let mut rustflags = rustflags_from_env("RUSTFLAGS");
+    // FIXME anyhow build script should respect CARGO_UNSTABLE_ALLOW_FEATURES
     rustflags.push("-Zallow-features=rustc_private,f16,f128".to_owned());
     rustflags_to_cmd_env(&mut cmd, "RUSTFLAGS", &rustflags);
+
+    cmd.env("CARGO_UNSTABLE_ALLOW_FEATURES", "no-embed-metadata rustc_private f16 f128");
 
     // Use incr comp despite release mode unless incremental builds are explicitly disabled
     if env::var_os("CARGO_BUILD_INCREMENTAL").is_none() {
