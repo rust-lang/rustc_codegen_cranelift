@@ -220,6 +220,12 @@ pub(crate) fn compile_fn(
                 );
                 early_dcx.early_fatal(format!("cranelift verify error:\n{}", pretty_error));
             }
+            Err(ModuleError::Compilation(CodegenError::Unsupported(msg))) => {
+                let early_dcx = rustc_session::EarlyDiagCtxt::new(
+                    rustc_session::config::ErrorOutputType::default(),
+                );
+                early_dcx.early_fatal(format!("cranelift codegen error: {msg}"));
+            }
             Err(err) => {
                 panic!("Error while defining {name}: {err:?}", name = codegened_func.symbol_name);
             }
