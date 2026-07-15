@@ -16,9 +16,9 @@ use rustc_abi::{CanonAbi, ExternAbi, X86Call};
 use rustc_codegen_ssa::base::is_call_from_compiler_builtins_to_upstream_monomorphization;
 use rustc_codegen_ssa::errors::CompilerBuiltinsCannotCall;
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
-use rustc_middle::ty::TypeVisitableExt;
 use rustc_middle::ty::layout::FnAbiOf;
 use rustc_middle::ty::print::with_no_trimmed_paths;
+use rustc_middle::ty::{ShimKind, TypeVisitableExt};
 use rustc_session::Session;
 use rustc_span::Spanned;
 use rustc_target::callconv::{FnAbi, PassMode};
@@ -60,8 +60,9 @@ pub(crate) fn conv_to_call_conv(
     match c {
         CanonAbi::Rust | CanonAbi::RustCold | CanonAbi::C => default_call_conv,
 
-        // Cranelift doesn't currently have anything for this.
-        CanonAbi::RustPreserveNone => default_call_conv,
+        CanonAbi::RustPreserveNone | CanonAbi::RustTail => {
+            sess.dcx().fatal(format!("call conv {c:?} is LLVM-specific"))
+        }
 
         // Functions with this calling convention can only be called from assembly, but it is
         // possible to declare an `extern "custom"` block, so the backend still needs a calling
@@ -76,7 +77,7 @@ pub(crate) fn conv_to_call_conv(
         },
 
         CanonAbi::Interrupt(_) | CanonAbi::Arm(_) | CanonAbi::Swift => {
-            sess.dcx().fatal("call conv {c:?} is not yet implemented")
+            sess.dcx().fatal(format!("call conv {c:?} is not yet implemented"))
         }
         CanonAbi::GpuKernel => {
             unreachable!("tried to use {c:?} call conv which only exists on an unsupported target")
@@ -138,47 +139,56 @@ impl<'tcx> FunctionCx<'_, '_, 'tcx> {
         mut returns: Vec<AbiParam>,
         args: &[Value],
     ) -> Cow<'_, [Value]> {
+        // FIXME any way to reuse the abi adjustment code in rustc_target?
+
         // Pass i128 arguments by-ref on Windows.
-        let (params, args): (Vec<_>, Cow<'_, [_]>) = if self.tcx.sess.target.is_like_windows {
-            let (params, args): (Vec<_>, Vec<_>) = params
-                .into_iter()
-                .zip(args)
-                .map(|(param, &arg)| {
-                    if param.value_type == types::I128 {
-                        let arg_ptr = self.create_stack_slot(16, 16);
-                        arg_ptr.store(self, arg, MemFlags::trusted());
-                        (AbiParam::new(self.pointer_type), arg_ptr.get_addr(self))
-                    } else {
-                        (param, arg)
-                    }
-                })
-                .unzip();
+        let (params, args): (Vec<_>, Cow<'_, [_]>) =
+            if self.tcx.sess.target.is_like_windows || self.tcx.sess.target.arch == Arch::S390x {
+                let (params, args): (Vec<_>, Vec<_>) = params
+                    .into_iter()
+                    .zip(args)
+                    .map(|(param, &arg)| {
+                        if param.value_type == types::I128
+                            || (self.tcx.sess.target.arch == Arch::S390x
+                                && param.value_type == types::F128)
+                        {
+                            let arg_ptr = self.create_stack_slot(16, 16);
+                            arg_ptr.store(self, arg, MemFlagsData::trusted());
+                            (AbiParam::new(self.pointer_type), arg_ptr.get_addr(self))
+                        } else {
+                            (param, arg)
+                        }
+                    })
+                    .unzip();
 
-            (params, args.into())
-        } else {
-            (params, args.into())
-        };
+                (params, args.into())
+            } else {
+                (params, args.into())
+            };
 
-        let ret_single_i128 = returns.len() == 1 && returns[0].value_type == types::I128;
-        if ret_single_i128 && self.tcx.sess.target.is_like_windows {
+        if self.tcx.sess.target.is_like_windows
+            && matches!(*returns, [AbiParam { value_type: types::I128, .. }])
+        {
             // Return i128 using the vector ABI on Windows
             returns[0].value_type = types::I64X2;
 
             let ret = self.lib_call_unadjusted(name, params, returns, &args)[0];
 
             Cow::Owned(vec![codegen_bitcast(self, types::I128, ret)])
-        } else if ret_single_i128 && self.tcx.sess.target.arch == Arch::S390x {
-            // Return i128 using a return area pointer on s390x.
+        } else if self.tcx.sess.target.arch == Arch::S390x
+            && matches!(*returns, [AbiParam { value_type: types::I128 | types::F128, .. }])
+        {
+            // Return i128 and f128 using a return area pointer on s390x.
             let mut params = params;
             let mut args = args.to_vec();
 
-            params.insert(0, AbiParam::new(self.pointer_type));
+            params.insert(0, AbiParam::special(self.pointer_type, ArgumentPurpose::StructReturn));
             let ret_ptr = self.create_stack_slot(16, 16);
             args.insert(0, ret_ptr.get_addr(self));
 
             self.lib_call_unadjusted(name, params, vec![], &args);
 
-            Cow::Owned(vec![ret_ptr.load(self, types::I128, MemFlags::trusted())])
+            Cow::Owned(vec![ret_ptr.load(self, types::I128, MemFlagsData::trusted())])
         } else {
             Cow::Borrowed(self.lib_call_unadjusted(name, params, returns, &args))
         }
@@ -219,7 +229,7 @@ fn make_local_place<'tcx>(
         );
     }
     let place = if is_ssa {
-        if let BackendRepr::ScalarPair(_, _) = layout.backend_repr {
+        if let BackendRepr::ScalarPair { .. } = layout.backend_repr {
             CPlace::new_var_pair(fx, local, layout)
         } else {
             CPlace::new_var(fx, local, layout)
@@ -270,6 +280,7 @@ pub(crate) fn codegen_fn_prelude<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, start_
         .map(|local| {
             let arg_ty = fx.monomorphize(fx.mir.local_decls[local].ty);
 
+            // FIXME(splat): un-tuple splatted arguments in codegen, for performance
             // Adapted from https://github.com/rust-lang/rust/blob/145155dc96757002c7b2e9de8489416e2fdbbd57/src/librustc_codegen_llvm/mir/mod.rs#L442-L482
             if Some(local) == fx.mir.spread_arg {
                 // This argument (e.g. the last argument in the "rust-call" ABI)
@@ -466,7 +477,7 @@ pub(crate) fn codegen_terminator_call<'tcx>(
             }
             // We don't need AsyncDropGlueCtorShim here because it is not `noop func`,
             // it is `func returning noop future`
-            InstanceKind::DropGlue(_, None) => {
+            InstanceKind::Shim(ShimKind::DropGlue(_, None)) => {
                 // empty drop glue - a nop.
                 let dest = target.expect("Non terminating drop_in_place_real???");
                 let ret_block = fx.get_block(dest);
@@ -724,7 +735,7 @@ pub(crate) fn codegen_drop<'tcx>(
     let ret_block = fx.get_block(target);
 
     // AsyncDropGlueCtorShim can't be here
-    if let ty::InstanceKind::DropGlue(_, None) = drop_instance.def {
+    if let ty::InstanceKind::Shim(ty::ShimKind::DropGlue(_, None)) = drop_instance.def {
         // we don't actually need to drop anything
         fx.bcx.ins().jump(ret_block, &[]);
     } else {

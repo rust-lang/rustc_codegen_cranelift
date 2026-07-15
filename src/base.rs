@@ -7,6 +7,7 @@ use cranelift_module::ModuleError;
 use rustc_ast::InlineAsmOptions;
 use rustc_codegen_ssa::base::is_call_from_compiler_builtins_to_upstream_monomorphization;
 use rustc_data_structures::profiling::SelfProfilerRef;
+use rustc_errors::DiagCtxtHandle;
 use rustc_index::IndexVec;
 use rustc_middle::ty::TypeVisitableExt;
 use rustc_middle::ty::adjustment::PointerCoercion;
@@ -18,7 +19,7 @@ use rustc_span::Symbol;
 use crate::constant::ConstantCx;
 use crate::debuginfo::{FunctionDebugContext, TypeDebugContext};
 use crate::prelude::*;
-use crate::pretty_clif::CommentWriter;
+use crate::pretty_clif::{CommentWriter, format_clif_ir_header};
 use crate::{codegen_f16_f128, enable_verifier};
 
 pub(crate) struct CodegenedFunction {
@@ -147,7 +148,8 @@ pub(crate) fn codegen_fn<'tcx>(
 }
 
 pub(crate) fn compile_fn(
-    profiler: &SelfProfilerRef,
+    prof: &SelfProfilerRef,
+    dcx: DiagCtxtHandle<'_>,
     output_filenames: &OutputFilenames,
     should_write_ir: bool,
     cached_context: &mut Context,
@@ -156,8 +158,7 @@ pub(crate) fn compile_fn(
     global_asm: &mut String,
     codegened_func: CodegenedFunction,
 ) {
-    let _timer =
-        profiler.generic_activity_with_arg("compile function", &*codegened_func.symbol_name);
+    let _timer = prof.generic_activity_with_arg("compile function", &*codegened_func.symbol_name);
 
     let clif_comments = codegened_func.clif_comments;
     global_asm.push_str(&codegened_func.inline_asm);
@@ -169,23 +170,15 @@ pub(crate) fn compile_fn(
 
     #[cfg(false)]
     let _clif_guard = {
-        use std::fmt::Write;
-
+        let isa = module.isa();
+        let symbol_name = &codegened_func.symbol_name;
         let func_clone = context.func.clone();
         let clif_comments_clone = clif_comments.clone();
-        let mut clif = String::new();
-        for flag in module.isa().flags().iter() {
-            writeln!(clif, "set {}", flag).unwrap();
-        }
-        write!(clif, "target {}", module.isa().triple().architecture.to_string()).unwrap();
-        for isa_flag in module.isa().isa_flags().iter() {
-            write!(clif, " {}", isa_flag).unwrap();
-        }
-        writeln!(clif, "\n").unwrap();
-        writeln!(clif, "; symbol {}", codegened_func.symbol_name).unwrap();
+
+        let clif = crate::pretty_clif::format_clif_ir_header(isa, symbol_name);
         crate::PrintOnPanic(move || {
             let mut clif = clif.clone();
-            ::cranelift_codegen::write::decorate_function(
+            cranelift_codegen::write::decorate_function(
                 &mut &clif_comments_clone,
                 &mut clif,
                 &func_clone,
@@ -196,33 +189,38 @@ pub(crate) fn compile_fn(
     };
 
     // Define function
-    profiler.generic_activity("define function").run(|| {
+    prof.generic_activity("define function").run(|| {
         context.want_disasm = should_write_ir;
         match module.define_function(codegened_func.func_id, context) {
             Ok(()) => {}
             Err(ModuleError::Compilation(CodegenError::ImplLimitExceeded)) => {
-                let early_dcx = rustc_session::EarlyDiagCtxt::new(
-                    rustc_session::config::ErrorOutputType::default(),
-                );
-                early_dcx.early_fatal(format!(
+                dcx.fatal(format!(
                     "backend implementation limit exceeded while compiling {name}",
                     name = codegened_func.symbol_name
                 ));
             }
             Err(ModuleError::Compilation(CodegenError::Verifier(err))) => {
-                let early_dcx = rustc_session::EarlyDiagCtxt::new(
-                    rustc_session::config::ErrorOutputType::default(),
-                );
-                let _ = early_dcx.early_err(format!("{:?}", err));
+                dcx.err(format!("{err:?}"));
                 let pretty_error = cranelift_codegen::print_errors::pretty_verifier_error(
                     &context.func,
                     Some(Box::new(&clif_comments)),
                     err,
                 );
-                early_dcx.early_fatal(format!("cranelift verify error:\n{}", pretty_error));
+                dcx.fatal(format!("cranelift verify error:\n{pretty_error}"));
             }
             Err(err) => {
-                panic!("Error while defining {name}: {err:?}", name = codegened_func.symbol_name);
+                let mut clif = format_clif_ir_header(module.isa(), &codegened_func.symbol_name);
+                cranelift_codegen::write::decorate_function(
+                    &mut &clif_comments,
+                    &mut clif,
+                    &context.func,
+                )
+                .unwrap();
+
+                panic!(
+                    "Error while defining {name}: {err:?}\n\nPost-optimization Cranelift IR:\n{clif}",
+                    name = codegened_func.symbol_name
+                );
             }
         }
     });
@@ -248,7 +246,7 @@ pub(crate) fn compile_fn(
     }
 
     // Define debuginfo for function
-    profiler.generic_activity("generate debug info").run(|| {
+    prof.generic_activity("generate debug info").run(|| {
         if let Some(debug_context) = debug_context {
             codegened_func.func_debug_cx.unwrap().finalize(
                 debug_context,
@@ -422,6 +420,17 @@ fn codegen_fn_body(fx: &mut FunctionCx<'_, '_, '_>, start_block: Block) {
                             source_info.span,
                         )
                     }
+                    AssertKind::NullReferenceConstructed => {
+                        let location = fx.get_caller_location(source_info).load_scalar(fx);
+
+                        codegen_panic_inner(
+                            fx,
+                            rustc_hir::LangItem::PanicNullReferenceConstructed,
+                            &[location],
+                            *unwind,
+                            source_info.span,
+                        )
+                    }
                     AssertKind::InvalidEnumConstruction(source) => {
                         let source = codegen_operand(fx, source).load_scalar(fx);
                         let location = fx.get_caller_location(source_info).load_scalar(fx);
@@ -582,9 +591,9 @@ fn codegen_fn_body(fx: &mut FunctionCx<'_, '_, '_>, start_block: Block) {
             | TerminatorKind::CoroutineDrop => {
                 bug!("shouldn't exist at codegen {:?}", bb_data.terminator());
             }
-            TerminatorKind::Drop { place, target, unwind, replace: _, drop, async_fut } => {
+            TerminatorKind::Drop { place, target, unwind, replace: _, drop } => {
                 assert!(
-                    async_fut.is_none() && drop.is_none(),
+                    drop.is_none(),
                     "Async Drop must be expanded or reset to sync before codegen"
                 );
                 let drop_place = codegen_place(fx, *place);
@@ -629,10 +638,11 @@ fn codegen_stmt<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, cur_block: Block, stmt:
                     let ref_ = place.place_ref(fx, lval.layout());
                     lval.write_cvalue(fx, ref_);
                 }
-                Rvalue::Reborrow(_, _, place) => {
+                Rvalue::Reborrow(ty, _, place) => {
+                    assert_eq!(lval.layout().ty, ty);
                     let cplace = codegen_place(fx, place);
                     let val = cplace.to_cvalue(fx);
-                    lval.write_cvalue(fx, val)
+                    lval.write_cvalue_transmute(fx, val)
                 }
                 Rvalue::ThreadLocalRef(def_id) => {
                     let val = crate::constant::codegen_tls_ref(fx, def_id, lval.layout());
@@ -685,7 +695,7 @@ fn codegen_stmt<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, cur_block: Block, stmt:
                         }
                         UnOp::PtrMetadata => match layout.backend_repr {
                             BackendRepr::Scalar(_) => CValue::zst(dest_layout),
-                            BackendRepr::ScalarPair(_, _) => {
+                            BackendRepr::ScalarPair { .. } => {
                                 CValue::by_val(operand.load_scalar_pair(fx).1, dest_layout)
                             }
                             _ => bug!("Unexpected `PtrToMetadata` operand: {operand:?}"),

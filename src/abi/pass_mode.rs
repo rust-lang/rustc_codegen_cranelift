@@ -45,9 +45,9 @@ fn apply_attrs_to_abi_param(param: AbiParam, arg_attrs: ArgAttributes) -> AbiPar
 
 fn cast_target_to_abi_params(cast: &CastTarget) -> SmallVec<[(Size, AbiParam); 2]> {
     if let Some(offset_from_start) = cast.rest_offset {
-        assert!(cast.prefix[1..].iter().all(|p| p.is_none()));
+        assert_eq!(cast.prefix.len(), 1);
         assert_eq!(cast.rest.unit.size, cast.rest.total);
-        let first = cast.prefix[0].unwrap();
+        let first = cast.prefix[0];
         let second = cast.rest.unit;
         return smallvec![
             (Size::ZERO, reg_to_abi_param(first)),
@@ -73,7 +73,6 @@ fn cast_target_to_abi_params(cast: &CastTarget) -> SmallVec<[(Size, AbiParam); 2
     let args = cast
         .prefix
         .iter()
-        .flatten()
         .map(|&reg| reg_to_abi_param(reg))
         .chain((0..rest_count).map(|_| reg_to_abi_param(cast.rest.unit)));
 
@@ -111,7 +110,7 @@ impl<'tcx> ArgAbiExt<'tcx> for ArgAbi<'tcx, Ty<'tcx>> {
                 _ => unreachable!("{:?}", self.layout.backend_repr),
             },
             PassMode::Pair(attrs_a, attrs_b) => match self.layout.backend_repr {
-                BackendRepr::ScalarPair(a, b) => {
+                BackendRepr::ScalarPair { a, b, b_offset: _ } => {
                     let a = scalar_to_clif_type(tcx, a);
                     let b = scalar_to_clif_type(tcx, b);
                     smallvec![
@@ -166,7 +165,7 @@ impl<'tcx> ArgAbiExt<'tcx> for ArgAbi<'tcx, Ty<'tcx>> {
                 _ => unreachable!("{:?}", self.layout.backend_repr),
             },
             PassMode::Pair(attrs_a, attrs_b) => match self.layout.backend_repr {
-                BackendRepr::ScalarPair(a, b) => {
+                BackendRepr::ScalarPair { a, b, b_offset: _ } => {
                     let a = scalar_to_clif_type(tcx, a);
                     let b = scalar_to_clif_type(tcx, b);
                     (
@@ -216,9 +215,11 @@ pub(super) fn to_casted_value<'tcx>(
     let slot_size = abi_param_size.max(layout.size.bytes()).next_multiple_of(slot_align);
     let scratch =
         fx.create_stack_slot(u32::try_from(slot_size).unwrap(), u32::try_from(slot_align).unwrap());
+    // A partial final integer is passed in a full register. Initialize its tail before copying the
+    // value bytes into the scratch slot.
     let zero = fx.bcx.ins().iconst(types::I8, 0);
     for offset in 0..slot_size {
-        scratch.offset_i64(fx, offset as i64).store(fx, zero, MemFlags::new());
+        scratch.offset_i64(fx, offset as i64).store(fx, zero, MemFlagsData::new());
     }
 
     let copy_bytes = abi_param_size.min(layout.size.bytes());
@@ -236,7 +237,7 @@ pub(super) fn to_casted_value<'tcx>(
             dst_align,
             src_align,
             true,
-            MemFlags::new(),
+            MemFlagsData::new(),
         );
     }
     abi_params
@@ -245,7 +246,7 @@ pub(super) fn to_casted_value<'tcx>(
             scratch.offset_i64(fx, offset.bytes() as i64).load(
                 fx,
                 param.value_type,
-                MemFlags::new(),
+                MemFlagsData::new(),
             )
         })
         .collect()
@@ -271,7 +272,7 @@ pub(super) fn from_casted_value<'tcx>(
         ptr.offset_i64(fx, offset.bytes() as i64).store(
             fx,
             block_params_iter.next().unwrap(),
-            MemFlags::new(),
+            MemFlagsData::trusted(),
         )
     }
     assert_eq!(block_params_iter.next(), None, "Leftover block param");
