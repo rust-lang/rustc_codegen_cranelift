@@ -215,11 +215,19 @@ pub(super) fn to_casted_value<'tcx>(
     let slot_size = abi_param_size.max(layout.size.bytes()).next_multiple_of(slot_align);
     let scratch =
         fx.create_stack_slot(u32::try_from(slot_size).unwrap(), u32::try_from(slot_align).unwrap());
-    // A partial final integer is passed in a full register. Initialize its tail before copying the
-    // value bytes into the scratch slot.
-    let zero = fx.bcx.ins().iconst(types::I8, 0);
-    for offset in 0..slot_size {
-        scratch.offset_i64(fx, offset as i64).store(fx, zero, MemFlagsData::new());
+    // A partial final integer is passed in a full register. Initialize every byte that can be
+    // loaded as an ABI parameter before copying the value bytes into the scratch slot.
+    if abi_param_size != 0 {
+        let zero_align = slot_align.min(1u64 << abi_param_size.trailing_zeros());
+        let scratch_addr = scratch.get_addr(fx);
+        fx.bcx.emit_small_memset(
+            fx.target_config,
+            scratch_addr,
+            0,
+            abi_param_size,
+            u8::try_from(zero_align).unwrap_or(128),
+            MemFlagsData::new(),
+        );
     }
 
     let copy_bytes = abi_param_size.min(layout.size.bytes());
