@@ -297,6 +297,14 @@ pub(crate) fn codegen_intrinsic_call<'tcx>(
             target.expect("target for simd intrinsic"),
             source_info.span,
         );
+    } else if intrinsic.as_str().starts_with("fmuladdf") {
+        let [x, y, z] = args else { unreachable!() };
+
+        let x = codegen_operand(fx, &x.node).load_scalar(fx);
+        let y = codegen_operand(fx, &y.node).load_scalar(fx);
+        let z = codegen_operand(fx, &z.node).load_scalar(fx);
+
+        fx.bcx.ins().fma(x, y, z);
     } else if codegen_float_intrinsic_call(fx, intrinsic, args, destination) {
         let ret_block = fx.get_block(target.expect("target for float intrinsic"));
         fx.bcx.ins().jump(ret_block, &[]);
@@ -366,12 +374,6 @@ fn codegen_float_intrinsic_call<'tcx>(
         sym::fmaf32 => ("fmaf", 3, fx.tcx.types.f32, types::F32),
         sym::fmaf64 => ("fma", 3, fx.tcx.types.f64, types::F64),
         sym::fmaf128 => ("fmaf128", 3, fx.tcx.types.f128, types::F128),
-
-        // FIXME: calling `fma` from libc without FMA target feature uses expensive sofware emulation
-        sym::fmuladdf16 => ("fmaf16", 3, fx.tcx.types.f16, types::F16), // FIXME: use cranelift intrinsic analogous to llvm.fmuladd.f16
-        sym::fmuladdf32 => ("fmaf", 3, fx.tcx.types.f32, types::F32), // FIXME: use cranelift intrinsic analogous to llvm.fmuladd.f32
-        sym::fmuladdf64 => ("fma", 3, fx.tcx.types.f64, types::F64), // FIXME: use cranelift intrinsic analogous to llvm.fmuladd.f64
-        sym::fmuladdf128 => ("fmaf128", 3, fx.tcx.types.f128, types::F128), // FIXME: use cranelift intrinsic analogous to llvm.fmuladd.f128
 
         sym::copysignf16 => ("copysignf16", 2, fx.tcx.types.f16, types::F16),
         sym::copysignf32 => ("copysignf", 2, fx.tcx.types.f32, types::F32),
