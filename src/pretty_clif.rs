@@ -276,7 +276,7 @@ pub(crate) fn write_ir_file(
         res @ Err(_) => res.unwrap(),
     }
 
-    let clif_file_name = clif_output_dir.join(name);
+    let clif_file_name = clif_output_dir.join(truncate_ir_basename(name).as_ref());
 
     let res = std::fs::File::create(clif_file_name).and_then(|mut file| write(&mut file));
     if let Err(err) = res {
@@ -287,6 +287,41 @@ pub(crate) fn write_ir_file(
     }
 }
 
+/// Ensure a generated IR filename fits in the filesystem's per-component
+/// length limit. Symbol-mangled names can exceed `NAME_MAX` (255 on ext4,
+/// 143 on HFS+), which causes `ENAMETOOLONG` on `File::create`.
+///
+/// Names ≤ 200 bytes pass through unchanged. Longer names are rewritten to
+/// `<first 160 bytes of stem>_h<16-hex-FNV-1a-64 of full stem>.<extensions>`.
+/// The hash is computed over the original stem so the transformation is
+/// deterministic and any two distinct inputs map to distinct outputs.
+fn truncate_ir_basename(name: &str) -> std::borrow::Cow<'_, str> {
+    const MAX_BASENAME_LEN: usize = 200;
+    if name.len() <= MAX_BASENAME_LEN {
+        return std::borrow::Cow::Borrowed(name);
+    }
+    // Preserve extension suffix chain (e.g. ".opt.clif", ".unopt.clif", ".vcode").
+    let (stem, ext) = match name.find('.') {
+        Some(i) => (&name[..i], &name[i..]),
+        None => (name, ""),
+    };
+    // FNV-1a 64-bit over the *full stem* (not the truncated prefix) so two
+    // inputs sharing a long common prefix still hash apart.
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for b in stem.as_bytes() {
+        hash ^= *b as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    // Char-boundary-safe truncation of the stem prefix.
+    let keep_bytes = 160.min(stem.len());
+    let mut cut = keep_bytes;
+    while cut > 0 && !stem.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let prefix = &stem[..cut];
+    std::borrow::Cow::Owned(format!("{prefix}_h{hash:016x}{ext}"))
+}
+
 pub(crate) fn write_clif_file(
     output_filenames: &OutputFilenames,
     symbol_name: &str,
@@ -295,7 +330,6 @@ pub(crate) fn write_clif_file(
     func: &cranelift_codegen::ir::Function,
     mut clif_comments: &CommentWriter,
 ) {
-    // FIXME work around filename too long errors
     write_ir_file(output_filenames, &format!("{}.{}.clif", symbol_name, postfix), |file| {
         let mut clif = format_clif_ir_header(isa, symbol_name);
         cranelift_codegen::write::decorate_function(&mut clif_comments, &mut clif, func).unwrap();
