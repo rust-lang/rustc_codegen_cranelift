@@ -1,0 +1,3 @@
+repo = "rustc_codegen_cranelift"
+filter = ":rev(<=cb89537d435ec9cc9c812cd47c6130bd96aa0050:prefix=compiler/rustc_codegen_cranelift):/compiler/rustc_codegen_cranelift"
+sync-version = 2
