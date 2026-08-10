@@ -1,4 +1,5 @@
 use std::ffi::OsStr;
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -11,6 +12,18 @@ use crate::utils::{CargoProject, Compiler, LogGroup, ensure_empty_dir, spawn_and
 use crate::{CodegenBackend, build_sysroot, config};
 
 static BUILD_EXAMPLE_OUT_DIR: RelPath = RelPath::build("example");
+
+const POWI_LIBCALL_SIGNATURE_SRC: &str = "\
+fn main() {
+    println!(\"{}\", 2.0f32.powi(4));
+}
+
+#[unsafe(no_mangle)]
+fn __powisf2() -> f32 {
+    let r = 1f32;
+    r
+}
+";
 
 struct TestCase {
     config: &'static str,
@@ -88,7 +101,11 @@ const BASE_SYSROOT_SUITE: &[TestCase] = &[
     ),
     TestCase::build_bin_and_run("aot.float-minmax-pass", "example/float-minmax-pass.rs", &[]),
     TestCase::custom("aot.powi_libcall_signature", &|runner| {
-        let mut cmd = runner.rustc_command(["example/powi-libcall-signature.rs"]);
+        let source_path =
+            BUILD_EXAMPLE_OUT_DIR.to_path(&runner.dirs).join("powi-libcall-signature.rs");
+        fs::write(&source_path, POWI_LIBCALL_SIGNATURE_SRC).unwrap();
+
+        let mut cmd = runner.rustc_command([source_path.as_os_str()]);
         let output = cmd.output().unwrap();
         let combined = format!(
             "{}{}",
