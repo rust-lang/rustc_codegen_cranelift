@@ -300,9 +300,6 @@ pub(crate) fn run_tests(
     assert!(stdlib_source.exists());
 
     if config::get_bool("testsuite.no_sysroot") && !skip_tests.contains(&"testsuite.no_sysroot") {
-        let using_cranelift_backend =
-            !matches!(cg_clif_dylib, CodegenBackend::Builtin(name) if name == "llvm");
-
         let target_compiler = build_sysroot::build_sysroot(
             dirs,
             &SysrootConfig { sysroot_kind: SysrootKind::None, ..*sysroot_config },
@@ -320,7 +317,6 @@ pub(crate) fn run_tests(
             skip_tests,
             bootstrap_host_compiler.target == target_tuple,
             stdlib_source.clone(),
-            using_cranelift_backend,
         );
 
         let path = BUILD_EXAMPLE_OUT_DIR.to_path(dirs);
@@ -337,9 +333,6 @@ pub(crate) fn run_tests(
         && !skip_tests.contains(&"testsuite.extended_sysroot");
 
     if run_base_sysroot || run_extended_sysroot {
-        let using_cranelift_backend =
-            !matches!(cg_clif_dylib, CodegenBackend::Builtin(name) if name == "llvm");
-
         let target_compiler = build_sysroot::build_sysroot(
             dirs,
             sysroot_config,
@@ -357,7 +350,6 @@ pub(crate) fn run_tests(
             skip_tests,
             bootstrap_host_compiler.target == target_tuple,
             stdlib_source,
-            using_cranelift_backend,
         );
 
         if run_base_sysroot {
@@ -381,7 +373,6 @@ struct TestRunner<'a> {
     is_native: bool,
     jit_supported: bool,
     panic_unwind_support: bool,
-    using_cranelift_backend: bool,
     skip_tests: &'a [&'a str],
     dirs: Dirs,
     target_compiler: Compiler,
@@ -397,7 +388,6 @@ impl<'a> TestRunner<'a> {
         skip_tests: &'a [&'a str],
         is_native: bool,
         stdlib_source: PathBuf,
-        using_cranelift_backend: bool,
     ) -> Self {
         target_compiler.rustflags.extend(rustflags_from_env("RUSTFLAGS"));
         target_compiler.rustdocflags.extend(rustflags_from_env("RUSTDOCFLAGS"));
@@ -409,7 +399,6 @@ impl<'a> TestRunner<'a> {
             is_native,
             jit_supported,
             panic_unwind_support,
-            using_cranelift_backend,
             skip_tests,
             dirs,
             target_compiler,
@@ -422,11 +411,9 @@ impl<'a> TestRunner<'a> {
             let (tag, testname) = config.split_once('.').unwrap();
             let tag = tag.to_uppercase();
             let is_jit_test = tag == "JIT";
-            let is_cranelift_only_test = *config == "aot.powi_libcall_signature";
 
             let _guard = if !config::get_bool(config)
                 || (is_jit_test && !self.jit_supported)
-                || (is_cranelift_only_test && !self.using_cranelift_backend)
                 || self.skip_tests.contains(config)
             {
                 eprintln!("[{tag}] {testname} (skipped)");
