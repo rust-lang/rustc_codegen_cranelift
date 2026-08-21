@@ -31,8 +31,7 @@ fn simd_shuffle_index_len<'tcx>(
     } else if let ty::Array(elem, len) = idx_ty.kind() {
         if matches!(elem.kind(), ty::Uint(ty::UintTy::U32)) {
             return Some(
-                len.try_to_target_usize(fx.tcx)
-                    .expect("expected monomorphic const in codegen"),
+                len.try_to_target_usize(fx.tcx).expect("expected monomorphic const in codegen"),
             );
         }
     }
