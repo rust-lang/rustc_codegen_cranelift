@@ -55,13 +55,14 @@ fn cast_target_to_abi_params(cast: &CastTarget) -> SmallVec<[(Size, AbiParam); 2
         ];
     }
 
-    let (rest_count, rem_bytes) = if cast.rest.unit.size.bytes() == 0 {
-        (0, 0)
+    let rest_count = if cast.rest.total == Size::ZERO {
+        0
     } else {
-        (
-            cast.rest.total.bytes() / cast.rest.unit.size.bytes(),
-            cast.rest.total.bytes() % cast.rest.unit.size.bytes(),
-        )
+        assert_ne!(cast.rest.unit.size, Size::ZERO);
+        if cast.rest.total.bytes() % cast.rest.unit.size.bytes() != 0 {
+            assert_eq!(cast.rest.unit.kind, RegKind::Integer, "only int regs can be split");
+        }
+        cast.rest.total.bytes().div_ceil(cast.rest.unit.size.bytes())
     };
 
     // Note: Unlike the LLVM equivalent of this code we don't have separate branches for when there
@@ -82,18 +83,15 @@ fn cast_target_to_abi_params(cast: &CastTarget) -> SmallVec<[(Size, AbiParam); 2
         res.push((offset, arg));
         offset += Size::from_bytes(arg.value_type.bytes());
     }
-
-    // Append final integer
-    if rem_bytes != 0 {
-        // Only integers can be really split further.
-        assert_eq!(cast.rest.unit.kind, RegKind::Integer);
-        res.push((
-            offset,
-            reg_to_abi_param(Reg { kind: RegKind::Integer, size: Size::from_bytes(rem_bytes) }),
-        ));
-    }
-
     res
+}
+
+fn abi_params_size(params: &[(Size, AbiParam)]) -> u64 {
+    params
+        .iter()
+        .map(|(offset, param)| offset.bytes() + u64::from(param.value_type.bytes()))
+        .max()
+        .unwrap_or(0)
 }
 
 impl<'tcx> ArgAbiExt<'tcx> for ArgAbi<'tcx, Ty<'tcx>> {
@@ -206,12 +204,54 @@ pub(super) fn to_casted_value<'tcx>(
     arg: CValue<'tcx>,
     cast: &CastTarget,
 ) -> SmallVec<[Value; 2]> {
+    let layout = arg.layout();
     let (ptr, meta) = arg.force_stack(fx);
     assert!(meta.is_none());
-    cast_target_to_abi_params(cast)
-        .into_iter()
+    let abi_params = cast_target_to_abi_params(cast);
+    let abi_param_size = abi_params_size(&abi_params);
+    let cast_align = cast.align(fx).bytes();
+    let layout_align = layout.align.bytes();
+    let slot_align = cast_align.max(layout_align);
+    let slot_size = abi_param_size.max(layout.size.bytes()).next_multiple_of(slot_align);
+    let scratch =
+        fx.create_stack_slot(u32::try_from(slot_size).unwrap(), u32::try_from(slot_align).unwrap());
+    // A partial final integer is passed in a full register. Initialize every byte that can be
+    // loaded as an ABI parameter before copying the value bytes into the scratch slot.
+    if abi_param_size != 0 {
+        let zero_align = slot_align.min(1u64 << abi_param_size.trailing_zeros());
+        let scratch_addr = scratch.get_addr(fx);
+        fx.bcx.emit_small_memset(
+            fx.target_config,
+            scratch_addr,
+            0,
+            abi_param_size,
+            u8::try_from(zero_align).unwrap_or(128),
+            MemFlagsData::new(),
+        );
+    }
+
+    let copy_bytes = abi_param_size.min(layout.size.bytes());
+    if copy_bytes != 0 {
+        let from_addr = ptr.get_addr(fx);
+        let to_addr = scratch.get_addr(fx);
+        let copy_align = 1u64 << copy_bytes.trailing_zeros();
+        let dst_align = slot_align.min(copy_align).try_into().unwrap_or(128);
+        let src_align = layout.align.bytes().min(copy_align).try_into().unwrap_or(128);
+        fx.bcx.emit_small_memory_copy(
+            fx.target_config,
+            to_addr,
+            from_addr,
+            copy_bytes,
+            dst_align,
+            src_align,
+            true,
+            MemFlagsData::new(),
+        );
+    }
+    abi_params
+        .iter()
         .map(|(offset, param)| {
-            ptr.offset_i64(fx, offset.bytes() as i64).load(
+            scratch.offset_i64(fx, offset.bytes() as i64).load(
                 fx,
                 param.value_type,
                 MemFlagsData::new(),
@@ -227,15 +267,14 @@ pub(super) fn from_casted_value<'tcx>(
     cast: &CastTarget,
 ) -> CValue<'tcx> {
     let abi_params = cast_target_to_abi_params(cast);
-    let abi_param_size: u32 = abi_params.iter().map(|(_, param)| param.value_type.bytes()).sum();
-    let layout_size = u32::try_from(layout.size.bytes()).unwrap();
-    let ptr = fx.create_stack_slot(
-        // Stack slot size may be bigger for example `[u8; 3]` which is packed into an `i32`.
-        // It may also be smaller for example when the type is a wrapper around an integer with a
-        // larger alignment than the integer.
-        std::cmp::max(abi_param_size, layout_size),
-        u32::try_from(layout.align.bytes()).unwrap(),
-    );
+    let abi_param_size = abi_params_size(&abi_params);
+    let cast_align = cast.align(fx).bytes();
+    let layout_size = layout.size.bytes();
+    let layout_align = layout.align.bytes();
+    let slot_align = cast_align.max(layout_align);
+    let slot_size = abi_param_size.max(layout_size).next_multiple_of(slot_align);
+    let ptr =
+        fx.create_stack_slot(u32::try_from(slot_size).unwrap(), u32::try_from(slot_align).unwrap());
     let mut block_params_iter = block_params.iter().copied();
     for (offset, _) in abi_params {
         ptr.offset_i64(fx, offset.bytes() as i64).store(
