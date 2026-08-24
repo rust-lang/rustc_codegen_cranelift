@@ -276,7 +276,7 @@ pub(crate) fn write_ir_file(
         res @ Err(_) => res.unwrap(),
     }
 
-    let clif_file_name = clif_output_dir.join(name);
+    let clif_file_name = clif_output_dir.join(truncate_ir_basename(name).as_ref());
 
     let res = std::fs::File::create(clif_file_name).and_then(|mut file| write(&mut file));
     if let Err(err) = res {
@@ -287,6 +287,55 @@ pub(crate) fn write_ir_file(
     }
 }
 
+/// Ensure a generated IR filename fits in the filesystem's per-component
+/// length limit. Symbol-mangled names can exceed `NAME_MAX` (255 on ext4,
+/// 143 on HFS+), which causes `ENAMETOOLONG` on `File::create`.
+///
+/// Names ≤ 200 bytes pass through unchanged. Longer names are rewritten to
+/// `<first 160 bytes of stem>_h<16-hex-FNV-1a-64 of full stem>.<extensions>`.
+/// The hash is computed over the original stem so the transformation is
+/// deterministic and any two distinct inputs map to distinct outputs.
+fn truncate_ir_basename(name: &str) -> std::borrow::Cow<'_, str> {
+    const MAX_BASENAME_LEN: usize = 200;
+    // Longest extension chain written for a single function: `.unopt.clif`,
+    // alongside `.opt.clif` and `.vcode`.
+    const MAX_EXT_LEN: usize = ".unopt.clif".len();
+    // Decide from the stem alone, reserving room for the longest extension.
+    //
+    // Testing the whole basename would make the decision depend on which
+    // artifact is being written: with a 192-byte symbol, `.opt.clif` exceeds
+    // the limit and is rewritten while `.vcode` stays under it and is not, so
+    // one function's dumps end up under two unrelated names. Tools that pair a
+    // function's CLIF with its vcode then silently find nothing to pair. Every
+    // symbol between 190 and 194 bytes hits this; in a `--emit=llvm-ir` build
+    // of rustc itself that is 11510 of 650644 functions.
+    const MAX_STEM_LEN: usize = MAX_BASENAME_LEN - MAX_EXT_LEN;
+
+    // Preserve extension suffix chain (e.g. ".opt.clif", ".unopt.clif", ".vcode").
+    let (stem, ext) = match name.find('.') {
+        Some(i) => (&name[..i], &name[i..]),
+        None => (name, ""),
+    };
+    if stem.len() <= MAX_STEM_LEN {
+        return std::borrow::Cow::Borrowed(name);
+    }
+    // FNV-1a 64-bit over the *full stem* (not the truncated prefix) so two
+    // inputs sharing a long common prefix still hash apart.
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for b in stem.as_bytes() {
+        hash ^= *b as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    // Char-boundary-safe truncation of the stem prefix.
+    let keep_bytes = 160.min(stem.len());
+    let mut cut = keep_bytes;
+    while cut > 0 && !stem.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let prefix = &stem[..cut];
+    std::borrow::Cow::Owned(format!("{prefix}_h{hash:016x}{ext}"))
+}
+
 pub(crate) fn write_clif_file(
     output_filenames: &OutputFilenames,
     symbol_name: &str,
@@ -295,7 +344,6 @@ pub(crate) fn write_clif_file(
     func: &cranelift_codegen::ir::Function,
     mut clif_comments: &CommentWriter,
 ) {
-    // FIXME work around filename too long errors
     write_ir_file(output_filenames, &format!("{}.{}.clif", symbol_name, postfix), |file| {
         let mut clif = format_clif_ir_header(isa, symbol_name);
         cranelift_codegen::write::decorate_function(&mut clif_comments, &mut clif, func).unwrap();
@@ -318,5 +366,76 @@ impl fmt::Debug for FunctionCx<'_, '_, '_> {
         )
         .unwrap();
         writeln!(f, "\n{}", clif)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_ir_basename;
+
+    const EXTS: [&str; 3] = [".opt.clif", ".unopt.clif", ".vcode"];
+
+    fn stem_of(name: &str, ext: &str) -> String {
+        name[..name.len() - ext.len()].to_string()
+    }
+
+    #[test]
+    fn every_artifact_of_one_function_keeps_one_stem() {
+        // A function is dumped to several files and consumers pair them by
+        // their shared stem, so the rewrite must never depend on which
+        // artifact is being written. Sweep the whole boundary region rather
+        // than a single length: the failure only appears where one extension
+        // pushes a name over the limit and a shorter one does not.
+        for len in 1..260usize {
+            let symbol = format!("_R{}", "a".repeat(len));
+            let stems: Vec<String> = EXTS
+                .iter()
+                .map(|ext| stem_of(&truncate_ir_basename(&format!("{symbol}{ext}")), ext))
+                .collect();
+            assert!(
+                stems.iter().all(|s| *s == stems[0]),
+                "symbol of {} bytes produced differing stems: {stems:?}",
+                symbol.len()
+            );
+        }
+    }
+
+    #[test]
+    fn rewritten_names_fit_the_component_limit() {
+        for len in [0, 1, 189, 190, 200, 512, 4096] {
+            let symbol = format!("_R{}", "a".repeat(len));
+            for ext in EXTS {
+                let name = format!("{symbol}{ext}");
+                let out = truncate_ir_basename(&name);
+                assert!(out.len() <= 200, "{} bytes for a {len}-byte symbol", out.len());
+            }
+        }
+    }
+
+    #[test]
+    fn short_names_are_untouched_and_borrowed() {
+        let name = "_RNvC4test3foo.opt.clif";
+        assert!(matches!(truncate_ir_basename(name), std::borrow::Cow::Borrowed(_)));
+        assert_eq!(truncate_ir_basename(name), name);
+    }
+
+    #[test]
+    fn distinct_symbols_stay_distinct() {
+        let a = format!("_R{}", "a".repeat(400));
+        let b = format!("_R{}b", "a".repeat(399));
+        assert_ne!(a, b);
+        assert_ne!(
+            truncate_ir_basename(&format!("{a}.opt.clif")),
+            truncate_ir_basename(&format!("{b}.opt.clif"))
+        );
+    }
+
+    #[test]
+    fn truncation_respects_char_boundaries() {
+        // A multi-byte character straddling the cut must not be split.
+        let symbol = "\u{00e9}".repeat(200);
+        let name = format!("{symbol}.opt.clif");
+        let out = truncate_ir_basename(&name);
+        assert!(std::str::from_utf8(out.as_bytes()).is_ok());
     }
 }
