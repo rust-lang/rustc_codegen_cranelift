@@ -87,6 +87,7 @@ const BASE_SYSROOT_SUITE: &[TestCase] = &[
         &[],
     ),
     TestCase::build_bin_and_run("aot.float-minmax-pass", "example/float-minmax-pass.rs", &[]),
+    TestCase::build_bin_and_run("aot.naked-asm-const-ptr", "example/naked-asm-const-ptr.rs", &[]),
     TestCase::custom("aot.powi_libcall_signature", &|runner| {
         let mut cmd = runner.rustc_command(["example/powi-libcall-signature.rs"]);
         let output = cmd.output().unwrap();
