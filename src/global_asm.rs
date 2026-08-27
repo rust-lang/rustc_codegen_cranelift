@@ -16,11 +16,14 @@ use rustc_middle::ty::layout::{
 use rustc_session::Session;
 use rustc_target::asm::InlineAsmArch;
 
+use crate::constant::ConstantCx;
 use crate::prelude::*;
 
 pub(crate) struct GlobalAsmContext<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub global_asm: &'a mut String,
+    pub module: &'a mut dyn Module,
+    pub constants_cx: &'a mut ConstantCx,
 }
 
 impl<'tcx> AsmCodegenMethods<'tcx> for GlobalAsmContext<'_, 'tcx> {
@@ -31,7 +34,15 @@ impl<'tcx> AsmCodegenMethods<'tcx> for GlobalAsmContext<'_, 'tcx> {
         options: InlineAsmOptions,
         _line_spans: &[Span],
     ) {
-        codegen_global_asm_inner(self.tcx, self.global_asm, template, operands, options);
+        codegen_global_asm_inner(
+            self.tcx,
+            self.global_asm,
+            self.module,
+            self.constants_cx,
+            template,
+            operands,
+            options,
+        );
     }
 
     fn mangled_name(&self, instance: Instance<'tcx>) -> String {
@@ -90,6 +101,8 @@ impl<'tcx> HasTypingEnv<'tcx> for GlobalAsmContext<'_, 'tcx> {
 fn codegen_global_asm_inner<'tcx>(
     tcx: TyCtxt<'tcx>,
     global_asm: &mut String,
+    module: &mut dyn Module,
+    constants_cx: &mut ConstantCx,
     template: &[InlineAsmTemplatePiece],
     operands: &[GlobalAsmOperandRef<'tcx>],
     options: InlineAsmOptions,
@@ -103,68 +116,96 @@ fn codegen_global_asm_inner<'tcx>(
             global_asm.push_str("\n.att_syntax\n");
         }
     }
-    for piece in template {
+    'template: for piece in template {
         match *piece {
             InlineAsmTemplatePiece::String(ref s) => global_asm.push_str(s),
             InlineAsmTemplatePiece::Placeholder { operand_idx, modifier: _, span } => {
                 use rustc_codegen_ssa::back::symbol_export::escape_symbol_name;
                 match operands[operand_idx] {
-                    GlobalAsmOperandRef::Const { value, ty } => {
-                        match value {
-                            ConstScalar::Int(int) => {
-                                let string = rustc_codegen_ssa::common::asm_const_to_str(
-                                    tcx,
-                                    span,
-                                    int,
-                                    FullyMonomorphizedLayoutCx(tcx).layout_of(ty),
-                                );
-                                global_asm.push_str(&string);
-                            }
+                    GlobalAsmOperandRef::Const { value, ty } => match value {
+                        ConstScalar::Int(int) => {
+                            let string = rustc_codegen_ssa::common::asm_const_to_str(
+                                tcx,
+                                span,
+                                int,
+                                FullyMonomorphizedLayoutCx(tcx).layout_of(ty),
+                            );
+                            global_asm.push_str(&string);
+                        }
 
-                            ConstScalar::Ptr(ptr, _) => {
-                                if cfg!(not(feature = "inline_asm_sym")) {
+                        ConstScalar::Ptr(ptr, _) => {
+                            let (prov, offset) = ptr.prov_and_relative_offset();
+                            let global_alloc = tcx.global_alloc(prov.alloc_id());
+                            let symbol_name = match global_alloc {
+                                GlobalAlloc::Function { instance } => {
+                                    if cfg!(not(feature = "inline_asm_sym")) {
+                                        tcx.dcx().span_err(
+                                            span,
+                                            "asm! and global_asm! sym operands are not yet supported",
+                                        );
+                                        continue 'template;
+                                    }
+
+                                    let symbol = tcx.symbol_name(instance);
+                                    if tcx.sess.target.is_like_darwin {
+                                        format!("_{}", symbol.name)
+                                    } else {
+                                        symbol.name.to_owned()
+                                    }
+                                }
+                                GlobalAlloc::Static(def_id) => {
+                                    if cfg!(not(feature = "inline_asm_sym")) {
+                                        tcx.dcx().span_err(
+                                            span,
+                                            "asm! and global_asm! sym operands are not yet supported",
+                                        );
+                                        continue 'template;
+                                    }
+
+                                    let instance = Instance::mono(tcx, def_id);
+                                    let symbol = tcx.symbol_name(instance);
+                                    if tcx.sess.target.is_like_darwin {
+                                        format!("_{}", symbol.name)
+                                    } else {
+                                        symbol.name.to_owned()
+                                    }
+                                }
+                                GlobalAlloc::Memory(alloc) => {
+                                    let data_id = crate::constant::data_id_for_alloc_id(
+                                        constants_cx,
+                                        module,
+                                        prov.alloc_id(),
+                                        alloc.inner().mutability,
+                                    );
+                                    module
+                                        .declarations()
+                                        .get_data_decl(data_id)
+                                        .linkage_name(data_id)
+                                        .into_owned()
+                                }
+                                GlobalAlloc::VTable(..) | GlobalAlloc::TypeId { .. } => {
                                     tcx.dcx().span_err(
                                         span,
-                                        "asm! and global_asm! sym operands are not yet supported",
+                                        "unsupported allocation for global_asm const pointer",
                                     );
+                                    continue 'template;
                                 }
+                            };
+                            global_asm.push_str(&escape_symbol_name(tcx, &symbol_name, span));
 
-                                let (prov, offset) = ptr.prov_and_relative_offset();
-                                let global_alloc = tcx.global_alloc(prov.alloc_id());
-                                let symbol = match global_alloc {
-                                    GlobalAlloc::Function { instance } => {
-                                        // FIXME handle the case where the function was made private to the
-                                        // current codegen unit
-                                        tcx.symbol_name(instance)
-                                    }
-                                    GlobalAlloc::Static(def_id) => {
-                                        let instance = Instance::mono(tcx, def_id);
-                                        tcx.symbol_name(instance)
-                                    }
-                                    GlobalAlloc::Memory(_)
-                                    | GlobalAlloc::VTable(..)
-                                    | GlobalAlloc::TypeId { .. } => unreachable!(),
-                                };
-                                let symbol_name = if tcx.sess.target.is_like_darwin {
-                                    format!("_{}", symbol.name)
-                                } else {
-                                    symbol.name.to_owned()
-                                };
-                                global_asm.push_str(&escape_symbol_name(tcx, &symbol_name, span));
-
-                                if offset != Size::ZERO {
-                                    let offset = tcx.sign_extend_to_target_isize(offset.bytes());
-                                    write!(global_asm, "{offset:+}").unwrap();
-                                }
+                            if offset != Size::ZERO {
+                                let offset = tcx.sign_extend_to_target_isize(offset.bytes());
+                                write!(global_asm, "{offset:+}").unwrap();
                             }
                         }
-                    }
+                    },
                     GlobalAsmOperandRef::SymThreadLocalStatic { def_id } => {
                         if cfg!(not(feature = "inline_asm_sym")) {
                             tcx.dcx().span_err(
                                 span,
                                 "asm! and global_asm! sym operands are not yet supported",
                             );
+                            continue 'template;
                         }
 
                         let instance = Instance::mono(tcx, def_id);
