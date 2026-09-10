@@ -484,6 +484,52 @@ pub(super) fn codegen_simd_intrinsic_call<'tcx>(
             });
         }
 
+        sym::simd_funnel_shl | sym::simd_funnel_shr => {
+            intrinsic_args!(fx, args => (a, b, shift); intrinsic);
+
+            if !a.layout().ty.is_simd() {
+                report_simd_type_validation_error(fx, intrinsic, span, a.layout().ty);
+                return;
+            }
+
+            // FIXME use vector instructions when possible
+            simd_trio_for_each_lane(
+                fx,
+                a,
+                b,
+                shift,
+                ret,
+                &|fx, lane_ty, _ret_lane_ty, a_lane, b_lane, shift_lane| {
+                    let lane_clif_ty = fx.clif_type(lane_ty).unwrap();
+                    let lane_bits = if lane_clif_ty == types::I128 {
+                        let low = fx.bcx.ins().iconst(types::I64, 128);
+                        let high = fx.bcx.ins().iconst(types::I64, 0);
+                        fx.bcx.ins().iconcat(low, high)
+                    } else {
+                        fx.bcx.ins().iconst(lane_clif_ty, i64::from(lane_clif_ty.bits()))
+                    };
+                    let inverse_shift = fx.bcx.ins().isub(lane_bits, shift_lane);
+                    let is_zero = codegen_icmp_imm(fx, IntCC::Equal, shift_lane, 0);
+
+                    match intrinsic {
+                        sym::simd_funnel_shl => {
+                            let high = fx.bcx.ins().ishl(a_lane, shift_lane);
+                            let low = fx.bcx.ins().ushr(b_lane, inverse_shift);
+                            let shifted = fx.bcx.ins().bor(high, low);
+                            fx.bcx.ins().select(is_zero, a_lane, shifted)
+                        }
+                        sym::simd_funnel_shr => {
+                            let high = fx.bcx.ins().ishl(a_lane, inverse_shift);
+                            let low = fx.bcx.ins().ushr(b_lane, shift_lane);
+                            let shifted = fx.bcx.ins().bor(high, low);
+                            fx.bcx.ins().select(is_zero, b_lane, shifted)
+                        }
+                        _ => unreachable!(),
+                    }
+                },
+            );
+        }
+
         // FIXME: simd_relaxed_fma doesn't relax to non-fused multiply-add
         sym::simd_fma | sym::simd_relaxed_fma => {
             intrinsic_args!(fx, args => (a, b, c); intrinsic);
