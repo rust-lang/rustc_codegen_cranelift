@@ -18,6 +18,32 @@ fn report_simd_type_validation_error(
     fx.bcx.ins().trap(TrapCode::user(1 /* unreachable */).unwrap());
 }
 
+fn simd_shuffle_index_len<'tcx>(
+    fx: &mut FunctionCx<'_, '_, 'tcx>,
+    span: Span,
+    idx_ty: Ty<'tcx>,
+) -> Option<u64> {
+    if idx_ty.is_simd() {
+        let (count, elem_ty) = idx_ty.simd_size_and_type(fx.tcx);
+        if matches!(elem_ty.kind(), ty::Uint(ty::UintTy::U32)) {
+            return Some(count);
+        }
+    } else if let ty::Array(elem, len) = idx_ty.kind() {
+        if matches!(elem.kind(), ty::Uint(ty::UintTy::U32)) {
+            return Some(
+                len.try_to_target_usize(fx.tcx).expect("expected monomorphic const in codegen"),
+            );
+        }
+    }
+
+    fx.tcx.dcx().span_err(
+        span,
+        format!("simd_shuffle index must be a SIMD vector of `u32` or `[u32; N]`, got `{idx_ty}`",),
+    );
+    fx.bcx.ins().trap(TrapCode::user(1 /* unreachable */).unwrap());
+    None
+}
+
 pub(super) fn codegen_simd_intrinsic_call<'tcx>(
     fx: &mut FunctionCx<'_, '_, 'tcx>,
     intrinsic: Symbol,
@@ -179,20 +205,12 @@ pub(super) fn codegen_simd_intrinsic_call<'tcx>(
                 return;
             }
 
-            // Make sure this is actually a SIMD vector.
+            // The index must be a const SIMD vector of `u32` or a const `[u32; N]` array.
+            // pathfinder_simd passes the latter.
             let idx_ty = fx.monomorphize(idx.node.ty(fx.mir, fx.tcx));
-            if !idx_ty.is_simd()
-                || !matches!(idx_ty.simd_size_and_type(fx.tcx).1.kind(), ty::Uint(ty::UintTy::U32))
-            {
-                fx.tcx.dcx().span_err(
-                    span,
-                    format!("simd_shuffle index must be a SIMD vector of `u32`, got `{}`", idx_ty),
-                );
-                // Prevent verifier error
-                fx.bcx.ins().trap(TrapCode::user(1 /* unreachable */).unwrap());
+            let Some(index_len) = simd_shuffle_index_len(fx, span, idx_ty) else {
                 return;
             };
-            let n: u16 = idx_ty.simd_size_and_type(fx.tcx).0.try_into().unwrap();
 
             assert_eq!(x.layout(), y.layout());
             let layout = x.layout();
@@ -201,7 +219,7 @@ pub(super) fn codegen_simd_intrinsic_call<'tcx>(
             let (ret_lane_count, ret_lane_ty) = ret.layout().ty.simd_size_and_type(fx.tcx);
 
             assert_eq!(lane_ty, ret_lane_ty);
-            assert_eq!(u64::from(n), ret_lane_count);
+            assert_eq!(index_len, ret_lane_count);
 
             let total_len = lane_count * 2;
 

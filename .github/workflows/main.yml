@@ -151,6 +151,7 @@ jobs:
       run: |
         sed -i 's/jit./#jit./' config.txt
         sed -i 's/aot.powi_libcall_signature/#aot.powi_libcall_signature/' config.txt
+        sed -i 's/aot.simd-shuffle-array-index/#aot.simd-shuffle-array-index/' config.txt
 
     - name: Test
       env:
