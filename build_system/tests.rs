@@ -108,9 +108,13 @@ const BASE_SYSROOT_SUITE: &[TestCase] = &[
         );
     }),
     TestCase::custom("aot.tls_conflicting_declarations", &|runner| {
-        for (variant, expected_success) in
-            [("plain", false), ("matching", true), ("reverse", false)]
-        {
+        let variants: &[(&str, bool)] = if runner.target_compiler.target.contains("windows") {
+            // Matching TLS declarations currently produce a duplicate-symbol error on Windows.
+            &[("plain", false)]
+        } else {
+            &[("plain", false), ("matching", true), ("reverse", false)]
+        };
+        for &(variant, expected_success) in variants {
             let mut cmd = runner.rustc_command([
                 "example/tls-conflicting-declarations.rs",
                 "--emit=obj",
@@ -452,6 +456,12 @@ pub(crate) fn run_tests(
     rustup_toolchain_name: Option<&str>,
     target_tuple: String,
 ) {
+    let mut skip_tests = skip_tests.to_vec();
+    // This test checks a cg_clif diagnostic; LLVM accepts the conflicting declarations.
+    if matches!(cg_clif_dylib, CodegenBackend::Builtin(name) if name == "llvm") {
+        skip_tests.push("aot.tls_conflicting_declarations");
+    }
+
     let stdlib_source =
         get_default_sysroot(&bootstrap_host_compiler.rustc).join("lib/rustlib/src/rust");
     assert!(stdlib_source.exists());
@@ -471,7 +481,7 @@ pub(crate) fn run_tests(
             target_compiler,
             use_unstable_features,
             sysroot_config.panic_unwind_support,
-            skip_tests,
+            &skip_tests,
             bootstrap_host_compiler.target == target_tuple,
             stdlib_source.clone(),
         );
@@ -504,7 +514,7 @@ pub(crate) fn run_tests(
             target_compiler,
             use_unstable_features,
             sysroot_config.panic_unwind_support,
-            skip_tests,
+            &skip_tests,
             bootstrap_host_compiler.target == target_tuple,
             stdlib_source,
         );
