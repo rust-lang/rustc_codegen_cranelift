@@ -364,12 +364,7 @@ fn data_id_for_static(
         Linkage::Import
     };
 
-    match module.declare_data(
-        symbol_name,
-        linkage,
-        definition_writable,
-        is_thread_local,
-    ) {
+    match module.declare_data(symbol_name, linkage, definition_writable, is_thread_local) {
         Ok(data_id) => data_id,
         Err(ModuleError::IncompatibleDeclaration(_)) => tcx.dcx().fatal(format!(
             "attempt to declare `{symbol_name}` as static, but it was already declared as function"
