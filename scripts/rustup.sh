@@ -4,6 +4,9 @@ set -e
 
 TOOLCHAIN=${TOOLCHAIN:-$(date +%Y-%m-%d)}
 
+export GIT_CONFIG_GLOBAL=../rust/josh.gitconfig
+export RUSTC_GIT=../rust
+
 case $1 in
     "prepare")
         echo "=> Installing new nightly"
