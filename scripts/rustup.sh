@@ -17,6 +17,7 @@ case $1 in
         for nightly in $(rustup toolchain list | grep nightly | grep -v "$TOOLCHAIN" | grep -v nightly-x86_64); do
             rustup toolchain uninstall "$nightly"
         done
+
         ./clean_all.sh
 
         ./y.sh prepare
