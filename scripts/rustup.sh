@@ -6,6 +6,14 @@ TOOLCHAIN=${TOOLCHAIN:-$(date +%Y-%m-%d)}
 
 case $1 in
     "prepare")
+        echo "=> Installing new nightly"
+        rustup toolchain install --profile minimal "nightly-${TOOLCHAIN}" # Sanity check to see if the nightly exists
+        sed -i "s/\"nightly-.*\"/\"nightly-${TOOLCHAIN}\"/" rust-toolchain.toml
+
+        echo "=> Uninstalling all old nightlies"
+        for nightly in $(rustup toolchain list | grep nightly | grep -v "$TOOLCHAIN" | grep -v nightly-x86_64); do
+            rustup toolchain uninstall "$nightly"
+        done
         ./clean_all.sh
 
         ./y.sh prepare
@@ -21,6 +29,6 @@ case $1 in
         ;;
     *)
         echo "Unknown command '$1'"
-        echo "Usage: ./rustup.sh prepare|pull|push <fork>"
+        echo "Usage: ./rustup.sh prepare|pull|push [fork]"
         ;;
 esac
