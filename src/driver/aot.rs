@@ -27,6 +27,7 @@ use rustc_session::config::{OptLevel, OutputFilenames, OutputType};
 use rustc_span::Symbol;
 
 use crate::base::CodegenedFunction;
+use crate::constant::ConstantCx;
 use crate::debuginfo::TypeDebugContext;
 use crate::global_asm::{GlobalAsmConfig, GlobalAsmContext};
 use crate::prelude::*;
@@ -39,6 +40,7 @@ pub(crate) struct AotModule {
     debug_context: Option<DebugContext>,
     codegened_functions: Vec<CodegenedFunction>,
     global_asm: String,
+    constants_cx: ConstantCx,
 }
 
 fn make_module(tcx: TyCtxt<'_>, cgu_name: &str) -> AotModule {
@@ -77,6 +79,7 @@ fn make_module(tcx: TyCtxt<'_>, cgu_name: &str) -> AotModule {
         debug_context,
         codegened_functions,
         global_asm,
+        constants_cx: ConstantCx::new(),
     }
 }
 
@@ -159,7 +162,12 @@ fn codegen_cgu(tcx: TyCtxt<'_>, cgu_name: Symbol) -> AotModule {
                 let flags = tcx.codegen_instance_attrs(instance.def).flags;
                 if flags.contains(CodegenFnAttrFlags::NAKED) {
                     rustc_codegen_ssa::mir::naked_asm::codegen_naked_asm(
-                        &mut GlobalAsmContext { tcx, global_asm: &mut module.global_asm },
+                        &mut GlobalAsmContext {
+                            tcx,
+                            global_asm: &mut module.global_asm,
+                            module: &mut module.module,
+                            constants_cx: &mut module.constants_cx,
+                        },
                         instance,
                         MonoItemData {
                             linkage: RLinkage::External,
@@ -192,13 +200,21 @@ fn codegen_cgu(tcx: TyCtxt<'_>, cgu_name: Symbol) -> AotModule {
             }
             MonoItem::GlobalAsm(item_id) => {
                 rustc_codegen_ssa::base::codegen_global_asm(
-                    &mut GlobalAsmContext { tcx, global_asm: &mut module.global_asm },
+                    &mut GlobalAsmContext {
+                        tcx,
+                        global_asm: &mut module.global_asm,
+                        module: &mut module.module,
+                        constants_cx: &mut module.constants_cx,
+                    },
                     item_id,
                 );
             }
         }
     }
     crate::main_shim::maybe_create_entry_wrapper(tcx, &mut module.module, false, cgu.is_primary());
+
+    let constants_cx = std::mem::replace(&mut module.constants_cx, ConstantCx::new());
+    constants_cx.finalize(tcx, &mut module.module);
 
     module
 }
