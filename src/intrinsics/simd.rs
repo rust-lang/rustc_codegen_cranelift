@@ -206,7 +206,6 @@ pub(super) fn codegen_simd_intrinsic_call<'tcx>(
             }
 
             // The index must be a const SIMD vector of `u32` or a const `[u32; N]` array.
-            // pathfinder_simd passes the latter.
             let idx_ty = fx.monomorphize(idx.node.ty(fx.mir, fx.tcx));
             let Some(index_len) = simd_shuffle_index_len(fx, span, idx_ty) else {
                 return;
