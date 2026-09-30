@@ -641,11 +641,8 @@ impl<'tcx> InlineAssemblyGenerator<'_, 'tcx> {
                             generated_asm.push_str(value);
                         }
                         CInlineAsmOperand::Symbol { ref symbol } => {
-                            if binary_format == BinaryFormat::Macho {
-                                generated_asm.push('_');
-                            }
-
-                            generated_asm.push_str(symbol);
+                            generated_asm
+                                .push_str(&crate::global_asm::asm_symbol_name(self.tcx, symbol));
                         }
                     }
                 }

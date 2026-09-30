@@ -36,8 +36,20 @@ impl<'tcx> AsmCodegenMethods<'tcx> for GlobalAsmContext<'_, 'tcx> {
     }
 
     fn mangled_name(&self, instance: Instance<'tcx>) -> String {
-        let symbol_name = self.tcx.symbol_name(instance).name.to_owned();
-        if self.tcx.sess.target.is_like_darwin { format!("_{symbol_name}") } else { symbol_name }
+        asm_symbol_name(self.tcx, self.tcx.symbol_name(instance).name)
+    }
+}
+
+/// Returns the name to use for a symbol in assembly, adding the global prefix where needed.
+///
+/// A leading `\x01` means the rest of the name is used verbatim, like in LLVM.
+pub(crate) fn asm_symbol_name(tcx: TyCtxt<'_>, name: &str) -> String {
+    if let Some(verbatim) = name.strip_prefix('\x01') {
+        verbatim.to_owned()
+    } else if tcx.sess.target.is_like_darwin {
+        format!("_{name}")
+    } else {
+        name.to_owned()
     }
 }
 
@@ -146,11 +158,7 @@ fn codegen_global_asm_inner<'tcx>(
                                     | GlobalAlloc::VTable(..)
                                     | GlobalAlloc::TypeId { .. } => unreachable!(),
                                 };
-                                let symbol_name = if tcx.sess.target.is_like_darwin {
-                                    format!("_{}", symbol.name)
-                                } else {
-                                    symbol.name.to_owned()
-                                };
+                                let symbol_name = asm_symbol_name(tcx, symbol.name);
                                 global_asm.push_str(&escape_symbol_name(tcx, &symbol_name, span));
 
                                 if offset != Size::ZERO {
@@ -170,11 +178,7 @@ fn codegen_global_asm_inner<'tcx>(
 
                         let instance = Instance::mono(tcx, def_id);
                         let symbol = tcx.symbol_name(instance);
-                        let symbol_name = if tcx.sess.target.is_like_darwin {
-                            format!("_{}", symbol.name)
-                        } else {
-                            symbol.name.to_owned()
-                        };
+                        let symbol_name = asm_symbol_name(tcx, symbol.name);
 
                         global_asm.push_str(&escape_symbol_name(tcx, &symbol_name, span));
                     }

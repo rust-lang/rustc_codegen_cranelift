@@ -124,6 +124,8 @@ fn main() {
         test_simd();
     }
 
+    test_verbatim_link_name();
+
     Box::pin(
         #[coroutine]
         move |mut _task_context| {
@@ -215,6 +217,23 @@ struct I64X2([i64; 2]);
 #[cfg_attr(target_arch = "s390x", allow(dead_code))]
 #[allow(improper_ctypes_definitions)]
 extern "C" fn foo(_a: I64X2) {}
+
+fn test_verbatim_link_name() {
+    // A leading `\x01` means the rest is the exact symbol name, without the global `_` prefix.
+    // bindgen generates these on Apple targets.
+    unsafe extern "C" {
+        #[cfg_attr(
+            any(target_vendor = "apple", all(windows, target_arch = "x86")),
+            link_name = "\u{1}_abs"
+        )]
+        #[cfg_attr(
+            not(any(target_vendor = "apple", all(windows, target_arch = "x86"))),
+            link_name = "\u{1}abs"
+        )]
+        fn verbatim_abs(x: i32) -> i32;
+    }
+    assert_eq!(unsafe { verbatim_abs(black_box(-3)) }, 3);
+}
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse4.2")]
