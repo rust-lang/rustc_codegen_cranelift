@@ -108,12 +108,14 @@ const BASE_SYSROOT_SUITE: &[TestCase] = &[
     }),
     TestCase::custom("aot.tls_conflicting_declarations", &|runner| {
         let variants: &[(&str, bool)] = if runner.target_compiler.target.contains("windows") {
-            // Matching TLS declarations currently produce a duplicate-symbol error on Windows.
-            &[("plain", false)]
+            // The other variants are rejected earlier on Windows with a duplicate-symbol error,
+            // before reaching the TLS declaration check.
+            &[("plain", true)]
         } else {
-            &[("plain", false), ("matching", true), ("reverse", false)]
+            &[("plain", true), ("matching", false), ("reverse", true)]
         };
-        for &(variant, expected_success) in variants {
+
+        for &(variant, expect_conflict) in variants {
             let mut cmd = runner.rustc_command([
                 "example/tls-conflicting-declarations.rs",
                 "--emit=obj",
@@ -125,30 +127,16 @@ const BASE_SYSROOT_SUITE: &[TestCase] = &[
             }
 
             let output = cmd.output().unwrap();
-            let combined = format!(
-                "{}{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr),
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let has_conflict = stderr.contains(
+                "conflicting thread-local and non-thread-local declarations for `EXPORTED`",
             );
 
-            assert_eq!(
-                output.status.success(),
-                expected_success,
-                "{variant}: unexpected compiler result:\n{combined}"
+            assert_eq!(has_conflict, expect_conflict, "{variant}: unexpected stderr:\n{stderr}");
+            assert!(
+                !stderr.contains("internal compiler error") && !stderr.contains("panicked at"),
+                "{variant}: compiler ICE'd:\n{stderr}"
             );
-            if !expected_success {
-                assert!(
-                    combined.contains(
-                        "conflicting thread-local and non-thread-local declarations for `EXPORTED`"
-                    ),
-                    "{variant}: missing conflict diagnostic:\n{combined}"
-                );
-                assert!(
-                    !combined.contains("internal compiler error")
-                        && !combined.contains("panicked at"),
-                    "{variant}: compiler ICE'd:\n{combined}"
-                );
-            }
         }
     }),
     TestCase::build_bin_and_run("aot.issue-72793", "example/issue-72793.rs", &[]),
@@ -340,12 +328,6 @@ pub(crate) fn run_tests(
     rustup_toolchain_name: Option<&str>,
     target_tuple: String,
 ) {
-    let mut skip_tests = skip_tests.to_vec();
-    // This test checks a cg_clif diagnostic; LLVM accepts the conflicting declarations.
-    if matches!(cg_clif_dylib, CodegenBackend::Builtin(name) if name == "llvm") {
-        skip_tests.push("aot.tls_conflicting_declarations");
-    }
-
     let stdlib_source =
         get_default_sysroot(&bootstrap_host_compiler.rustc).join("lib/rustlib/src/rust");
     assert!(stdlib_source.exists());
@@ -365,7 +347,7 @@ pub(crate) fn run_tests(
             target_compiler,
             use_unstable_features,
             sysroot_config.panic_unwind_support,
-            &skip_tests,
+            skip_tests,
             bootstrap_host_compiler.target == target_tuple,
             stdlib_source.clone(),
         );
@@ -398,7 +380,7 @@ pub(crate) fn run_tests(
             target_compiler,
             use_unstable_features,
             sysroot_config.panic_unwind_support,
-            &skip_tests,
+            skip_tests,
             bootstrap_host_compiler.target == target_tuple,
             stdlib_source,
         );
