@@ -107,6 +107,39 @@ const BASE_SYSROOT_SUITE: &[TestCase] = &[
             "expected graceful error, not ICE:\n{combined}"
         );
     }),
+    TestCase::custom("aot.tls_conflicting_declarations", &|runner| {
+        let variants: &[(&str, bool)] = if runner.target_compiler.target.contains("windows") {
+            // The other variants are rejected earlier on Windows with a duplicate-symbol error,
+            // before reaching the TLS declaration check.
+            &[("plain", true)]
+        } else {
+            &[("plain", true), ("matching", false), ("reverse", true)]
+        };
+
+        for &(variant, expect_conflict) in variants {
+            let mut cmd = runner.rustc_command([
+                "example/tls-conflicting-declarations.rs",
+                "--emit=obj",
+                "--check-cfg=cfg(matching)",
+                "--check-cfg=cfg(reverse)",
+            ]);
+            if variant != "plain" {
+                cmd.arg("--cfg").arg(variant);
+            }
+
+            let output = cmd.output().unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let has_conflict = stderr.contains(
+                "conflicting thread-local and non-thread-local declarations for `EXPORTED`",
+            );
+
+            assert_eq!(has_conflict, expect_conflict, "{variant}: unexpected stderr:\n{stderr}");
+            assert!(
+                !stderr.contains("internal compiler error") && !stderr.contains("panicked at"),
+                "{variant}: compiler ICE'd:\n{stderr}"
+            );
+        }
+    }),
     TestCase::build_bin_and_run("aot.issue-72793", "example/issue-72793.rs", &[]),
     TestCase::build_bin("aot.issue-59326", "example/issue-59326.rs"),
     TestCase::build_bin_and_run("aot.gen_block_iterate", "example/gen_block_iterate.rs", &[]),
