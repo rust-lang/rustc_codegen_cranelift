@@ -532,7 +532,7 @@ pub(super) fn codegen_simd_intrinsic_call<'tcx>(
             let (lane_count, lane_ty) = layout.ty.simd_size_and_type(fx.tcx);
             let res_lane_layout = fx.layout_of(lane_ty);
 
-            let ty = fx.clif_type(lane_ty).unwrap(); // Already checked that it's a vector
+            let ty = fx.clif_type(lane_ty).unwrap();
             let Some(wide_ty) = ty.double_width() else {
                 bug!("simd_funnel_shl/shr unsupported for i128 lanes");
             };
