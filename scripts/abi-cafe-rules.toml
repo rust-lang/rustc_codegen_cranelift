@@ -6,10 +6,6 @@
 'OptionU128::conv_rust::repr_c::rustc_caller'.busted = "run"
 'OptionU128::conv_rust::repr_c::cgclif_caller'.busted = "check"
 
-[target.'cfg(all(target_arch = "x86_64", windows))']
-'simple::conv_rust'.busted = "check"
-'simple::conv_rust::rustc_caller'.busted = "run"
-
 [target.'*'.'f16']
 run = "skip"
 
