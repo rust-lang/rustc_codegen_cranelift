@@ -517,6 +517,54 @@ pub(super) fn codegen_simd_intrinsic_call<'tcx>(
             }
         }
 
+        sym::simd_funnel_shl | sym::simd_funnel_shr => {
+            intrinsic_args!(fx, args => (a, b, shift); intrinsic);
+
+            if !a.layout().ty.is_simd() {
+                report_simd_type_validation_error(fx, intrinsic, span, a.layout().ty);
+                return;
+            }
+            assert_eq!(a.layout(), b.layout());
+            assert_eq!(a.layout(), shift.layout());
+            assert_eq!(a.layout(), ret.layout());
+
+            let layout = a.layout();
+            let (lane_count, lane_ty) = layout.ty.simd_size_and_type(fx.tcx);
+            let res_lane_layout = fx.layout_of(lane_ty);
+
+            let ty = fx.clif_type(lane_ty).unwrap();
+            let Some(wide_ty) = ty.double_width() else {
+                bug!("simd_funnel_shl/shr unsupported for i128 lanes");
+            };
+            let bits = i64::from(ty.bits());
+
+            for lane in 0..lane_count {
+                let a_lane = a.value_lane(fx, lane).load_scalar(fx);
+                let b_lane = b.value_lane(fx, lane).load_scalar(fx);
+                let shift_lane = shift.value_lane(fx, lane).load_scalar(fx);
+
+                let a_w = fx.bcx.ins().uextend(wide_ty, a_lane);
+                let b_w = fx.bcx.ins().uextend(wide_ty, b_lane);
+                let a_shifted = fx.bcx.ins().ishl_imm_u(a_w, bits);
+                let wide_lane = fx.bcx.ins().bor(a_shifted, b_w);
+
+                let res = match intrinsic {
+                    sym::simd_funnel_shl => {
+                        let res = fx.bcx.ins().ishl(wide_lane, shift_lane);
+                        let hi = fx.bcx.ins().ushr_imm_u(res, bits);
+                        fx.bcx.ins().ireduce(ty, hi)
+                    }
+                    sym::simd_funnel_shr => {
+                        let res = fx.bcx.ins().ushr(wide_lane, shift_lane);
+                        fx.bcx.ins().ireduce(ty, res)
+                    }
+                    _ => unreachable!(),
+                };
+                let res_lane = CValue::by_val(res, res_lane_layout);
+                ret.place_lane(fx, lane).write_cvalue(fx, res_lane);
+            }
+        }
+
         sym::simd_minimum_number_nsz | sym::simd_maximum_number_nsz => {
             intrinsic_args!(fx, args => (x, y); intrinsic);
 
