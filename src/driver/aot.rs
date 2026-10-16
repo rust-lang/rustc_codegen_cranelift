@@ -158,7 +158,11 @@ fn codegen_cgu(tcx: TyCtxt<'_>, cgu_name: Symbol) -> AotModule {
                 let flags = tcx.codegen_instance_attrs(instance.def).flags;
                 if flags.contains(CodegenFnAttrFlags::NAKED) {
                     rustc_codegen_ssa::mir::naked_asm::codegen_naked_asm(
-                        &mut GlobalAsmContext { tcx, global_asm: &mut module.global_asm },
+                        &mut GlobalAsmContext {
+                            tcx,
+                            global_asm: &mut module.global_asm,
+                            module: &mut module.module,
+                        },
                         instance,
                         MonoItemData {
                             linkage: RLinkage::External,
@@ -191,7 +195,11 @@ fn codegen_cgu(tcx: TyCtxt<'_>, cgu_name: Symbol) -> AotModule {
             }
             MonoItem::GlobalAsm(item_id) => {
                 rustc_codegen_ssa::base::codegen_global_asm(
-                    &mut GlobalAsmContext { tcx, global_asm: &mut module.global_asm },
+                    &mut GlobalAsmContext {
+                        tcx,
+                        global_asm: &mut module.global_asm,
+                        module: &mut module.module,
+                    },
                     item_id,
                 );
             }
