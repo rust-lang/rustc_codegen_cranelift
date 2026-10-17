@@ -1,5 +1,4 @@
-// Copied from pathfinder_simd-style usage.
-// run-pass
+// cg_clif regression for `[u32; N]` shuffle indices (#1583). run-pass
 
 #![feature(repr_simd, core_intrinsics)]
 #![allow(internal_features, non_camel_case_types)]
