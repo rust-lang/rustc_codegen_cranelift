@@ -346,7 +346,7 @@ fn build_isa(sess: &Session, jit: bool) -> Arc<dyn TargetIsa + 'static> {
 
     let flags = settings::Flags::new(flags_builder);
 
-    let isa_builder = match sess.opts.cg.target_cpu.as_deref() {
+    let mut isa_builder = match sess.opts.cg.target_cpu.as_deref() {
         Some(NATIVE_CPU) => cranelift_native::builder_with_options(true).unwrap(),
         Some(value) => {
             let mut builder =
@@ -372,6 +372,12 @@ fn build_isa(sess: &Session, jit: bool) -> Arc<dyn TargetIsa + 'static> {
             builder
         }
     };
+
+    if let target_lexicon::Architecture::X86_64 = target_tuple.architecture {
+        if sess.target.features.split(',').any(|feat| feat == "+cmpxchg16b") {
+            isa_builder.enable("has_cmpxchg16b").unwrap();
+        }
+    }
 
     match isa_builder.finish(flags) {
         Ok(target_isa) => target_isa,
