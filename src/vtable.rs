@@ -7,7 +7,7 @@ use crate::prelude::*;
 
 pub(crate) fn vtable_memflags() -> MemFlagsData {
     let mut flags = MemFlagsData::trusted(); // A vtable access is always aligned and will never trap.
-    flags.set_readonly(); // A vtable is always read-only.
+    flags.set_readonly(true); // A vtable is always read-only.
     flags
 }
 
