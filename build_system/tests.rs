@@ -134,6 +134,11 @@ const BASE_SYSROOT_SUITE: &[TestCase] = &[
             );
 
             assert_eq!(has_conflict, expect_conflict, "{variant}: unexpected stderr:\n{stderr}");
+            assert_eq!(
+                output.status.success(),
+                !expect_conflict,
+                "{variant}: unexpected compilation status:\n{stderr}"
+            );
             assert!(
                 !stderr.contains("internal compiler error") && !stderr.contains("panicked at"),
                 "{variant}: compiler ICE'd:\n{stderr}"

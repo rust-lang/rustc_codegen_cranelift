@@ -283,17 +283,6 @@ fn data_id_for_static(
     let symbol_name = tcx.symbol_name(instance).name;
 
     let is_thread_local = attrs.flags.contains(CodegenFnAttrFlags::THREAD_LOCAL);
-    if let Some(FuncOrDataId::Data(existing_id)) = module.get_name(symbol_name)
-        && module.declarations().get_data_decl(existing_id).tls != is_thread_local
-    {
-        tcx.dcx().span_fatal(
-            tcx.def_span(def_id),
-            format!(
-                "conflicting thread-local and non-thread-local declarations for `{symbol_name}`"
-            ),
-        );
-    }
-
     if let Some(import_linkage) = attrs.import_linkage {
         assert!(!definition);
         assert!(!tcx.is_mutable_static(def_id));
@@ -321,6 +310,10 @@ fn data_id_for_static(
             is_thread_local,
         ) {
             Ok(data_id) => data_id,
+            Err(ModuleError::IncompatibleDataTls(..)) => tcx.dcx().span_fatal(
+                tcx.def_span(def_id),
+                format!("conflicting thread-local and non-thread-local declarations for `{symbol_name}`"),
+            ),
             Err(ModuleError::IncompatibleDeclaration(_)) => tcx.dcx().fatal(format!(
                 "attempt to declare `{symbol_name}` as static, but it was already declared as function"
             )),
@@ -367,6 +360,12 @@ fn data_id_for_static(
 
     match module.declare_data(symbol_name, linkage, definition_writable, is_thread_local) {
         Ok(data_id) => data_id,
+        Err(ModuleError::IncompatibleDataTls(..)) => tcx.dcx().span_fatal(
+            tcx.def_span(def_id),
+            format!(
+                "conflicting thread-local and non-thread-local declarations for `{symbol_name}`"
+            ),
+        ),
         Err(ModuleError::IncompatibleDeclaration(_)) => tcx.dcx().fatal(format!(
             "attempt to declare `{symbol_name}` as static, but it was already declared as function"
         )),
