@@ -115,33 +115,6 @@ pub(crate) fn clif_int_or_float_cast(
                 vec![AbiParam::new(types::I128)],
                 &[from],
             )[0]
-        } else if to_ty == types::I8 || to_ty == types::I16 {
-            // FIXME implement fcvt_to_*int_sat.i8/i16
-            let val = if to_signed {
-                fx.bcx.ins().fcvt_to_sint_sat(types::I32, from)
-            } else {
-                fx.bcx.ins().fcvt_to_uint_sat(types::I32, from)
-            };
-            let (min, max) = match (to_ty, to_signed) {
-                (types::I8, false) => (0, i64::from(u8::MAX)),
-                (types::I16, false) => (0, i64::from(u16::MAX)),
-                (types::I8, true) => (i64::from(i8::MIN as u32), i64::from(i8::MAX as u32)),
-                (types::I16, true) => (i64::from(i16::MIN as u32), i64::from(i16::MAX as u32)),
-                _ => unreachable!(),
-            };
-            let min_val = fx.bcx.ins().iconst(types::I32, min);
-            let max_val = fx.bcx.ins().iconst(types::I32, max);
-
-            let val = if to_signed {
-                let has_underflow = fx.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, val, min);
-                let has_overflow = fx.bcx.ins().icmp_imm_s(IntCC::SignedGreaterThan, val, max);
-                let bottom_capped = fx.bcx.ins().select(has_underflow, min_val, val);
-                fx.bcx.ins().select(has_overflow, max_val, bottom_capped)
-            } else {
-                let has_overflow = fx.bcx.ins().icmp_imm_u(IntCC::UnsignedGreaterThan, val, max);
-                fx.bcx.ins().select(has_overflow, max_val, val)
-            };
-            fx.bcx.ins().ireduce(to_ty, val)
         } else if to_signed {
             fx.bcx.ins().fcvt_to_sint_sat(to_ty, from)
         } else {
