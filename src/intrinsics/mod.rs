@@ -831,22 +831,6 @@ fn codegen_regular_intrinsic_call<'tcx>(
 
             let ty = generic_args.type_at(0);
             match ty.kind() {
-                ty::Uint(UintTy::U128) | ty::Int(IntTy::I128) => {
-                    // FIXME implement 128bit atomics
-                    if fx.tcx.is_compiler_builtins(LOCAL_CRATE) {
-                        // special case for compiler-builtins to avoid having to patch it
-                        crate::base::codegen_panic_nounwind(
-                            fx,
-                            "128bit atomics not yet supported",
-                            source_info.span,
-                        );
-                        return Ok(());
-                    } else {
-                        fx.tcx
-                            .dcx()
-                            .span_fatal(source_info.span, "128bit atomics not yet supported");
-                    }
-                }
                 ty::Uint(_) | ty::Int(_) | ty::RawPtr(..) => {}
                 _ => {
                     report_atomic_type_validation_error(fx, intrinsic, source_info.span, ty);
@@ -867,22 +851,6 @@ fn codegen_regular_intrinsic_call<'tcx>(
 
             let ty = generic_args.type_at(0);
             match ty.kind() {
-                ty::Uint(UintTy::U128) | ty::Int(IntTy::I128) => {
-                    // FIXME implement 128bit atomics
-                    if fx.tcx.is_compiler_builtins(LOCAL_CRATE) {
-                        // special case for compiler-builtins to avoid having to patch it
-                        crate::base::codegen_panic_nounwind(
-                            fx,
-                            "128bit atomics not yet supported",
-                            source_info.span,
-                        );
-                        return Ok(());
-                    } else {
-                        fx.tcx
-                            .dcx()
-                            .span_fatal(source_info.span, "128bit atomics not yet supported");
-                    }
-                }
                 ty::Uint(_) | ty::Int(_) | ty::RawPtr(..) => {}
                 _ => {
                     report_atomic_type_validation_error(fx, intrinsic, source_info.span, ty);
