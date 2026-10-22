@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 10
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
     - name: Check todo
       run: ./y.sh check-todo
@@ -34,7 +34,7 @@ jobs:
     timeout-minutes: 10
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
     - name: Avoid installing rustc-dev
       run: |
@@ -88,7 +88,7 @@ jobs:
               TARGET_TUPLE: x86_64-pc-windows-gnu
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
     - name: CPU features
       if: matrix.os == 'ubuntu-latest'
@@ -139,7 +139,7 @@ jobs:
     timeout-minutes: 60
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
     - name: CPU features
       run: cat /proc/cpuinfo
@@ -162,7 +162,7 @@ jobs:
     timeout-minutes: 60
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
     - name: CPU features
       run: cat /proc/cpuinfo
@@ -214,7 +214,7 @@ jobs:
               TARGET_TUPLE: x86_64-pc-windows-gnu
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
     - name: Cache cargo target dir
       uses: actions/cache@v5
@@ -255,7 +255,7 @@ jobs:
       cancel-in-progress: true
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Download all built artifacts
         uses: actions/download-artifact@v8
