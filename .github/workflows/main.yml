@@ -127,8 +127,9 @@ jobs:
     - name: Test
       env:
         TARGET_TUPLE: ${{ matrix.env.TARGET_TUPLE }}
+        SKIP_WINDOWS: ${{ runner.os == 'Windows' && '--skip-test test.graviola' || '' }}
       # Skip `graviola` on Windows, too slow
-      run: ./y.sh test ${{ runner.os == 'Windows' && '--skip-test test.graviola' || '' }}
+      run: ./y.sh test ${SKIP_WINDOWS}
 
     - name: Install LLVM standard library
       env:
@@ -139,8 +140,9 @@ jobs:
     - name: Test with LLVM sysroot
       env:
         TARGET_TUPLE: ${{ matrix.env.TARGET_TUPLE }}
+        SKIP_WINDOWS: ${{ runner.os == 'Windows' && '--skip-test test.graviola' || '' }}
       # Skip `graviola` on Windows, too slow
-      run: ./y.sh test --sysroot llvm --no-unstable-features ${{ runner.os == 'Windows' && '--skip-test test.graviola' || '' }}
+      run: ./y.sh test --sysroot llvm --no-unstable-features ${SKIP_WINDOWS}
 
 
   # This job doesn't use cg_clif in any way. It checks that all cg_clif tests work with cg_llvm too.
