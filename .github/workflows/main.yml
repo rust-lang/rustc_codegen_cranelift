@@ -116,9 +116,11 @@ jobs:
 
     - name: Install toolchain and emulator
       if: matrix.apt_deps != null
+      env:
+        APT_DEPS: ${{ matrix.apt_deps }}
       run: |
         sudo apt-get update
-        sudo apt-get install -y ${{ matrix.apt_deps }}
+        sudo apt-get install -y ${APT_DEPS}
 
     - name: Prepare dependencies
       run: ./y.sh prepare
