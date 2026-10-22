@@ -131,7 +131,8 @@ jobs:
     - name: Test
       env:
         TARGET_TUPLE: ${{ matrix.env.TARGET_TUPLE }}
-      run: ./y.sh test ${{ matrix.test_args }}
+        TEST_ARGS: ${{ matrix.test_args }}
+      run: ./y.sh test ${TEST_ARGS}
 
     - name: Install LLVM standard library
       env:
@@ -141,8 +142,9 @@ jobs:
     # This is roughly config rust-lang/rust uses for testing
     - name: Test with LLVM sysroot
       env:
+        TEST_ARGS: ${{ matrix.test_args }}
         TARGET_TUPLE: ${{ matrix.env.TARGET_TUPLE }}
-      run: ./y.sh test --sysroot llvm --no-unstable-features ${{ matrix.test_args }}
+      run: ./y.sh test --sysroot llvm --no-unstable-features ${TEST_ARGS}
 
 
   # This job doesn't use cg_clif in any way. It checks that all cg_clif tests work with cg_llvm too.
