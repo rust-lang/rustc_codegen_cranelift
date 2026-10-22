@@ -99,7 +99,7 @@ jobs:
       run: cat /proc/cpuinfo
 
     - name: Cache cargo target dir
-      uses: actions/cache@v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
       with:
         path: build/cg_clif
         key: ${{ runner.os }}-${{ matrix.env.TARGET_TUPLE }}-cargo-build-target-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
@@ -171,7 +171,7 @@ jobs:
       run: cat /proc/cpuinfo
 
     - name: Cache cargo target dir
-      uses: actions/cache@v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
       with:
         path: build/cg_clif
         key: ${{ runner.os }}-x86_64-unknown-linux-gnu-cargo-build-target-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
@@ -220,7 +220,7 @@ jobs:
     - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
     - name: Cache cargo target dir
-      uses: actions/cache@v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
       with:
         path: build/cg_clif
         key: ${{ runner.os }}-${{ matrix.env.TARGET_TUPLE }}-dist-cargo-build-target-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
