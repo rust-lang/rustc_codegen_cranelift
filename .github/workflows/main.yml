@@ -131,7 +131,9 @@ jobs:
       run: ./y.sh test ${{ runner.os == 'Windows' && '--skip-test test.graviola' || '' }}
 
     - name: Install LLVM standard library
-      run: rustup target add ${{ matrix.env.TARGET_TUPLE }}
+      env:
+          TARGET_TUPLE: ${{ matrix.env.TARGET_TUPLE }}
+      run: rustup target add ${TARGET_TUPLE}
 
     # This is roughly config rust-lang/rust uses for testing
     - name: Test with LLVM sysroot
