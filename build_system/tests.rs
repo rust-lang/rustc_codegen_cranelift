@@ -16,6 +16,7 @@ static BUILD_EXAMPLE_OUT_DIR: RelPath = RelPath::build("example");
 struct TestCase {
     config: &'static str,
     cmd: TestCaseCmd,
+    requires_unstable_features: bool,
 }
 
 enum TestCaseCmd {
@@ -29,7 +30,7 @@ enum TestCaseCmd {
 impl TestCase {
     // FIXME reduce usage of custom test case commands
     const fn custom(config: &'static str, func: &'static dyn Fn(&TestRunner<'_>)) -> Self {
-        Self { config, cmd: TestCaseCmd::Custom { func } }
+        Self { config, cmd: TestCaseCmd::Custom { func }, requires_unstable_features: false }
     }
 
     const fn build_lib(
@@ -37,11 +38,15 @@ impl TestCase {
         source: &'static str,
         crate_types: &'static str,
     ) -> Self {
-        Self { config, cmd: TestCaseCmd::BuildLib { source, crate_types } }
+        Self {
+            config,
+            cmd: TestCaseCmd::BuildLib { source, crate_types },
+            requires_unstable_features: false,
+        }
     }
 
     const fn build_bin(config: &'static str, source: &'static str) -> Self {
-        Self { config, cmd: TestCaseCmd::BuildBin { source } }
+        Self { config, cmd: TestCaseCmd::BuildBin { source }, requires_unstable_features: false }
     }
 
     const fn build_bin_and_run(
@@ -49,11 +54,24 @@ impl TestCase {
         source: &'static str,
         args: &'static [&'static str],
     ) -> Self {
-        Self { config, cmd: TestCaseCmd::BuildBinAndRun { source, args } }
+        Self {
+            config,
+            cmd: TestCaseCmd::BuildBinAndRun { source, args },
+            requires_unstable_features: false,
+        }
     }
 
     const fn jit_bin(config: &'static str, source: &'static str, args: &'static str) -> Self {
-        Self { config, cmd: TestCaseCmd::JitBin { source, args } }
+        Self {
+            config,
+            cmd: TestCaseCmd::JitBin { source, args },
+            requires_unstable_features: false,
+        }
+    }
+
+    const fn requires_unstable_features(mut self) -> Self {
+        self.requires_unstable_features = true;
+        self
     }
 }
 
@@ -88,6 +106,8 @@ const BASE_SYSROOT_SUITE: &[TestCase] = &[
         &[],
     ),
     TestCase::build_bin_and_run("aot.float-minmax-pass", "example/float-minmax-pass.rs", &[]),
+    TestCase::build_bin_and_run("aot.naked-asm-const-ptr", "example/naked-asm-const-ptr.rs", &[])
+        .requires_unstable_features(),
     TestCase::custom("aot.powi_libcall_signature", &|runner| {
         let mut cmd = runner.rustc_command(["example/powi-libcall-signature.rs"]);
         let output = cmd.output().unwrap();
@@ -488,6 +508,7 @@ pub(crate) fn run_tests(
 struct TestRunner<'a> {
     is_native: bool,
     jit_supported: bool,
+    use_unstable_features: bool,
     panic_unwind_support: bool,
     skip_tests: &'a [&'a str],
     dirs: Dirs,
@@ -514,6 +535,7 @@ impl<'a> TestRunner<'a> {
         Self {
             is_native,
             jit_supported,
+            use_unstable_features,
             panic_unwind_support,
             skip_tests,
             dirs,
@@ -523,13 +545,14 @@ impl<'a> TestRunner<'a> {
     }
 
     fn run_testsuite(&self, tests: &[TestCase]) {
-        for TestCase { config, cmd } in tests {
+        for TestCase { config, cmd, requires_unstable_features } in tests {
             let (tag, testname) = config.split_once('.').unwrap();
             let tag = tag.to_uppercase();
             let is_jit_test = tag == "JIT";
 
             let _guard = if !config::get_bool(config)
                 || (is_jit_test && !self.jit_supported)
+                || (*requires_unstable_features && !self.use_unstable_features)
                 || self.skip_tests.contains(config)
             {
                 eprintln!("[{tag}] {testname} (skipped)");
