@@ -19,9 +19,6 @@ git checkout --no-progress "$(rustc -V | cut -d' ' -f3 | tr -d '(')"
 
 git submodule update --quiet --init src/tools/cargo library/backtrace library/stdarch
 
-git -c user.name=Dummy -c user.email=dummy@example.com -c commit.gpgSign=false \
-    am ../patches/*-stdlib-*.patch
-
 cat > config.toml <<EOF
 change-id = "ignore"
 
