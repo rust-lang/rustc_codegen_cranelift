@@ -3,13 +3,6 @@
   "lsp": {
     "rust-analyzer": {
       "initialization_options": {
-        "diagnostics": {
-          // in case rustc.source is disabled for performance reasons; disable the errors about this
-          "disabled": [
-            "unresolved-extern-crate",
-            "unresolved-macro-call"
-          ]
-        },
         "rustc": {
           "source": "discover"
         },
