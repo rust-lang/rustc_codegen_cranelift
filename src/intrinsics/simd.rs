@@ -516,6 +516,82 @@ pub(super) fn codegen_simd_intrinsic_call<'tcx>(
             }
         }
 
+        sym::simd_funnel_shl | sym::simd_funnel_shr => {
+            intrinsic_args!(fx, args => (a, b, shift); intrinsic);
+
+            if !a.layout().ty.is_simd() {
+                report_simd_type_validation_error(fx, intrinsic, span, a.layout().ty);
+                return;
+            }
+            assert_eq!(a.layout(), b.layout());
+            assert_eq!(a.layout(), shift.layout());
+            assert_eq!(a.layout(), ret.layout());
+
+            let layout = a.layout();
+            let (lane_count, lane_ty) = layout.ty.simd_size_and_type(fx.tcx);
+            let res_lane_layout = fx.layout_of(lane_ty);
+
+            match lane_ty.kind() {
+                ty::Int(_) | ty::Uint(_) => {}
+                _ => {
+                    fx.tcx.dcx().span_fatal(
+                        span,
+                        format!(
+                            "invalid monomorphization of `{intrinsic}` intrinsic: \
+                            vector argument `{}`'s element type `{}`, expected integer element type",
+                            a.layout().ty,
+                            lane_ty
+                        ),
+                    )
+                }
+            }
+
+            let ty = fx.clif_type(lane_ty).unwrap();
+            let bits = i64::from(ty.bits());
+            let bits_val = if ty == types::I128 {
+                let lo = fx.bcx.ins().iconst(types::I64, bits);
+                let hi = fx.bcx.ins().iconst(types::I64, 0);
+                fx.bcx.ins().iconcat(lo, hi)
+            } else {
+                fx.bcx.ins().iconst(ty, bits)
+            };
+
+            for lane in 0..lane_count {
+                let a_lane = a.value_lane(fx, lane).load_scalar(fx);
+                let b_lane = b.value_lane(fx, lane).load_scalar(fx);
+                let shift_lane = shift.value_lane(fx, lane).load_scalar(fx);
+
+                let is_shift_zero = codegen_icmp_imm(fx, IntCC::Equal, shift_lane, 0);
+                let inv_shift = fx.bcx.ins().isub(bits_val, shift_lane);
+
+                let res = match intrinsic {
+                    sym::simd_funnel_shl => {
+                        let hi = fx.bcx.ins().ishl(a_lane, shift_lane);
+                        let lo = fx.bcx.ins().ushr(b_lane, inv_shift);
+                        fx.bcx.ins().bor(hi, lo)
+                    }
+                    sym::simd_funnel_shr => {
+                        let hi = fx.bcx.ins().ishl(a_lane, inv_shift);
+                        let lo = fx.bcx.ins().ushr(b_lane, shift_lane);
+                        fx.bcx.ins().bor(hi, lo)
+                    }
+                    _ => unreachable!(),
+                };
+
+                let res = fx.bcx.ins().select(
+                    is_shift_zero,
+                    match intrinsic {
+                        sym::simd_funnel_shl => a_lane,
+                        sym::simd_funnel_shr => b_lane,
+                        _ => unreachable!(),
+                    },
+                    res,
+                );
+
+                ret.place_lane(fx, lane).write_cvalue(fx, CValue::by_val(res, res_lane_layout));
+            }
+        }
+
         sym::simd_minimum_number_nsz | sym::simd_maximum_number_nsz => {
             intrinsic_args!(fx, args => (x, y); intrinsic);
 
