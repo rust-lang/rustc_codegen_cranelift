@@ -75,6 +75,7 @@ const BASE_SYSROOT_SUITE: &[TestCase] = &[
     ),
     TestCase::jit_bin("jit.std_example", "example/std_example.rs", "arg"),
     TestCase::build_bin_and_run("aot.std_example", "example/std_example.rs", &["arg"]),
+    TestCase::build_bin_and_run("aot.abi_cast", "example/abi_cast.rs", &[]),
     TestCase::build_bin_and_run("aot.dst_field_align", "example/dst-field-align.rs", &[]),
     TestCase::build_bin_and_run(
         "aot.subslice-patterns-const-eval",

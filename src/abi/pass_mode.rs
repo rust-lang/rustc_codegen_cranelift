@@ -1,7 +1,7 @@
 //! Argument passing
 
 use cranelift_codegen::ir::ArgumentPurpose;
-use rustc_abi::{Reg, RegKind};
+use rustc_abi::{Endian, Reg, RegKind};
 use rustc_target::callconv::{
     ArgAbi, ArgAttributes, ArgExtension as RustcArgExtension, CastTarget, PassMode,
 };
@@ -59,7 +59,7 @@ fn cast_target_to_abi_params(cast: &CastTarget) -> SmallVec<[(Size, AbiParam); 2
         0
     } else {
         assert_ne!(cast.rest.unit.size, Size::ZERO);
-        if cast.rest.total.bytes() % cast.rest.unit.size.bytes() != 0 {
+        if !cast.rest.total.bytes().is_multiple_of(cast.rest.unit.size.bytes()) {
             assert_eq!(cast.rest.unit.kind, RegKind::Integer, "only int regs can be split");
         }
         cast.rest.total.bytes().div_ceil(cast.rest.unit.size.bytes())
@@ -204,58 +204,39 @@ pub(super) fn to_casted_value<'tcx>(
     arg: CValue<'tcx>,
     cast: &CastTarget,
 ) -> SmallVec<[Value; 2]> {
-    let layout = arg.layout();
+    let arg_size = arg.layout().size.bytes();
     let (ptr, meta) = arg.force_stack(fx);
     assert!(meta.is_none());
-    let abi_params = cast_target_to_abi_params(cast);
-    let abi_param_size = abi_params_size(&abi_params);
-    let cast_align = cast.align(fx).bytes();
-    let layout_align = layout.align.bytes();
-    let slot_align = cast_align.max(layout_align);
-    let slot_size = abi_param_size.max(layout.size.bytes()).next_multiple_of(slot_align);
-    let scratch =
-        fx.create_stack_slot(u32::try_from(slot_size).unwrap(), u32::try_from(slot_align).unwrap());
-    // A partial final integer is passed in a full register. Initialize every byte that can be
-    // loaded as an ABI parameter before copying the value bytes into the scratch slot.
-    if abi_param_size != 0 {
-        let zero_align = slot_align.min(1u64 << abi_param_size.trailing_zeros());
-        let scratch_addr = scratch.get_addr(fx);
-        fx.bcx.emit_small_memset(
-            fx.target_config,
-            scratch_addr,
-            0,
-            abi_param_size,
-            u8::try_from(zero_align).unwrap_or(128),
-            MemFlagsData::new(),
-        );
-    }
-
-    let copy_bytes = abi_param_size.min(layout.size.bytes());
-    if copy_bytes != 0 {
-        let from_addr = ptr.get_addr(fx);
-        let to_addr = scratch.get_addr(fx);
-        let copy_align = 1u64 << copy_bytes.trailing_zeros();
-        let dst_align = slot_align.min(copy_align).try_into().unwrap_or(128);
-        let src_align = layout.align.bytes().min(copy_align).try_into().unwrap_or(128);
-        fx.bcx.emit_small_memory_copy(
-            fx.target_config,
-            to_addr,
-            from_addr,
-            copy_bytes,
-            dst_align,
-            src_align,
-            true,
-            MemFlagsData::new(),
-        );
-    }
-    abi_params
-        .iter()
+    cast_target_to_abi_params(cast)
+        .into_iter()
         .map(|(offset, param)| {
-            scratch.offset_i64(fx, offset.bytes() as i64).load(
-                fx,
-                param.value_type,
-                MemFlagsData::new(),
-            )
+            let ty = param.value_type;
+            let bytes = u64::from(ty.bytes());
+            let remaining = arg_size.saturating_sub(offset.bytes());
+            let ptr = ptr.offset_i64(fx, offset.bytes() as i64);
+            if remaining >= bytes {
+                return ptr.load(fx, ty, MemFlagsData::new());
+            }
+
+            // The final ABI register can extend past the Rust value. Load only the
+            // available bytes, placing them as a full-width load would on this target.
+            assert!(ty.is_int());
+            let mut value = type_zero_value(&mut fx.bcx, ty);
+            let mut loaded = 0;
+            while loaded < remaining {
+                let load_bytes = 1u64 << (remaining - loaded).ilog2();
+                let load_ty = Type::int_with_byte_size(u16::try_from(load_bytes).unwrap()).unwrap();
+                let part = ptr.offset_i64(fx, loaded as i64).load(fx, load_ty, MemFlagsData::new());
+                let part = fx.bcx.ins().uextend(ty, part);
+                let shift = match fx.tcx.data_layout.endian {
+                    Endian::Little => loaded,
+                    Endian::Big => bytes - loaded - load_bytes,
+                };
+                let part = fx.bcx.ins().ishl_imm(part, (shift * 8) as i64);
+                value = fx.bcx.ins().bor(value, part);
+                loaded += load_bytes;
+            }
+            value
         })
         .collect()
 }
@@ -267,12 +248,12 @@ pub(super) fn from_casted_value<'tcx>(
     cast: &CastTarget,
 ) -> CValue<'tcx> {
     let abi_params = cast_target_to_abi_params(cast);
-    let abi_param_size = abi_params_size(&abi_params);
-    let cast_align = cast.align(fx).bytes();
-    let layout_size = layout.size.bytes();
-    let layout_align = layout.align.bytes();
-    let slot_align = cast_align.max(layout_align);
-    let slot_size = abi_param_size.max(layout_size).next_multiple_of(slot_align);
+    let slot_align = cast.align(fx).bytes().max(layout.align.bytes());
+    // Stack slot size may be bigger for example `[u8; 3]` which is packed into an `i32`.
+    // It may also be smaller for example when the type is a wrapper around an integer with a
+    // larger alignment than the integer.
+    let slot_size =
+        abi_params_size(&abi_params).max(layout.size.bytes()).next_multiple_of(slot_align);
     let ptr =
         fx.create_stack_slot(u32::try_from(slot_size).unwrap(), u32::try_from(slot_align).unwrap());
     let mut block_params_iter = block_params.iter().copied();
