@@ -1,7 +1,7 @@
 //! Argument passing
 
 use cranelift_codegen::ir::ArgumentPurpose;
-use rustc_abi::{Reg, RegKind};
+use rustc_abi::{Endian, Reg, RegKind};
 use rustc_target::callconv::{
     ArgAbi, ArgAttributes, ArgExtension as RustcArgExtension, CastTarget, IndirectMode, PassMode,
 };
@@ -55,13 +55,14 @@ fn cast_target_to_abi_params(cast: &CastTarget) -> SmallVec<[(Size, AbiParam); 2
         ];
     }
 
-    let (rest_count, rem_bytes) = if cast.rest.unit.size.bytes() == 0 {
-        (0, 0)
+    let rest_count = if cast.rest.total == Size::ZERO {
+        0
     } else {
-        (
-            cast.rest.total.bytes() / cast.rest.unit.size.bytes(),
-            cast.rest.total.bytes() % cast.rest.unit.size.bytes(),
-        )
+        assert_ne!(cast.rest.unit.size, Size::ZERO);
+        if !cast.rest.total.bytes().is_multiple_of(cast.rest.unit.size.bytes()) {
+            assert_eq!(cast.rest.unit.kind, RegKind::Integer, "only int regs can be split");
+        }
+        cast.rest.total.bytes().div_ceil(cast.rest.unit.size.bytes())
     };
 
     // Note: Unlike the LLVM equivalent of this code we don't have separate branches for when there
@@ -82,18 +83,15 @@ fn cast_target_to_abi_params(cast: &CastTarget) -> SmallVec<[(Size, AbiParam); 2
         res.push((offset, arg));
         offset += Size::from_bytes(arg.value_type.bytes());
     }
-
-    // Append final integer
-    if rem_bytes != 0 {
-        // Only integers can be really split further.
-        assert_eq!(cast.rest.unit.kind, RegKind::Integer);
-        res.push((
-            offset,
-            reg_to_abi_param(Reg { kind: RegKind::Integer, size: Size::from_bytes(rem_bytes) }),
-        ));
-    }
-
     res
+}
+
+fn abi_params_size(params: &[(Size, AbiParam)]) -> u64 {
+    params
+        .iter()
+        .map(|(offset, param)| offset.bytes() + u64::from(param.value_type.bytes()))
+        .max()
+        .unwrap_or(0)
 }
 
 impl<'tcx> ArgAbiExt<'tcx> for ArgAbi<'tcx, Ty<'tcx>> {
@@ -209,16 +207,40 @@ pub(super) fn to_casted_value<'tcx>(
     arg: CValue<'tcx>,
     cast: &CastTarget,
 ) -> SmallVec<[Value; 2]> {
+    let arg_size = arg.layout().size.bytes();
     let (ptr, meta) = arg.force_stack(fx);
     assert!(meta.is_none());
     cast_target_to_abi_params(cast)
         .into_iter()
         .map(|(offset, param)| {
-            ptr.offset_i64(fx, offset.bytes() as i64).load(
-                fx,
-                param.value_type,
-                MemFlagsData::new(),
-            )
+            let ty = param.value_type;
+            let bytes = u64::from(ty.bytes());
+            let remaining = arg_size.saturating_sub(offset.bytes());
+            let ptr = ptr.offset_i64(fx, offset.bytes() as i64);
+            if remaining >= bytes {
+                return ptr.load(fx, ty, MemFlagsData::new());
+            }
+
+            // The final ABI register can extend past the Rust value. Load only the
+            // available bytes, placing them as a full-width load would on this target.
+            assert!(ty.is_int());
+            let mut value = type_zero_value(&mut fx.bcx, ty);
+            let mut loaded = 0;
+            while loaded < remaining {
+                let load_bytes = 1u64 << (remaining - loaded).ilog2();
+                let load_ty = Type::int_with_byte_size(u16::try_from(load_bytes).unwrap()).unwrap();
+                let part = ptr.offset_i64(fx, loaded as i64).load(fx, load_ty, MemFlagsData::new());
+                let part = fx.bcx.ins().uextend(ty, part);
+                let shift = match fx.tcx.data_layout.endian {
+                    Endian::Little => loaded,
+                    Endian::Big => bytes - loaded - load_bytes,
+                };
+                let shift = fx.bcx.ins().iconst(types::I8, (shift * 8) as i64);
+                let part = fx.bcx.ins().ishl(part, shift);
+                value = fx.bcx.ins().bor(value, part);
+                loaded += load_bytes;
+            }
+            value
         })
         .collect()
 }
@@ -230,15 +252,13 @@ pub(super) fn from_casted_value<'tcx>(
     cast: &CastTarget,
 ) -> CValue<'tcx> {
     let abi_params = cast_target_to_abi_params(cast);
-    let abi_param_size: u32 = abi_params.iter().map(|(_, param)| param.value_type.bytes()).sum();
-    let layout_size = u32::try_from(layout.size.bytes()).unwrap();
-    let ptr = fx.create_stack_slot(
-        // Stack slot size may be bigger for example `[u8; 3]` which is packed into an `i32`.
-        // It may also be smaller for example when the type is a wrapper around an integer with a
-        // larger alignment than the integer.
-        std::cmp::max(abi_param_size, layout_size),
-        u32::try_from(layout.align.bytes()).unwrap(),
-    );
+    let slot_align = cast.align(fx).bytes().max(layout.align.bytes());
+    // The ABI representation may be larger than the Rust type, e.g. `[u8; 3]` in an `i32`,
+    // or smaller when an integer wrapper has extra alignment.
+    let slot_size =
+        abi_params_size(&abi_params).max(layout.size.bytes()).next_multiple_of(slot_align);
+    let ptr =
+        fx.create_stack_slot(u32::try_from(slot_size).unwrap(), u32::try_from(slot_align).unwrap());
     let mut block_params_iter = block_params.iter().copied();
     for (offset, _) in abi_params {
         ptr.offset_i64(fx, offset.bytes() as i64).store(
