@@ -1,5 +1,5 @@
-#![feature(core_intrinsics, custom_mir)]
-#![allow(internal_features)]
+#![cfg_attr(target_os = "linux", feature(core_intrinsics, custom_mir))]
+#![cfg_attr(target_os = "linux", allow(internal_features))]
 
 use std::hint::black_box;
 
