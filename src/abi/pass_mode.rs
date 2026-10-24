@@ -232,7 +232,8 @@ pub(super) fn to_casted_value<'tcx>(
                     Endian::Little => loaded,
                     Endian::Big => bytes - loaded - load_bytes,
                 };
-                let part = fx.bcx.ins().ishl_imm(part, (shift * 8) as i64);
+                let shift = fx.bcx.ins().iconst(types::I8, (shift * 8) as i64);
+                let part = fx.bcx.ins().ishl(part, shift);
                 value = fx.bcx.ins().bor(value, part);
                 loaded += load_bytes;
             }
@@ -249,9 +250,8 @@ pub(super) fn from_casted_value<'tcx>(
 ) -> CValue<'tcx> {
     let abi_params = cast_target_to_abi_params(cast);
     let slot_align = cast.align(fx).bytes().max(layout.align.bytes());
-    // Stack slot size may be bigger for example `[u8; 3]` which is packed into an `i32`.
-    // It may also be smaller for example when the type is a wrapper around an integer with a
-    // larger alignment than the integer.
+    // The ABI representation may be larger than the Rust type, e.g. `[u8; 3]` in an `i32`,
+    // or smaller when an integer wrapper has extra alignment.
     let slot_size =
         abi_params_size(&abi_params).max(layout.size.bytes()).next_multiple_of(slot_align);
     let ptr =
