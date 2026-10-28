@@ -6,6 +6,13 @@ on:
 
 permissions: {}
 
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_BUILD_INCREMENTAL: false
+
 jobs:
   abi_cafe:
     runs-on: ${{ matrix.os }}
@@ -13,10 +20,6 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.os }}-${{ matrix.env.TARGET_TUPLE }}
       cancel-in-progress: true
-
-    defaults:
-      run:
-        shell: bash
 
     strategy:
       fail-fast: true
