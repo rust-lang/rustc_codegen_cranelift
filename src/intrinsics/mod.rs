@@ -760,23 +760,37 @@ fn codegen_regular_intrinsic_call<'tcx>(
 
         sym::volatile_load | sym::unaligned_volatile_load => {
             intrinsic_args!(fx, args => (ptr); intrinsic);
-
-            // Cranelift treats loads as volatile by default
-            // FIXME correctly handle unaligned_volatile_load
             let inner_layout = fx.layout_of(ptr.layout().ty.builtin_deref(true).unwrap());
-            let val = CValue::by_ref(Pointer::new(ptr.load_scalar(fx)), inner_layout);
+            let ptr = ptr.load_scalar(fx);
+
+            let clif_ty = fx.clif_type(inner_layout.ty).unwrap();
+            let value = fx.bcx.ins().load(
+                clif_ty,
+                MemFlagsData::new()
+                    .with_volatile(true)
+                    .with_aligned(intrinsic != sym::unaligned_volatile_load),
+                ptr,
+                0,
+            );
+
+            let val = CValue::by_val(value, inner_layout);
             ret.write_cvalue(fx, val);
         }
         sym::volatile_store | sym::unaligned_volatile_store | sym::nontemporal_store => {
             intrinsic_args!(fx, args => (ptr, val); intrinsic);
             let ptr = ptr.load_scalar(fx);
+            let val = val.load_scalar(fx);
 
-            // Cranelift treats stores as volatile by default
-            // FIXME correctly handle unaligned_volatile_store
             // FIXME actually do nontemporal stores if requested (but do not just emit MOVNT on x86;
             // see the LLVM backend for details)
-            let dest = CPlace::for_ptr(Pointer::new(ptr), val.layout());
-            dest.write_cvalue(fx, val);
+            fx.bcx.ins().store(
+                MemFlagsData::new()
+                    .with_volatile(true)
+                    .with_aligned(intrinsic != sym::unaligned_volatile_store),
+                val,
+                ptr,
+                0,
+            );
         }
 
         sym::ptr_offset_from | sym::ptr_offset_from_unsigned => {
@@ -826,10 +840,11 @@ fn codegen_regular_intrinsic_call<'tcx>(
         }
         sym::atomic_load => {
             intrinsic_args!(fx, args => (ptr); intrinsic);
-            let ptr = ptr.load_scalar(fx);
-            // FIXME: this ignores the atomic ordering and the volatile flag.
-
             let ty = generic_args.type_at(0);
+            // FIXME: this ignores the atomic ordering.
+            let volatile = generic_args.const_at(2).to_value().to_leaf().try_to_bool().unwrap();
+            let ptr = ptr.load_scalar(fx);
+
             match ty.kind() {
                 ty::Uint(_) | ty::Int(_) | ty::RawPtr(..) => {}
                 _ => {
@@ -839,17 +854,26 @@ fn codegen_regular_intrinsic_call<'tcx>(
             }
             let clif_ty = fx.clif_type(ty).unwrap();
 
-            let val = fx.bcx.ins().atomic_load(clif_ty, MemFlagsData::trusted(), ptr);
+            let val = fx.bcx.ins().atomic_load(
+                clif_ty,
+                if volatile {
+                    MemFlagsData::new().with_volatile(true).with_aligned(true)
+                } else {
+                    MemFlagsData::trusted()
+                },
+                ptr,
+            );
 
             let val = CValue::by_val(val, fx.layout_of(ty));
             ret.write_cvalue(fx, val);
         }
         sym::atomic_store => {
             intrinsic_args!(fx, args => (ptr, val); intrinsic);
-            let ptr = ptr.load_scalar(fx);
-            // FIXME: this ignores the atomic ordering and the volatile flag.
-
             let ty = generic_args.type_at(0);
+            // FIXME: this ignores the atomic ordering.
+            let volatile = generic_args.const_at(2).to_value().to_leaf().try_to_bool().unwrap();
+            let ptr = ptr.load_scalar(fx);
+
             match ty.kind() {
                 ty::Uint(_) | ty::Int(_) | ty::RawPtr(..) => {}
                 _ => {
@@ -860,7 +884,15 @@ fn codegen_regular_intrinsic_call<'tcx>(
 
             let val = val.load_scalar(fx);
 
-            fx.bcx.ins().atomic_store(MemFlagsData::trusted(), val, ptr);
+            fx.bcx.ins().atomic_store(
+                if volatile {
+                    MemFlagsData::new().with_volatile(true).with_aligned(true)
+                } else {
+                    MemFlagsData::trusted()
+                },
+                val,
+                ptr,
+            );
         }
         sym::atomic_xchg => {
             intrinsic_args!(fx, args => (ptr, new); intrinsic);
