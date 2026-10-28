@@ -83,9 +83,13 @@ jobs:
           - os: windows-latest
             env:
               TARGET_TUPLE: x86_64-pc-windows-msvc
+            # Skip `graviola` on Windows, too slow
+            test_args: --skip-test test.graviola
           - os: windows-latest
             env:
               TARGET_TUPLE: x86_64-pc-windows-gnu
+            # Skip `graviola` on Windows, too slow
+            test_args: --skip-test test.graviola
 
     steps:
     - uses: actions/checkout@v6
@@ -119,8 +123,7 @@ jobs:
     - name: Test
       env:
         TARGET_TUPLE: ${{ matrix.env.TARGET_TUPLE }}
-      # Skip `graviola` on Windows, too slow
-      run: ./y.sh test ${{ runner.os == 'Windows' && '--skip-test test.graviola' || '' }}
+      run: ./y.sh test ${{ matrix.test_args }}
 
     - name: Install LLVM standard library
       run: rustup target add ${{ matrix.env.TARGET_TUPLE }}
@@ -129,8 +132,7 @@ jobs:
     - name: Test with LLVM sysroot
       env:
         TARGET_TUPLE: ${{ matrix.env.TARGET_TUPLE }}
-      # Skip `graviola` on Windows, too slow
-      run: ./y.sh test --sysroot llvm --no-unstable-features ${{ runner.os == 'Windows' && '--skip-test test.graviola' || '' }}
+      run: ./y.sh test --sysroot llvm --no-unstable-features ${{ matrix.test_args }}
 
 
   # This job doesn't use cg_clif in any way. It checks that all cg_clif tests work with cg_llvm too.
