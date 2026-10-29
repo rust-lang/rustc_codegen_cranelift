@@ -75,24 +75,47 @@ pub(crate) fn codegen_inline_asm_terminator<'tcx>(
         return;
     }
 
+    // If any input operand is `!`, then  we don't need to generate the asm terminator,
+    // but we still need to evaluate the operands.
+    // We do this in codegen instead of MIR building so that it doesn't affect borrowck.
+    // Fixes an ICE with `!` inline asm inputs (#154904).
+    let mut any_input_uninhabited = false;
+
+    // Using filter_map instead of short-circuiting on a `!` input so we don't skip evaluating
+    // anything important from later operands (e.g. the `cfg!(not(feature = "inline_asm_sym"))` check).
+    // The `rustc_codegen_ssa` version of this code does the `load_scalar` equivalent in a later loop,
+    // so it doesn't need this.
     let operands = operands
         .iter()
-        .map(|operand| match *operand {
-            InlineAsmOperand::In { reg, ref value } => CInlineAsmOperand::In {
-                reg,
-                value: crate::base::codegen_operand(fx, value).load_scalar(fx),
-            },
-            InlineAsmOperand::Out { reg, late, ref place } => CInlineAsmOperand::Out {
+        .filter_map(|operand| match *operand {
+            InlineAsmOperand::In { reg, ref value } => {
+                let value = crate::base::codegen_operand(fx, value);
+                if value.layout().uninhabited {
+                    any_input_uninhabited = true;
+                    None
+                } else {
+                    let value = value.load_scalar(fx);
+                    Some(CInlineAsmOperand::In { reg, value })
+                }
+            }
+            InlineAsmOperand::Out { reg, late, ref place } => Some(CInlineAsmOperand::Out {
                 reg,
                 late,
                 place: place.map(|place| crate::base::codegen_place(fx, place)),
-            },
+            }),
             InlineAsmOperand::InOut { reg, late, ref in_value, ref out_place } => {
-                CInlineAsmOperand::InOut {
-                    reg,
-                    _late: late,
-                    in_value: crate::base::codegen_operand(fx, in_value).load_scalar(fx),
-                    out_place: out_place.map(|place| crate::base::codegen_place(fx, place)),
+                let in_value = crate::base::codegen_operand(fx, in_value);
+                if in_value.layout().uninhabited {
+                    any_input_uninhabited = true;
+                    None
+                } else {
+                    let in_value = in_value.load_scalar(fx);
+                    Some(CInlineAsmOperand::InOut {
+                        reg,
+                        _late: late,
+                        in_value,
+                        out_place: out_place.map(|place| crate::base::codegen_place(fx, place)),
+                    })
                 }
             }
             InlineAsmOperand::Const { ref value } => {
@@ -113,7 +136,7 @@ pub(crate) fn codegen_inline_asm_terminator<'tcx>(
                             int,
                             fx.layout_of(ty),
                         );
-                        CInlineAsmOperand::Const { value }
+                        Some(CInlineAsmOperand::Const { value })
                     }
                     ConstScalar::Ptr(ptr, _) => {
                         if cfg!(not(feature = "inline_asm_sym")) {
@@ -160,7 +183,7 @@ pub(crate) fn codegen_inline_asm_terminator<'tcx>(
                             write!(symbol, "{offset:+}").unwrap();
                         }
 
-                        CInlineAsmOperand::Symbol { symbol }
+                        Some(CInlineAsmOperand::Symbol { symbol })
                     }
                 }
             }
@@ -188,7 +211,7 @@ pub(crate) fn codegen_inline_asm_terminator<'tcx>(
                         == CanonAbi::Custom
                     {
                         // We can't create a wrapper for custom ABI functions.
-                        CInlineAsmOperand::Symbol { symbol: symbol.name.to_owned() }
+                        Some(CInlineAsmOperand::Symbol { symbol: symbol.name.to_owned() })
                     } else {
                         // Pass a wrapper rather than the function itself as the function itself may not
                         // be exported from the main codegen unit and may thus be unreachable from the
@@ -204,7 +227,7 @@ pub(crate) fn codegen_inline_asm_terminator<'tcx>(
                             get_function_sig(fx.tcx, fx.target_config.default_call_conv, instance);
                         create_wrapper_function(fx.module, sig, &wrapper_name, symbol.name);
 
-                        CInlineAsmOperand::Symbol { symbol: wrapper_name }
+                        Some(CInlineAsmOperand::Symbol { symbol: wrapper_name })
                     }
                 } else {
                     span_bug!(span, "invalid type for asm sym (fn)");
@@ -213,7 +236,9 @@ pub(crate) fn codegen_inline_asm_terminator<'tcx>(
             InlineAsmOperand::SymStatic { def_id } => {
                 assert!(fx.tcx.is_static(def_id));
                 let instance = Instance::mono(fx.tcx, def_id);
-                CInlineAsmOperand::Symbol { symbol: fx.tcx.symbol_name(instance).name.to_owned() }
+                Some(CInlineAsmOperand::Symbol {
+                    symbol: fx.tcx.symbol_name(instance).name.to_owned(),
+                })
             }
             InlineAsmOperand::Label { .. } => {
                 span_bug!(span, "asm! label operands are not yet supported");
@@ -221,15 +246,19 @@ pub(crate) fn codegen_inline_asm_terminator<'tcx>(
         })
         .collect::<Vec<_>>();
 
-    codegen_inline_asm_inner(fx, template, &operands, options);
+    if any_input_uninhabited {
+        fx.bcx.ins().trap(TrapCode::user(1 /* unreachable */).unwrap());
+    } else {
+        codegen_inline_asm_inner(fx, template, &operands, options);
 
-    match destination {
-        Some(destination) => {
-            let destination_block = fx.get_block(destination);
-            fx.bcx.ins().jump(destination_block, &[]);
-        }
-        None => {
-            fx.bcx.ins().trap(TrapCode::user(1 /* unreachable */).unwrap());
+        match destination {
+            Some(destination) => {
+                let destination_block = fx.get_block(destination);
+                fx.bcx.ins().jump(destination_block, &[]);
+            }
+            None => {
+                fx.bcx.ins().trap(TrapCode::user(1 /* unreachable */).unwrap());
+            }
         }
     }
 }
