@@ -39,7 +39,7 @@ use std::sync::Arc;
 use cranelift_codegen::isa::TargetIsa;
 use cranelift_codegen::settings::{self, Configurable};
 use rustc_codegen_ssa::traits::CodegenBackend;
-use rustc_codegen_ssa::{CompiledModules, CrateInfo, TargetConfig, back};
+use rustc_codegen_ssa::{CompiledModules, CrateInfo, TargetConfig, back, target_features};
 use rustc_data_structures::unord::UnordSet;
 use rustc_log::tracing::info;
 use rustc_middle::dep_graph::WorkProductMap;
@@ -154,7 +154,7 @@ impl CodegenBackend for CraneliftCodegenBackend {
         }
 
         CodegenBackendInit {
-            global_backend_features: vec![],
+            global_backend_features: global_llvm_features(sess),
             replaced_intrinsics: vec![],
             fallback_intrinsics: vec![sym::type_id_eq],
             thin_lto_supported: false,
@@ -343,7 +343,7 @@ fn build_isa(sess: &Session, jit: bool) -> Arc<dyn TargetIsa + 'static> {
 
     let flags = settings::Flags::new(flags_builder);
 
-    let isa_builder = match sess.opts.cg.target_cpu.as_deref() {
+    let mut isa_builder = match sess.opts.cg.target_cpu.as_deref() {
         Some(NATIVE_CPU) => cranelift_native::builder_with_options(true).unwrap(),
         Some(value) => {
             let mut builder =
@@ -354,6 +354,7 @@ fn build_isa(sess: &Session, jit: bool) -> Arc<dyn TargetIsa + 'static> {
                 sess.dcx()
                     .fatal("the specified target cpu isn't currently supported by Cranelift.");
             }
+
             builder
         }
         None => {
@@ -370,10 +371,30 @@ fn build_isa(sess: &Session, jit: bool) -> Arc<dyn TargetIsa + 'static> {
         }
     };
 
+    if let target_lexicon::Architecture::X86_64 = target_tuple.architecture
+        && sess.global_backend_features.iter().any(|feat| feat == "+cmpxchg16b")
+    {
+        isa_builder.enable("has_cmpxchg16b").unwrap();
+    }
+
     match isa_builder.finish(flags) {
         Ok(target_isa) => target_isa,
         Err(err) => sess.dcx().fatal(format!("failed to build TargetIsa: {}", err)),
     }
+}
+
+fn global_llvm_features(sess: &EarlySession) -> Vec<String> {
+    let mut features = vec![];
+
+    let mut extend_backend_features = |feature: &str, enable: bool| {
+        let enable_disable = if enable { '+' } else { '-' };
+        features.push(format!("{}{}", enable_disable, feature));
+    };
+
+    target_features::target_spec_to_backend_features(sess, &mut extend_backend_features);
+    target_features::flag_to_backend_features(sess, extend_backend_features);
+
+    features
 }
 
 /// This is the entrypoint for a hot plugged rustc_codegen_cranelift
