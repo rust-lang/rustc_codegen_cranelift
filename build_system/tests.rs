@@ -88,6 +88,19 @@ const BASE_SYSROOT_SUITE: &[TestCase] = &[
         &[],
     ),
     TestCase::build_bin_and_run("aot.float-minmax-pass", "example/float-minmax-pass.rs", &[]),
+    TestCase::custom("aot.simd-shuffle-array-index", &|runner| {
+        // `[u32; N]` indices: cg_clif regression (#1583); skipped for `-Zcodegen-backend=llvm` (rust#130268).
+        if matches!(
+            runner.codegen_backend,
+            CodegenBackend::Builtin(ref name) if name == "llvm"
+        ) {
+            eprintln!("[AOT] simd-shuffle-array-index (skipped for LLVM backend)");
+            return;
+        }
+
+        runner.run_rustc(["example/simd-shuffle-array-index.rs"]);
+        runner.run_out_command("simd-shuffle-array-index", &[]);
+    }),
     TestCase::custom("aot.powi_libcall_signature", &|runner| {
         let mut cmd = runner.rustc_command(["example/powi-libcall-signature.rs"]);
         let output = cmd.output().unwrap();
@@ -469,6 +482,7 @@ pub(crate) fn run_tests(
             use_unstable_features,
             sysroot_config.panic_unwind_support,
             skip_tests,
+            cg_clif_dylib.clone(),
             bootstrap_host_compiler.target == target_tuple,
             stdlib_source.clone(),
         );
@@ -502,6 +516,7 @@ pub(crate) fn run_tests(
             use_unstable_features,
             sysroot_config.panic_unwind_support,
             skip_tests,
+            cg_clif_dylib.clone(),
             bootstrap_host_compiler.target == target_tuple,
             stdlib_source,
         );
@@ -528,6 +543,7 @@ struct TestRunner<'a> {
     jit_supported: bool,
     panic_unwind_support: bool,
     skip_tests: &'a [&'a str],
+    codegen_backend: CodegenBackend,
     dirs: Dirs,
     target_compiler: Compiler,
     stdlib_source: PathBuf,
@@ -540,6 +556,7 @@ impl<'a> TestRunner<'a> {
         use_unstable_features: bool,
         panic_unwind_support: bool,
         skip_tests: &'a [&'a str],
+        codegen_backend: CodegenBackend,
         is_native: bool,
         stdlib_source: PathBuf,
     ) -> Self {
@@ -554,6 +571,7 @@ impl<'a> TestRunner<'a> {
             jit_supported,
             panic_unwind_support,
             skip_tests,
+            codegen_backend,
             dirs,
             target_compiler,
             stdlib_source,
