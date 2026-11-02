@@ -59,6 +59,7 @@ rm tests/ui/asm/label-operand.rs # same
 rm tests/ui/asm/may_unwind.rs # asm unwinding not supported
 rm tests/ui/asm/aarch64/may_unwind.rs # same
 rm tests/ui/asm/x86_64/may_unwind.rs # same
+rm tests/ui/never_type/diverging-inline-asm-input-place-copy.rs # same
 
 # misc unimplemented things
 rm tests/ui/target-feature/missing-plusminus.rs # error not implemented
@@ -159,10 +160,7 @@ rm -r tests/run-make-cargo/compiler-builtins # Expects lib/rustlib/src/rust to c
 rm -r tests/run-make-cargo/panic-immediate-abort-works # same
 rm -r tests/run-make-cargo/panic-immediate-abort-codegen # same
 rm -r tests/run-make-cargo/panic-strategies # same
-rm -r tests/run-make/missing-unstable-trait-bound # This disables support for unstable features, but running cg_clif needs some unstable features
-rm -r tests/run-make/const-trait-stable-toolchain # same
-rm -r tests/run-make/issue-149402-suggest-unresolve # same
-rm -r tests/run-make/unstable-target-feature # same
+rm tests/ui/target-feature/unstable-target-feature-on-nightly.rs
 rm -r tests/run-make/incr-add-rust-src-component
 rm tests/ui/errors/remap-path-prefix-sysroot.rs # different sysroot source path
 rm -r tests/run-make/export # something about rustc version mismatches
