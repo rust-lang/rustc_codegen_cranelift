@@ -155,7 +155,8 @@ impl CodegenBackend for CraneliftCodegenBackend {
 
         CodegenBackendInit {
             global_backend_features: vec![],
-            replaced_intrinsics: vec![],
+            // FIXME workaround for rust-lang/rustc_codegen_cranelift#1717
+            replaced_intrinsics: vec![sym::fma],
             fallback_intrinsics: vec![sym::type_id_eq],
             thin_lto_supported: false,
         }

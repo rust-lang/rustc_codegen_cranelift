@@ -1109,9 +1109,10 @@ fn codegen_regular_intrinsic_call<'tcx>(
                 // sofware emulation, use cranelift intrinsic analogous to llvm.fmuladd.*.
                 (sym::fma | sym::fmuladd, F32 | F64) => Codegen(fx.bcx.ins().fma(x, y, z)),
 
+                (sym::fma, F16) => Codegen(codegen_f16_f128::fma_f16(fx, x, y, z)),
                 (sym::fma, F128) => Fallback("fmaf128"),
 
-                (sym::fmuladd, F128) | (_, F16) => {
+                (sym::fmuladd, F16 | F128) => {
                     // We use the intrinsic fallback bodies for the rest
                     return Err(Instance::new_raw(instance.def_id(), instance.args));
                 }
