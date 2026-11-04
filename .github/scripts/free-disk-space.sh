@@ -206,7 +206,6 @@ cleanPackages() {
                 'google-chrome-stable'
                 'google-cloud-cli'
                 'google-cloud-sdk'
-                'powershell'
             )
         fi
     else
