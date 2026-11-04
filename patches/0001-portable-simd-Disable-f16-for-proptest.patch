@@ -1,0 +1,85 @@
+From 14509648328a41aebd24559a26545cbfd35d24b6 Mon Sep 17 00:00:00 2001
+From: bjorn3 <17426603+bjorn3@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 11:18:40 +0100
+Subject: [PATCH] Disable f16 when not supported
+
+---
+ Cargo.toml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Cargo.toml b/Cargo.toml
+index 883140b..80a786b 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -15,4 +15,4 @@ opt-level = 2
+ [workspace.dependencies.proptest]
+ version = "1.11"
+ default-features = false
+-features = ["alloc", "f16"]
++features = ["alloc"]
+diff --git a/crates/test_helpers/src/lib.rs b/crates/test_helpers/src/lib.rs
+index 6661b0c..ba7c2f1 100644
+--- a/crates/test_helpers/src/lib.rs
++++ b/crates/test_helpers/src/lib.rs
+@@ -1,3 +1,4 @@
++#![feature(cfg_target_has_reliable_f16_f128)]
+ #![feature(f16)]
+ #![cfg_attr(
+     any(target_arch = "powerpc", target_arch = "powerpc64"),
+@@ -47,7 +47,8 @@ impl_num! { u16 }
+ impl_num! { u32 }
+ impl_num! { u64 }
+ impl_num! { usize }
++#[cfg(target_has_reliable_f16)]
+ impl_num! { f16 }
+ impl_num! { f32 }
+ impl_num! { f64 }
+ 
+diff --git a/crates/test_helpers/src/approxeq.rs b/crates/test_helpers/src/approxeq.rs
+index b868e09..d9a0553 100644
+--- a/crates/test_helpers/src/approxeq.rs
++++ b/crates/test_helpers/src/approxeq.rs
+@@ -60,7 +60,9 @@ macro_rules! impl_float_approxeq {
+     };
+ }
+ 
+-impl_float_approxeq! { f16, f32, f64 }
++#[cfg(target_has_reliable_f16)]
++impl_float_approxeq! { f16 }
++impl_float_approxeq! { f32, f64 }
+ 
+ impl<T: ApproxEq, const N: usize> ApproxEq for [T; N] {
+     fn approxeq(&self, other: &Self, ulps: i64) -> bool {
+diff --git a/crates/test_helpers/src/biteq.rs b/crates/test_helpers/src/biteq.rs
+index 36761e3..cbc20cd 100644
+--- a/crates/test_helpers/src/biteq.rs
++++ b/crates/test_helpers/src/biteq.rs
+@@ -53,7 +53,9 @@ macro_rules! impl_float_biteq {
+     };
+ }
+ 
+-impl_float_biteq! { f16, f32, f64 }
++#[cfg(target_has_reliable_f16)]
++impl_float_biteq! { f16 }
++impl_float_biteq! { f32, f64 }
+ 
+ impl<T> BitEq for *const T {
+     fn biteq(&self, other: &Self) -> bool {
+diff --git a/crates/test_helpers/src/subnormals.rs b/crates/test_helpers/src/subnormals.rs
+index 44dfbb3..b5f19ba 100644
+--- a/crates/test_helpers/src/subnormals.rs
++++ b/crates/test_helpers/src/subnormals.rs
+@@ -39,7 +39,9 @@ macro_rules! impl_else {
+     }
+ }
+ 
+-impl_float! { f16, f32, f64 }
++#[cfg(target_has_reliable_f16)]
++impl_float! { f16 }
++impl_float! { f32, f64 }
+ impl_else! { i8, i16, i32, i64, isize, u8, u16, u32, u64, usize }
+ 
+ /// AltiVec should flush subnormal inputs to zero, but QEMU seems to only flush outputs.
+-- 
+2.56.0
+

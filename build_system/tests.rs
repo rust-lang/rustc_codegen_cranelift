@@ -314,17 +314,24 @@ const EXTENDED_SYSROOT_SUITE: &[TestCase] = &[
 
         PORTABLE_SIMD.clean(&runner.dirs);
 
-        let build_cmd = PORTABLE_SIMD.build(&runner.target_compiler, &runner.dirs);
-        // FIXME uncomment once examples work: https://github.com/rust-lang/portable-simd/issues/470
-        //build_cmd.arg("--all-targets");
-        spawn_and_wait(build_cmd);
-
         if runner.is_native {
             let mut test_cmd = PORTABLE_SIMD.test(&runner.target_compiler, &runner.dirs);
+            if !runner.target_compiler.target.contains("windows-gnu") {
+                test_cmd.arg("--features=proptest/f16");
+            }
             // FIXME remove --tests once examples work: https://github.com/rust-lang/portable-simd/issues/470
             // FIXME missing arm64 intrinsics for swizzle_dyn
             test_cmd.arg("-q").arg("--tests").arg("--").arg("--skip").arg("swizzle_dyn");
             spawn_and_wait(test_cmd);
+        } else {
+            eprintln!("Cross-Compiling: Not running tests");
+            let mut build_cmd = PORTABLE_SIMD.build(&runner.target_compiler, &runner.dirs);
+            if !runner.target_compiler.target.contains("windows-gnu") {
+                build_cmd.arg("--features=proptest/f16");
+            }
+            // FIXME use --all-targets once examples work: https://github.com/rust-lang/portable-simd/issues/470
+            build_cmd.arg("--tests");
+            spawn_and_wait(build_cmd);
         }
     }),
     TestCase::custom("test.stdarch-core", &|runner| {
