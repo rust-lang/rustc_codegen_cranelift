@@ -306,6 +306,9 @@ unsafe fn test_simd() {
             if is_x86_feature_detected!("vpclmulqdq") && is_x86_feature_detected!("avx512f") {
                 test_mm512_clmulepi64_epi128();
             }
+            if is_x86_feature_detected!("avx") {
+                test_mm256_cvttps_epi32();
+            }
         }
     }
 }
@@ -556,6 +559,39 @@ unsafe fn test_mm256_permutevar8x32_epi32() {
     let r = _mm256_setr_epi32(800, 700, 600, 500, 400, 300, 200, 100);
     let e = _mm256_permutevar8x32_epi32(a, idx);
     assert_eq_m256i(r, e);
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx")]
+#[cfg(not(jit))]
+unsafe fn test_mm256_cvttps_epi32() {
+    unsafe {
+        // Same expectations as the 128-bit test: unrepresentable inputs map
+        // to i32::MIN (0x80000000).
+        let floats: [f32; 8] = [1.5, -2.5, i32::MAX as f32 + 1.0, f32::NAN, 0.0, -0.0, 3.9, -4.1];
+
+        let float_vec = _mm256_loadu_ps(floats.as_ptr());
+        let int_vec = _mm256_cvttps_epi32(float_vec);
+
+        let mut ints: [i32; 8] = [0; 8];
+        _mm256_storeu_si256(ints.as_mut_ptr() as *mut __m256i, int_vec);
+
+        let expected_ints: [i32; 8] = [1, -2, i32::MIN, i32::MIN, 0, 0, 3, -4];
+        assert_eq!(ints, expected_ints);
+
+        // Infinities and out-of-range values also map to i32::MIN.
+        let specials: [f32; 8] =
+            [f32::INFINITY, f32::NEG_INFINITY, f32::NAN, 3.0, -3.0, 0.5, -0.5, 1e38];
+
+        let special_vec = _mm256_loadu_ps(specials.as_ptr());
+        let special_int_vec = _mm256_cvttps_epi32(special_vec);
+
+        let mut special_ints: [i32; 8] = [0; 8];
+        _mm256_storeu_si256(special_ints.as_mut_ptr() as *mut __m256i, special_int_vec);
+
+        let expected_specials: [i32; 8] = [i32::MIN, i32::MIN, i32::MIN, 3, -3, 0, 0, i32::MIN];
+        assert_eq!(special_ints, expected_specials);
+    }
 }
 
 #[cfg(target_arch = "x86_64")]

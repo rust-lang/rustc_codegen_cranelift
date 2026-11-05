@@ -1,5 +1,6 @@
 //! Emulate x86 LLVM intrinsics
 
+use cranelift_codegen::ir::Endianness;
 use rustc_ast::ast::{InlineAsmOptions, InlineAsmTemplatePiece};
 use rustc_target::asm::*;
 
@@ -433,6 +434,41 @@ pub(super) fn codegen_x86_llvm_intrinsic_call<'tcx>(
             let value = fx.bcx.ins().x86_cvtt2dq(types::I32X4, a);
             let cvalue = CValue::by_val(value, ret.layout());
             ret.write_cvalue(fx, cvalue);
+        }
+        "llvm.x86.avx.cvtt.ps2dq.256" => {
+            // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm256_cvttps_epi32
+            intrinsic_args!(fx, args => (a); intrinsic);
+
+            // Convert each 128-bit half with the SSE2 instruction, which has
+            // the same truncation semantics as the 256-bit AVX instruction
+            // (unrepresentable inputs map to 0x80000000). The bitcast changes
+            // the lane count, so an explicit byte order is required.
+            let a_low = a.value_typed_lane(fx, fx.tcx.types.u128, 0).load_scalar(fx);
+            let a_high = a.value_typed_lane(fx, fx.tcx.types.u128, 1).load_scalar(fx);
+            let a_low = fx.bcx.ins().bitcast(
+                types::F32X4,
+                MemFlagsData::new().with_endianness(Endianness::Little),
+                a_low,
+            );
+            let a_high = fx.bcx.ins().bitcast(
+                types::F32X4,
+                MemFlagsData::new().with_endianness(Endianness::Little),
+                a_high,
+            );
+
+            let res_low = fx.bcx.ins().x86_cvtt2dq(types::I32X4, a_low);
+            let res_high = fx.bcx.ins().x86_cvtt2dq(types::I32X4, a_high);
+
+            ret.place_typed_lane(fx, fx.tcx.types.u128, 0).to_ptr().store(
+                fx,
+                res_low,
+                MemFlagsData::trusted(),
+            );
+            ret.place_typed_lane(fx, fx.tcx.types.u128, 1).to_ptr().store(
+                fx,
+                res_high,
+                MemFlagsData::trusted(),
+            );
         }
         "llvm.x86.sse2.cvtps2dq" => {
             // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm_cvtps_epi32
