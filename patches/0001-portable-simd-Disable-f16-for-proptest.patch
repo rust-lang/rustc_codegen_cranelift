@@ -21,7 +21,8 @@ diff --git a/crates/test_helpers/src/lib.rs b/crates/test_helpers/src/lib.rs
 index 6661b0c..ba7c2f1 100644
 --- a/crates/test_helpers/src/lib.rs
 +++ b/crates/test_helpers/src/lib.rs
-@@ -1,3 +1,4 @@
+@@ -1,3 +1,5 @@
++#![allow(internal_features)]
 +#![feature(cfg_target_has_reliable_f16_f128)]
  #![feature(f16)]
  #![cfg_attr(
