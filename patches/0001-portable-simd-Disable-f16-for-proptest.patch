@@ -69,17 +69,14 @@ diff --git a/crates/test_helpers/src/subnormals.rs b/crates/test_helpers/src/sub
 index 44dfbb3..b5f19ba 100644
 --- a/crates/test_helpers/src/subnormals.rs
 +++ b/crates/test_helpers/src/subnormals.rs
-@@ -39,7 +39,9 @@ macro_rules! impl_else {
-     }
- }
+@@ -39,6 +39,7 @@ macro_rules! impl_else {
+ impl FlushSubnormals for u64 {}
+ impl FlushSubnormals for usize {}
  
--impl_float! { f16, f32, f64 }
 +#[cfg(target_has_reliable_f16)]
-+impl_float! { f16 }
-+impl_float! { f32, f64 }
- impl_else! { i8, i16, i32, i64, isize, u8, u16, u32, u64, usize }
+ impl FlushSubnormals for f16 {}
+ impl FlushSubnormals for f64 {}
  
- /// AltiVec should flush subnormal inputs to zero, but QEMU seems to only flush outputs.
 -- 
 2.56.0
 
