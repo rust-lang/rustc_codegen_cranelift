@@ -192,12 +192,19 @@ impl Writer for WriterRelocate {
                         gimli::DW_EH_PE_sdata8 => 8,
                         _ => return Err(gimli::write::Error::UnsupportedPointerEncoding(eh_pe)),
                     };
+                    // An indirect pointer to a function symbol asks the linker for a GOT entry;
+                    // indirect pointers to data symbols already target a local DW.ref slot.
+                    let kind = if eh_pe.is_indirect() && symbol & 1 << 31 == 0 {
+                        object::RelocationKind::GotRelative
+                    } else {
+                        object::RelocationKind::Relative
+                    };
                     self.relocs.push(DebugReloc {
                         offset: self.len() as u32,
                         size,
                         name: DebugRelocName::Symbol(symbol),
                         addend,
-                        kind: object::RelocationKind::Relative,
+                        kind,
                     });
                     self.write_udata(0, size)
                 }
