@@ -9,7 +9,7 @@ permissions: {}
 
 env:
   CARGO_BUILD_INCREMENTAL: false
-  RUSTFLAGS: "-Dwarnings"
+  CARGO_BUILD_WARNINGS: "deny"
 
 jobs:
   test_upcoming_cranelift_release:

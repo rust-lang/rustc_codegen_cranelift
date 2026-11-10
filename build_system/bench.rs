@@ -143,6 +143,8 @@ fn hyperfine_command(
 ) -> Command {
     let mut bench = Command::new("hyperfine");
 
+    bench.env("CARGO_BUILD_WARNINGS", "warn");
+
     bench.arg("--export-markdown").arg(markdown_export);
 
     if warmup != 0 {

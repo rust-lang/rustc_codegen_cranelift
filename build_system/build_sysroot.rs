@@ -207,7 +207,7 @@ fn build_clif_sysroot_for_target(
 ) -> SysrootTarget {
     let mut target_libs = SysrootTarget { tuple: compiler.target.clone(), libs: vec![] };
 
-    let build_dir = STANDARD_LIBRARY.target_dir(dirs).join(&compiler.target).join("release");
+    let build_dir = STANDARD_LIBRARY.target_dir(dirs).join(&compiler.target).join("dist");
 
     if !config.keep_sysroot {
         let sysroot_src_orig = get_default_sysroot(&compiler.rustc).join("lib/rustlib/src/rust");
@@ -248,14 +248,12 @@ fn build_clif_sysroot_for_target(
     }
     compiler.rustflags.extend(rustflags);
     let mut build_cmd = STANDARD_LIBRARY.build(&compiler, dirs);
-    build_cmd.arg("--release");
-    build_cmd.arg("--features").arg("backtrace panic-unwind");
+    build_cmd.arg("--profile=dist");
+    build_cmd.arg("--features=backtrace panic-unwind");
     build_cmd.arg(format!("-Zroot-dir={}", STDLIB_SRC.to_path(dirs).display()));
-    build_cmd.arg("-Zembed-metadata=no");
-    build_cmd.env("CARGO_PROFILE_RELEASE_DEBUG", "true");
     build_cmd.env("__CARGO_DEFAULT_LIB_METADATA", "cg_clif");
     if compiler.target.contains("apple") {
-        build_cmd.env("CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO", "packed");
+        build_cmd.env("CARGO_PROFILE_DIST_SPLIT_DEBUGINFO", "packed");
     }
     // Use incr comp despite release mode unless incremental builds are explicitly disabled
     if env::var_os("CARGO_BUILD_INCREMENTAL").is_none() {

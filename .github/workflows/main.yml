@@ -16,7 +16,7 @@ env:
   CARGO_BUILD_INCREMENTAL: false
   # Rust's CI denies warnings. Deny them here too to ensure subtree syncs don't
   # fail because of warnings.
-  RUSTFLAGS: "-Dwarnings"
+  CARGO_BUILD_WARNINGS: "deny"
 
 jobs:
   todo_check:
