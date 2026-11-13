@@ -10,7 +10,7 @@ use rustc_codegen_ssa::base::{allocator_kind_for_codegen, allocator_shim_content
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
 use rustc_middle::mono::MonoItem;
 use rustc_session::Session;
-use rustc_session::config::OutputFilenames;
+use rustc_session::config::{DebugInfo, OutputFilenames};
 use rustc_span::sym;
 
 use crate::debuginfo::TypeDebugContext;
@@ -29,6 +29,7 @@ fn create_jit_module(
         JITModule::new(jit_builder),
         &rustc_symbol_mangling::eh_personality_symbol(tcx),
         false,
+        tcx.sess.opts.debuginfo != DebugInfo::None,
     );
 
     let cx = DebugContext::new(tcx, jit_module.isa(), false, "dummy_cgu_name");

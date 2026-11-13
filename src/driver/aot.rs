@@ -66,6 +66,7 @@ fn make_module(tcx: TyCtxt<'_>, cgu_name: &str) -> AotModule {
         ObjectModule::new(builder),
         &rustc_symbol_mangling::eh_personality_symbol(tcx),
         true,
+        false,
     );
 
     let producer = crate::debuginfo::producer(tcx.sess);
