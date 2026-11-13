@@ -21,6 +21,7 @@ use crate::prelude::*;
 pub(crate) struct GlobalAsmContext<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub global_asm: &'a mut String,
+    pub module: &'a mut dyn Module,
 }
 
 impl<'tcx> AsmCodegenMethods<'tcx> for GlobalAsmContext<'_, 'tcx> {
@@ -32,7 +33,14 @@ impl<'tcx> AsmCodegenMethods<'tcx> for GlobalAsmContext<'_, 'tcx> {
         _line_spans: &[Span],
         _extra_rust_target_features: &[String],
     ) {
-        codegen_global_asm_inner(self.tcx, self.global_asm, template, operands, options);
+        codegen_global_asm_inner(
+            self.tcx,
+            self.global_asm,
+            self.module,
+            template,
+            operands,
+            options,
+        );
     }
 
     fn mangled_name(&self, instance: Instance<'tcx>) -> String {
@@ -91,6 +99,7 @@ impl<'tcx> HasTypingEnv<'tcx> for GlobalAsmContext<'_, 'tcx> {
 fn codegen_global_asm_inner<'tcx>(
     tcx: TyCtxt<'tcx>,
     global_asm: &mut String,
+    module: &mut dyn Module,
     template: &[InlineAsmTemplatePiece],
     operands: &[GlobalAsmOperandRef<'tcx>],
     options: InlineAsmOptions,
@@ -132,24 +141,49 @@ fn codegen_global_asm_inner<'tcx>(
 
                                 let (prov, offset) = ptr.prov_and_relative_offset();
                                 let global_alloc = tcx.global_alloc(prov.alloc_id());
-                                let symbol = match global_alloc {
+                                let symbol_name = match global_alloc {
                                     GlobalAlloc::Function { instance } => {
                                         // FIXME handle the case where the function was made private to the
                                         // current codegen unit
-                                        tcx.symbol_name(instance)
+                                        let symbol = tcx.symbol_name(instance);
+                                        if tcx.sess.target.is_like_darwin {
+                                            format!("_{}", symbol.name)
+                                        } else {
+                                            symbol.name.to_owned()
+                                        }
                                     }
                                     GlobalAlloc::Static(def_id) => {
-                                        let instance = Instance::mono(tcx, def_id);
-                                        tcx.symbol_name(instance)
+                                        let symbol = tcx.symbol_name(Instance::mono(tcx, def_id));
+                                        if tcx.sess.target.is_like_darwin {
+                                            format!("_{}", symbol.name)
+                                        } else {
+                                            symbol.name.to_owned()
+                                        }
                                     }
-                                    GlobalAlloc::Memory(_)
-                                    | GlobalAlloc::VTable(..)
-                                    | GlobalAlloc::TypeId { .. } => unreachable!(),
-                                };
-                                let symbol_name = if tcx.sess.target.is_like_darwin {
-                                    format!("_{}", symbol.name)
-                                } else {
-                                    symbol.name.to_owned()
+                                    GlobalAlloc::Memory(alloc) => {
+                                        // Anonymous allocations have no Rust symbol name.
+                                        // Materialize them the same way as for normal code
+                                        // and use the backend generated name.
+                                        let mut constants_cx = crate::constant::ConstantCx::new();
+                                        let data_id = crate::constant::data_id_for_alloc_id(
+                                            &mut constants_cx,
+                                            module,
+                                            prov.alloc_id(),
+                                            alloc.inner().mutability,
+                                        );
+                                        constants_cx.finalize(tcx, module);
+                                        module
+                                            .declarations()
+                                            .get_data_decl(data_id)
+                                            .linkage_name(data_id)
+                                            .into_owned()
+                                    }
+                                    GlobalAlloc::VTable(..) | GlobalAlloc::TypeId { .. } => {
+                                        span_bug!(
+                                            span,
+                                            "unsupported allocation for global_asm const pointer"
+                                        )
+                                    }
                                 };
                                 global_asm.push_str(&escape_symbol_name(tcx, &symbol_name, span));
 
