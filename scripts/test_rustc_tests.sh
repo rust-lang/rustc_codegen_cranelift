@@ -73,6 +73,7 @@ rm -r tests/ui/explicit-tail-calls # tail calls
 rm -r tests/run-make/pointer-auth-link-with-c # pointer auth
 rm -r tests/ui/eii # EII not yet implemented
 rm -r tests/run-make/forced-unwind-terminate-pof # forced unwinding doesn't take precedence
+rm -r tests/run-make/complex-abi # unsupported type
 
 # requires LTO
 rm -r tests/ui/lto
