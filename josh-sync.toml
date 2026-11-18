@@ -4,4 +4,4 @@ filter-version = 2
 pull-mode = "Nightly"
 
 [push-pr]
-suffix = "r? @ghost"
+suffix = "r? @ghost\n\n@rustbot label +A-codegen +A-cranelift +T-compiler +subtree-sync"
