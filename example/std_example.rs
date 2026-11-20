@@ -257,6 +257,10 @@ unsafe fn test_simd() {
         test_mm256_movemask_epi8();
         test_mm_add_epi8();
         test_mm_add_pd();
+        test_mm_mulhi_epu16();
+        if is_x86_feature_detected!("avx2") {
+            test_mm256_mulhi_epu16();
+        }
         test_mm_cvtepi8_epi16();
         #[cfg(not(jit))]
         test_mm_cvtps_epi32();
@@ -383,6 +387,26 @@ unsafe fn test_mm_add_pd() {
     let b = _mm_setr_pd(5.0, 10.0);
     let r = _mm_add_pd(a, b);
     assert_eq_m128d(r, _mm_setr_pd(6.0, 12.0));
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "sse2")]
+unsafe fn test_mm_mulhi_epu16() {
+    let a = black_box([0u16, 1, 0x100, 0x100, 0x8000, 0xffff, 0xffff, 0x1234]);
+    let b = [0xffffu16, 0xffff, 0xff, 0x100, 0x8000, 2, 0xffff, 0xabcd];
+    let result = unsafe { _mm_mulhi_epu16(std::mem::transmute(a), std::mem::transmute(b)) };
+    let lanes = unsafe { std::mem::transmute::<_, [u16; 8]>(result) };
+    assert_eq!(lanes, [0, 0, 0, 1, 0x4000, 1, 0xfffe, 0xc37]);
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn test_mm256_mulhi_epu16() {
+    let a = black_box([0u16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0x7fff, 0x8000, 0x8001, 0xffff]);
+    let b = [u16::MAX; 16];
+    let result = unsafe { _mm256_mulhi_epu16(std::mem::transmute(a), std::mem::transmute(b)) };
+    let lanes = unsafe { std::mem::transmute::<_, [u16; 16]>(result) };
+    assert_eq!(lanes, [0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0x7ffe, 0x7fff, 0x8000, 0xfffe]);
 }
 
 #[cfg(target_arch = "x86_64")]
