@@ -38,14 +38,40 @@ diff --git a/crates/intrinsic-test/src/arm/mod.rs b/crates/intrinsic-test/src/ar
 index 9c2d0f3..3825f41 100644
 --- a/crates/intrinsic-test/src/arm/mod.rs
 +++ b/crates/intrinsic-test/src/arm/mod.rs
-@@ -66,6 +66,7 @@ impl SupportedArchitecture for Arm {
+@@ -66,6 +66,12 @@ impl SupportedArchitecture for Arm {
  
          let intrinsics = intrinsics
              .into_iter()
 +            .filter(|i| i.extension != "SVE" && i.extension != "SVE2")
++            .filter(|i| {
++                i.arguments
++                    .iter()
++                    .any(|a| a.ty.kind() == TypeKind::Float && a.ty.bit_len == Some(16))
++            })
              // Skip intrinsics that don't return a value.
              .filter(|i| i.results.kind() != TypeKind::Void)
-             // Skip bfloat intrinsics - not currently supported
+             // Skip SVE intrinsics that have `f16` - not yet implemented!
+@@ -183,7 +183,6 @@ const RUST_PRELUDE: &str = r#"
+ #![cfg_attr(any(target_arch = "aarch64", target_arch = "arm64ec"), feature(stdarch_neon_ftts))]
+ #![cfg_attr(any(target_arch = "aarch64", target_arch = "arm64ec"), feature(stdarch_neon_feat_lut))]
+ #![cfg_attr(any(target_arch = "aarch64", target_arch = "arm64ec"), feature(stdarch_neon_fp8))]
+-#![cfg_attr(any(target_arch = "aarch64", target_arch = "arm64ec"), feature(stdarch_neon_bf16))]
+ #![cfg_attr(all(any(target_arch = "aarch64", target_arch = "arm64ec"), target_endian = "little"), feature(stdarch_aarch64_sve))]
+ #![cfg_attr(any(target_arch = "aarch64", target_arch = "arm64ec"), feature(faminmax))]
+ #![feature(stdarch_neon_f16)]
+diff --git a/crates/simd-test-macro/src/lib.rs b/crates/simd-test-macro/src/lib.rs
+index 286b36d..7b90372 100644
+--- a/crates/simd-test-macro/src/lib.rs
++++ b/crates/simd-test-macro/src/lib.rs
+@@ -142,7 +142,7 @@ pub fn simd_test(
+                 }
+                 any(
+                     target_arch = "mips",
+-                    target_arch = "mips32r6"
++                    target_arch = "mips32r6",
+                     target_arch = "mips64",
+                     target_arch = "mips64r6",
+                 ) => {
 -- 
 2.54.0
 
