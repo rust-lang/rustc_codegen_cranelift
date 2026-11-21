@@ -593,6 +593,8 @@ pub(super) fn codegen_x86_llvm_intrinsic_call<'tcx>(
             }
         }
         "llvm.x86.sse2.pmulhu.w" | "llvm.x86.avx2.pmulhu.w" => {
+            // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm_mulhi_epu16
+            // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm256_mulhi_epu16
             intrinsic_args!(fx, args => (a, b); intrinsic);
 
             simd_pair_for_each_lane(

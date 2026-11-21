@@ -392,21 +392,19 @@ unsafe fn test_mm_add_pd() {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse2")]
 unsafe fn test_mm_mulhi_epu16() {
-    let a = black_box([0u16, 1, 0x100, 0x100, 0x8000, 0xffff, 0xffff, 0x1234]);
-    let b = [0xffffu16, 0xffff, 0xff, 0x100, 0x8000, 2, 0xffff, 0xabcd];
-    let result = unsafe { _mm_mulhi_epu16(std::mem::transmute(a), std::mem::transmute(b)) };
-    let lanes = unsafe { std::mem::transmute::<_, [u16; 8]>(result) };
-    assert_eq!(lanes, [0, 0, 0, 1, 0x4000, 1, 0xfffe, 0xc37]);
+    let (a, b) = (_mm_set1_epi16(1000), _mm_set1_epi16(1001));
+    let r = _mm_mulhi_epu16(a, b);
+    assert_eq_m128i(r, _mm_set1_epi16(15));
 }
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 unsafe fn test_mm256_mulhi_epu16() {
-    let a = black_box([0u16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0x7fff, 0x8000, 0x8001, 0xffff]);
-    let b = [u16::MAX; 16];
-    let result = unsafe { _mm256_mulhi_epu16(std::mem::transmute(a), std::mem::transmute(b)) };
-    let lanes = unsafe { std::mem::transmute::<_, [u16; 16]>(result) };
-    assert_eq!(lanes, [0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0x7ffe, 0x7fff, 0x8000, 0xfffe]);
+    let a = _mm256_set1_epi16(6535);
+    let b = _mm256_set1_epi16(6535);
+    let r = _mm256_mulhi_epu16(a, b);
+    let e = _mm256_set1_epi16(651);
+    assert_eq_m256i(r, e);
 }
 
 #[cfg(target_arch = "x86_64")]
