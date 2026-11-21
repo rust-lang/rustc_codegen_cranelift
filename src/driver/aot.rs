@@ -184,6 +184,7 @@ fn codegen_cgu(tcx: TyCtxt<'_>, cgu_name: Symbol) -> AotModule {
                     &mut type_dbg,
                     Function::new(),
                     &mut module.module,
+                    None,
                     instance,
                 );
                 module.codegened_functions.push(codegened_function);
