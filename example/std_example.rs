@@ -257,6 +257,10 @@ unsafe fn test_simd() {
         test_mm256_movemask_epi8();
         test_mm_add_epi8();
         test_mm_add_pd();
+        test_mm_mulhi_epu16();
+        if is_x86_feature_detected!("avx2") {
+            test_mm256_mulhi_epu16();
+        }
         test_mm_cvtepi8_epi16();
         #[cfg(not(jit))]
         test_mm_cvtps_epi32();
@@ -383,6 +387,24 @@ unsafe fn test_mm_add_pd() {
     let b = _mm_setr_pd(5.0, 10.0);
     let r = _mm_add_pd(a, b);
     assert_eq_m128d(r, _mm_setr_pd(6.0, 12.0));
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "sse2")]
+unsafe fn test_mm_mulhi_epu16() {
+    let (a, b) = (_mm_set1_epi16(1000), _mm_set1_epi16(1001));
+    let r = _mm_mulhi_epu16(a, b);
+    assert_eq_m128i(r, _mm_set1_epi16(15));
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn test_mm256_mulhi_epu16() {
+    let a = _mm256_set1_epi16(6535);
+    let b = _mm256_set1_epi16(6535);
+    let r = _mm256_mulhi_epu16(a, b);
+    let e = _mm256_set1_epi16(651);
+    assert_eq_m256i(r, e);
 }
 
 #[cfg(target_arch = "x86_64")]
