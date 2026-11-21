@@ -17,7 +17,7 @@ use rustc_middle::ty::print::with_no_trimmed_paths;
 use rustc_session::config::OutputFilenames;
 use rustc_span::Symbol;
 
-use crate::constant::ConstantCx;
+use crate::constant::{ConstantCx, ThreadLocalKey};
 use crate::debuginfo::{FunctionDebugContext, TypeDebugContext};
 use crate::prelude::*;
 use crate::pretty_clif::{CommentWriter, format_clif_ir_header};
@@ -39,6 +39,7 @@ pub(crate) fn codegen_fn<'tcx>(
     type_dbg: &mut TypeDebugContext<'tcx>,
     cached_func: Function,
     module: &mut dyn Module,
+    thread_local_key: Option<ThreadLocalKey<'_>>,
     instance: Instance<'tcx>,
 ) -> CodegenedFunction {
     debug_assert!(!instance.args.has_infer());
@@ -100,6 +101,8 @@ pub(crate) fn codegen_fn<'tcx>(
         target_config,
         pointer_type,
         constants_cx: ConstantCx::new(),
+        // Shortens the callback's lifetime.
+        thread_local_key: thread_local_key.map(|key| key as ThreadLocalKey<'_>),
         func_debug_cx,
 
         cgu_name,
