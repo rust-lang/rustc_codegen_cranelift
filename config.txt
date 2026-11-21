@@ -15,6 +15,7 @@ testsuite.base_sysroot
 aot.arbitrary_self_types_pointers_and_wrappers
 jit.std_example
 aot.std_example
+aot.abi_cast
 aot.dst_field_align
 aot.subslice-patterns-const-eval
 aot.track-caller-attribute
