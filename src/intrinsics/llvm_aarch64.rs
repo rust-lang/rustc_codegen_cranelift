@@ -1220,6 +1220,38 @@ pub(super) fn codegen_aarch64_llvm_intrinsic_call<'tcx>(
             }
         }
 
+        "llvm.aarch64.neon.vsli.v1i64"
+        | "llvm.aarch64.neon.vsli.v2i32"
+        | "llvm.aarch64.neon.vsli.v2i64"
+        | "llvm.aarch64.neon.vsli.v4i16"
+        | "llvm.aarch64.neon.vsli.v4i32"
+        | "llvm.aarch64.neon.vsli.v8i8"
+        | "llvm.aarch64.neon.vsli.v8i16"
+        | "llvm.aarch64.neon.vsli.v16i8" => {
+            // https://support.arm.com/documentation/ddi0602/2026-09/SIMD-FP-Instructions/SLI--Shift-left-and-insert--immediate--
+            intrinsic_args!(fx, args => (a, b, n); intrinsic);
+
+            let n = n.load_scalar(fx);
+
+            let (_lane_count, lane_ty) = a.layout().ty.simd_size_and_type(fx.tcx);
+            let lane_clif_ty = fx.clif_type(lane_ty).unwrap();
+            let zero = fx.bcx.ins().iconst(lane_clif_ty, 0);
+            let ones = fx.bcx.ins().bnot(zero);
+            let mask = fx.bcx.ins().ishl(ones, n);
+
+            simd_pair_for_each_lane(
+                fx,
+                a,
+                b,
+                ret,
+                &|fx, _lane_ty, _res_lane_ty, a_lane, b_lane| {
+                    let shifted = fx.bcx.ins().ishl(b_lane, n);
+                    let band_not = fx.bcx.ins().band_not(a_lane, mask);
+                    fx.bcx.ins().bor(band_not, shifted)
+                },
+            );
+        }
+
         _ => {
             fx.tcx.dcx().warn(format!(
                 "unsupported AArch64 llvm intrinsic {}; replacing with trap",
