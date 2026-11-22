@@ -445,6 +445,7 @@ dependencies = [
  "cranelift-object",
  "gimli",
  "indexmap",
+ "libc",
  "libloading",
  "object",
  "smallvec",

@@ -2,7 +2,6 @@
 //! access.
 
 use std::alloc::{Layout, alloc, dealloc, handle_alloc_error};
-use std::cell::Cell;
 use std::ptr::{self, NonNull};
 use std::sync::{Arc, RwLock};
 
@@ -126,6 +125,9 @@ struct Table {
     copies: Vec<Option<NonNull<u8>>>,
     /// The copies this thread allocated, as opposed to a dylib's own.
     owned: Vec<OwnedCopy>,
+    /// Set by the first round of pthread key destructors; the table is freed on the next.
+    #[cfg(unix)]
+    deferred: bool,
 }
 
 struct OwnedCopy {
@@ -140,31 +142,80 @@ impl Drop for OwnedCopy {
     }
 }
 
-/// Frees the thread's table when dropped. Registered as the table is created, which is before the
-/// program can register a destructor for any copy in it, and glibc runs thread-local destructors
-/// newest first, so the program's run while the table is still there.
-struct FreeTable;
+/// Each thread's table hangs off a pthread key and is freed on the second round of key
+/// destructors. Both copies of std, the compiler's and the program's, normally run their
+/// thread-local destructors by the first: glibc before any key, FreeBSD from a key, macOS from
+/// dyld's `_terminatorsKey` destructor.
+#[cfg(unix)]
+mod slot {
+    use std::ffi::c_void;
+    use std::sync::OnceLock;
 
-impl Drop for FreeTable {
-    fn drop(&mut self) {
-        let table = TABLE.replace(ptr::null_mut());
-        // SAFETY: `FreeTable` is registered only when `table` creates a table from `Box`, and
-        // nulling `TABLE` first means nothing reaches it again.
+    use super::Table;
+
+    pub(super) fn current() -> *mut Table {
+        // SAFETY: `key` is a valid key.
+        unsafe { libc::pthread_getspecific(key()) }.cast()
+    }
+
+    pub(super) fn install(table: *mut Table) {
+        // SAFETY: `key` is a valid key, and `free_table` takes back ownership of `table`.
+        assert_eq!(unsafe { libc::pthread_setspecific(key(), table.cast()) }, 0);
+    }
+
+    fn key() -> libc::pthread_key_t {
+        static KEY: OnceLock<libc::pthread_key_t> = OnceLock::new();
+        *KEY.get_or_init(|| {
+            let mut key = 0;
+            // SAFETY: `key` is a valid place for the new key.
+            assert_eq!(unsafe { libc::pthread_key_create(&mut key, Some(free_table)) }, 0);
+            key
+        })
+    }
+
+    unsafe extern "C" fn free_table(table: *mut c_void) {
+        let table = table.cast::<Table>();
+        // SAFETY: the key only ever holds this thread's live table, set by `install`.
+        let live = unsafe { &mut *table };
+        if !live.deferred {
+            live.deferred = true;
+            // SAFETY: as above. A failure leaks the table rather than freeing it early.
+            unsafe { libc::pthread_setspecific(key(), table.cast()) };
+            return;
+        }
+        // The key is already null, so a later access starts a fresh table.
+        // SAFETY: `install` took the table from `Box`, and nothing else points at it.
         drop(unsafe { Box::from_raw(table) });
     }
 }
 
-thread_local! {
-    static TABLE: Cell<*mut Table> = const { Cell::new(ptr::null_mut()) };
-    static FREE_TABLE: FreeTable = const { FreeTable };
+/// Off Unix each thread's table is never freed.
+#[cfg(not(unix))]
+mod slot {
+    use std::cell::Cell;
+    use std::ptr;
+
+    use super::Table;
+
+    thread_local! {
+        static TABLE: Cell<*mut Table> = const { Cell::new(ptr::null_mut()) };
+    }
+
+    pub(super) fn current() -> *mut Table {
+        TABLE.get()
+    }
+
+    pub(super) fn install(table: *mut Table) {
+        TABLE.set(table);
+    }
 }
 
 /// The calling thread's copy of the thread-local behind `key`. Its address is fixed for the
 /// thread's life.
 pub(super) extern "C" fn get(key: usize) -> *mut u8 {
-    // SAFETY: `TABLE` is null or this thread's live table, and nothing else holds a reference to
-    // it during the call.
-    if let Some(table) = unsafe { TABLE.get().as_ref() }
+    // SAFETY: `slot::current` is null or this thread's live table, and nothing else holds a
+    // reference to it during the call.
+    if let Some(table) = unsafe { slot::current().as_ref() }
         && let Some(&Some(copy)) = table.copies.get(key)
     {
         return copy.as_ptr();
@@ -174,7 +225,11 @@ pub(super) extern "C" fn get(key: usize) -> *mut u8 {
 
 #[cold]
 fn first_access(key: usize) -> *mut u8 {
-    let table = table();
+    let mut table = table();
+    // SAFETY: the table lives at least until thread exit, and only `get` and `first_access` reach
+    // it, neither while another reference to it is live. Neither calls back into JIT code:
+    // `resolve` only calls `dlsym`.
+    let table = unsafe { table.as_mut() };
     let sources = SOURCES.read().unwrap();
 
     let copy = match sources[key] {
@@ -200,17 +255,17 @@ fn first_access(key: usize) -> *mut u8 {
     copy
 }
 
-fn table() -> &'static mut Table {
-    let mut table = TABLE.get();
-    if table.is_null() {
-        table = Box::into_raw(Box::new(Table { copies: Vec::new(), owned: Vec::new() }));
-        TABLE.set(table);
-        // Fails only when reached from a destructor that ran after `FreeTable`'s. The new table
-        // then outlives the thread.
-        let _ = FREE_TABLE.try_with(|_| ());
+fn table() -> NonNull<Table> {
+    if let Some(table) = NonNull::new(slot::current()) {
+        return table;
     }
-    // SAFETY: the table lives until this thread's `FreeTable` runs, and only `get` and
-    // `first_access` reach it, neither while another reference to it is live. Neither calls back
-    // into JIT code: `resolve` only calls `dlsym`.
-    unsafe { &mut *table }
+    let new = Table {
+        copies: Vec::new(),
+        owned: Vec::new(),
+        #[cfg(unix)]
+        deferred: false,
+    };
+    let table = NonNull::from(Box::leak(Box::new(new)));
+    slot::install(table.as_ptr());
+    table
 }
