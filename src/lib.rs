@@ -173,7 +173,12 @@ impl CodegenBackend for CraneliftCodegenBackend {
                 Os::None => vec![],
                 // On macOS the aes, sha2 and sha3 features are enabled by default and ring
                 // fails to compile on macOS when they are not present.
-                Os::MacOs => vec![sym::neon, sym::aes, sym::sha2, sym::sha3],
+                // The standard library is also built with fp-armv8 there, and rustc emits "mixing
+                // target features" warnings without it. Cranelift always has float support enabled
+                // anyways.
+                Os::MacOs => {
+                    vec![sym::neon, sym::aes, sym::sha2, sym::sha3, Symbol::intern("fp-armv8")]
+                }
                 // AArch64 mandates Neon support
                 _ => vec![sym::neon],
             },
