@@ -1,5 +1,17 @@
-#![cfg_attr(target_os = "linux", feature(core_intrinsics, custom_mir))]
-#![cfg_attr(target_os = "linux", allow(internal_features))]
+#![cfg_attr(
+    all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64")
+    ),
+    feature(core_intrinsics, custom_mir)
+)]
+#![cfg_attr(
+    all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64")
+    ),
+    allow(internal_features)
+)]
 
 use std::hint::black_box;
 
@@ -27,13 +39,19 @@ fn check<const N: usize>() {
     let value = black_box(Bytes(INPUT[..N].try_into().unwrap()));
     assert_eq!(receive(value).0, OUTPUT[..N]);
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64")
+    ))]
     unsafe {
         guarded::check(receive);
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64")
+))]
 mod guarded {
     use std::ffi::c_void;
     use std::intrinsics::mir::*;
@@ -75,6 +93,7 @@ mod guarded {
         unsafe {
             let page_size = usize::try_from(getpagesize()).unwrap();
             // PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS.
+            // NOTE: On Linux MAP_ANONYMOUS has a different value for some archs
             let mapping = mmap(std::ptr::null_mut(), page_size * 2, 3, 0x22, -1, 0);
             assert_ne!(mapping as isize, -1);
             let boundary = mapping.cast::<u8>().add(page_size);

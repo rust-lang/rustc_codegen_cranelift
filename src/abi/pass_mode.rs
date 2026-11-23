@@ -214,10 +214,9 @@ pub(super) fn to_casted_value<'tcx>(
         .into_iter()
         .map(|(offset, param)| {
             let ty = param.value_type;
-            let bytes = u64::from(ty.bytes());
             let remaining = arg_size.saturating_sub(offset.bytes());
             let ptr = ptr.offset_i64(fx, offset.bytes() as i64);
-            if remaining >= bytes {
+            if remaining >= u64::from(ty.bytes()) {
                 return ptr.load(fx, ty, MemFlagsData::new());
             }
 
@@ -227,16 +226,15 @@ pub(super) fn to_casted_value<'tcx>(
             let mut value = type_zero_value(&mut fx.bcx, ty);
             let mut loaded = 0;
             while loaded < remaining {
-                let load_bytes = 1u64 << (remaining - loaded).ilog2();
+                let load_bytes = (remaining - loaded).isolate_highest_one();
                 let load_ty = Type::int_with_byte_size(u16::try_from(load_bytes).unwrap()).unwrap();
                 let part = ptr.offset_i64(fx, loaded as i64).load(fx, load_ty, MemFlagsData::new());
                 let part = fx.bcx.ins().uextend(ty, part);
                 let shift = match fx.tcx.data_layout.endian {
                     Endian::Little => loaded,
-                    Endian::Big => bytes - loaded - load_bytes,
+                    Endian::Big => u64::from(ty.bytes()) - loaded - load_bytes,
                 };
-                let shift = fx.bcx.ins().iconst(types::I8, (shift * 8) as i64);
-                let part = fx.bcx.ins().ishl(part, shift);
+                let part = fx.bcx.ins().ishl_imm_u(part, (shift * 8) as i64);
                 value = fx.bcx.ins().bor(value, part);
                 loaded += load_bytes;
             }
