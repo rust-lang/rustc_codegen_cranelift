@@ -832,6 +832,21 @@ fn codegen_stmt<'tcx>(fx: &mut FunctionCx<'_, '_, 'tcx>, cur_block: Block, stmt:
                     _to_ty,
                 ) => {
                     let operand = codegen_operand(fx, operand);
+
+                    // Undefined behavior: transmuting to a type with different size
+                    if operand.layout().size != lval.layout().size {
+                        let trap_block = fx.bcx.create_block();
+                        let true_ = fx.bcx.ins().iconst(types::I8, 1);
+                        let next_block = fx.bcx.create_block();
+                        fx.bcx.ins().brif(true_, trap_block, &[], next_block, &[]);
+                        fx.bcx.seal_block(trap_block);
+                        fx.bcx.seal_block(next_block);
+                        fx.bcx.switch_to_block(trap_block);
+                        fx.bcx.ins().trap(TrapCode::user(1 /* unreachable */).unwrap());
+                        fx.bcx.switch_to_block(next_block);
+                        return;
+                    }
+
                     lval.write_cvalue_transmute(fx, operand);
                 }
                 Rvalue::Discriminant(place) => {
