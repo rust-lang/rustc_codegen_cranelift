@@ -6,6 +6,7 @@
 #![feature(coroutines)]
 #![feature(repr_simd)]
 #![feature(tuple_trait)]
+#![feature(type_info)]
 #![feature(unboxed_closures)]
 
 #[cfg(target_arch = "x86_64")]
@@ -184,6 +185,8 @@ fn main() {
     static STATIC_WITH_MAYBE_NESTED_BOX: &Option<Box<str>> = &no_str();
 
     println!("{:?}", STATIC_WITH_MAYBE_NESTED_BOX);
+
+    test_transmute_unchecked();
 }
 
 fn panic(_: u128) {
@@ -802,3 +805,21 @@ fn map(a: Option<(u8, Box<Instruction>)>) -> Option<Box<Instruction>> {
 //     unsafe { asm!("call {}", sym double, inout("rax") x) };
 //     assert_eq!(x, 42);
 // }
+
+fn test_transmute_unchecked() {
+    // SAFETY: `T` must have the same lifetime
+    unsafe fn try_cast<T, U>(t: T) -> Result<U, T> {
+        if core::mem::type_info::of::<T>() == core::mem::type_info::of::<U>() {
+            // SAFETY: we already know that `U` is `T` by reflection
+            Ok(unsafe { core::intrinsics::transmute_unchecked(t) })
+        } else {
+            Err(t)
+        }
+    }
+
+    unsafe {
+        try_cast::<u8, u16>(0).unwrap_err();
+        try_cast::<u8, i8>(0).unwrap_err();
+        try_cast::<u8, u8>(0).unwrap();
+    }
+}
