@@ -55,6 +55,7 @@ rm tests/ui/c-variadic/roundtrip.rs
 rm tests/ui/asm/global-asm-mono-sym-fn.rs # same
 rm tests/ui/asm/naked-functions/mono-sym-fn.rs # same
 rm tests/ui/asm/x86_64/const-operand-vtable.rs # same
+rm tests/ui/asm/x86_64/issue-96797.rs # same
 rm tests/ui/asm/x86_64/goto.rs # inline asm labels not supported
 rm tests/ui/asm/label-operand.rs # same
 rm tests/ui/asm/may_unwind.rs # asm unwinding not supported
@@ -188,6 +189,7 @@ rm tests/incremental/extern_static/issue-49153.rs # assumes reference to undefin
 rm tests/ui/linkage-attr/raw-dylib/elf/glibc-x86_64.rs # implicitly depends on libcore getting optimized away to avoid symbol refs
 rm tests/ui/thread-local/thread-local-issue-37508.rs # incorrect rust_eh_personality signature
 rm -r tests/run-make/staticlib-hide-internal-symbols # missing needs-unwind
+rm tests/ui/impl-trait/in-trait/method-compatability-via-leakage-cycle.rs # different output with panic=abort
 rm -r tests/run-make/staticlib-rename-internal-symbols # needs files from staticlib-hide-internal-symbols
 
 rm tests/ui/intrinsics/panic-uninitialized-zeroed.rs # really slow with unoptimized libstd
