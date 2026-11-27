@@ -3,28 +3,35 @@
 
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
+use std::sync::Arc;
 
 use cranelift_jit::{JITBuilder, JITModule};
+use cranelift_module::FuncOrDataId;
 use rustc_codegen_ssa::CrateInfo;
 use rustc_codegen_ssa::base::{allocator_kind_for_codegen, allocator_shim_contents};
+use rustc_data_structures::fx::{FxHashSet, FxIndexMap};
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
 use rustc_middle::mono::MonoItem;
 use rustc_session::Session;
 use rustc_session::config::{DebugInfo, OutputFilenames};
 use rustc_span::sym;
 
+use super::jit_tls;
+use crate::constant::{THREAD_LOCAL_ACCESSOR, ThreadLocalKey};
 use crate::debuginfo::TypeDebugContext;
 use crate::prelude::*;
 use crate::unwind_module::UnwindModule;
 
 fn create_jit_module(
     tcx: TyCtxt<'_>,
-    crate_info: &CrateInfo,
+    dylibs: &Arc<SymbolLookup>,
 ) -> (UnwindModule<JITModule>, Option<DebugContext>) {
     let isa = crate::build_isa(tcx.sess, true);
     let mut jit_builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
     crate::compiler_builtins::register_functions_for_jit(&mut jit_builder);
-    jit_builder.symbol_lookup_fn(dep_symbol_lookup_fn(tcx.sess, crate_info.clone()));
+    jit_builder.symbol(THREAD_LOCAL_ACCESSOR, jit_tls::get as *const u8);
+    let dylibs = dylibs.clone();
+    jit_builder.symbol_lookup_fn(Box::new(move |name| (*dylibs)(name)));
     let mut jit_module = UnwindModule::new(
         JITModule::new(jit_builder),
         &rustc_symbol_mangling::eh_personality_symbol(tcx),
@@ -49,8 +56,11 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, target_cpu: String, jit_args: Vec<String>
     let output_filenames = tcx.output_filenames(());
     let crate_info = CrateInfo::new(tcx, target_cpu);
     let should_write_ir = crate::pretty_clif::should_write_ir(tcx.sess);
-    let (mut jit_module, mut debug_context) = create_jit_module(tcx, &crate_info);
+    let dylibs = Arc::new(dep_symbol_lookup_fn(tcx.sess, crate_info));
+    let (mut jit_module, mut debug_context) = create_jit_module(tcx, &dylibs);
     let mut cached_context = Context::new();
+    // Key = index.
+    let mut thread_local_keys = FxIndexMap::<String, DefId>::default();
 
     let cgus = tcx.collect_and_partition_mono_items(()).codegen_units;
     let mono_items = cgus
@@ -60,6 +70,13 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, target_cpu: String, jit_args: Vec<String>
         .collect::<FxHashMap<_, _>>()
         .into_iter()
         .collect::<Vec<(_, _)>>();
+    let thread_local_images: FxHashSet<DefId> = mono_items
+        .iter()
+        .filter_map(|&(item, _)| match item {
+            MonoItem::Static(def_id) if jit_tls::is_thread_local(tcx, def_id) => Some(def_id),
+            _ => None,
+        })
+        .collect();
 
     tcx.sess.time("codegen mono items", || {
         super::predefine_mono_items(tcx, &mut jit_module, &mono_items);
@@ -73,8 +90,14 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, target_cpu: String, jit_args: Vec<String>
                         debug_context.as_mut(),
                         &mut cached_context,
                         &mut jit_module,
+                        Some(&mut |symbol, def_id| {
+                            thread_local_keys.insert_full(symbol.to_owned(), def_id).0
+                        }),
                         inst,
                     );
+                }
+                MonoItem::Static(def_id) if thread_local_images.contains(&def_id) => {
+                    crate::constant::codegen_thread_local_image(tcx, &mut jit_module, def_id);
                 }
                 MonoItem::Static(def_id) => {
                     crate::constant::codegen_static(tcx, &mut jit_module, def_id);
@@ -89,9 +112,27 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, target_cpu: String, jit_args: Vec<String>
 
     crate::main_shim::maybe_create_entry_wrapper(tcx, &mut jit_module, true, true);
 
+    let new_thread_locals = jit_tls::classify_new_thread_locals(
+        tcx,
+        thread_local_keys
+            .iter()
+            .enumerate()
+            .map(|(key, (symbol, &def_id))| (key, &**symbol, def_id)),
+        &thread_local_images,
+        &dylibs,
+    );
+
     tcx.dcx().abort_if_errors();
 
     let mut jit_module = jit_module.finalize_definitions();
+    let image_address = |symbol: &str| match jit_module.declarations().get_name(symbol) {
+        Some(FuncOrDataId::Data(id)) => jit_module.get_finalized_data(id).0.addr(),
+        _ => unreachable!("thread-local image `{symbol}` was defined as data"),
+    };
+    for new in new_thread_locals {
+        let (key, source) = jit_tls::source(new, image_address, &dylibs);
+        jit_tls::define(key, source);
+    }
 
     println!(
         "Rustc codegen cranelift will JIT run the executable, because -Cllvm-args=mode=jit was passed"
@@ -133,6 +174,7 @@ fn codegen_and_compile_fn<'tcx>(
     mut debug_context: Option<&mut DebugContext>,
     cached_context: &mut Context,
     module: &mut dyn Module,
+    thread_local_key: Option<ThreadLocalKey<'_>>,
     instance: Instance<'tcx>,
 ) {
     if tcx.codegen_instance_attrs(instance.def).flags.contains(CodegenFnAttrFlags::NAKED) {
@@ -156,6 +198,7 @@ fn codegen_and_compile_fn<'tcx>(
             &mut TypeDebugContext::default(),
             cached_func,
             module,
+            thread_local_key,
             instance,
         );
 
@@ -177,10 +220,9 @@ fn codegen_and_compile_fn<'tcx>(
     });
 }
 
-fn dep_symbol_lookup_fn(
-    sess: &Session,
-    crate_info: CrateInfo,
-) -> Box<dyn Fn(&str) -> Option<*const u8> + Send> {
+pub(super) type SymbolLookup = Box<dyn Fn(&str) -> Option<*const u8> + Send + Sync>;
+
+fn dep_symbol_lookup_fn(sess: &Session, crate_info: CrateInfo) -> SymbolLookup {
     use rustc_middle::middle::dependency_format::Linkage;
 
     let mut dylib_paths = Vec::new();

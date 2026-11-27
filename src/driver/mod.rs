@@ -13,6 +13,8 @@ use crate::prelude::*;
 pub(crate) mod aot;
 #[cfg(feature = "jit")]
 pub(crate) mod jit;
+#[cfg(feature = "jit")]
+pub(crate) mod jit_tls;
 
 fn predefine_mono_items<'tcx>(
     tcx: TyCtxt<'tcx>,

@@ -23,7 +23,16 @@ pub(crate) struct ConstantCx {
 enum TodoItem {
     Alloc(AllocId),
     Static(DefId),
+    #[cfg_attr(not(feature = "jit"), allow(dead_code, reason = "only the JITs define images"))]
+    ThreadLocalImage(DefId),
 }
+
+/// The symbol of the runtime function JIT code calls to reach a thread-local, as
+/// `extern "C" fn(key: usize) -> *mut u8`. It returns the calling thread's copy.
+pub(crate) const THREAD_LOCAL_ACCESSOR: &str = "__cg_clif_jit_thread_local";
+
+/// Gives the key a thread-local's accesses pass to [`THREAD_LOCAL_ACCESSOR`], by symbol.
+pub(crate) type ThreadLocalKey<'a> = &'a mut dyn FnMut(&str, DefId) -> usize;
 
 impl ConstantCx {
     pub(crate) fn new() -> Self {
@@ -47,6 +56,15 @@ pub(crate) fn codegen_static(tcx: TyCtxt<'_>, module: &mut dyn Module, def_id: D
     )
 }
 
+/// Defines a thread-local's initial bytes as ordinary data under its own symbol, for a JIT that
+/// gives each thread a copy of them.
+#[cfg(feature = "jit")]
+pub(crate) fn codegen_thread_local_image(tcx: TyCtxt<'_>, module: &mut dyn Module, def_id: DefId) {
+    let mut constants_cx = ConstantCx::new();
+    constants_cx.todo.push(TodoItem::ThreadLocalImage(def_id));
+    constants_cx.finalize(tcx, module);
+}
+
 pub(crate) fn codegen_tls_ref<'tcx>(
     fx: &mut FunctionCx<'_, '_, 'tcx>,
     def_id: DefId,
@@ -60,6 +78,12 @@ pub(crate) fn codegen_tls_ref<'tcx>(
         let func_ref = fx.get_function_ref(instance);
         let call = fx.bcx.ins().call(func_ref, &[]);
         fx.bcx.func.dfg.first_result(call)
+    } else if let Some(thread_local_key) = &mut fx.thread_local_key {
+        let symbol = fx.tcx.symbol_name(Instance::mono(fx.tcx, def_id)).name;
+        let key = thread_local_key(symbol, def_id);
+        let key = fx.bcx.ins().iconst(fx.pointer_type, key as i64);
+        let ptr = AbiParam::new(fx.pointer_type);
+        fx.lib_call(THREAD_LOCAL_ACCESSOR, vec![ptr], vec![ptr], &[key])[0]
     } else {
         let data_id = data_id_for_static(
             fx.tcx, fx.module, def_id, false,
@@ -398,7 +422,7 @@ fn define_all_allocs(tcx: TyCtxt<'_>, module: &mut dyn Module, cx: &mut Constant
                 });
                 (data_id, alloc, None)
             }
-            TodoItem::Static(def_id) => {
+            TodoItem::Static(def_id) | TodoItem::ThreadLocalImage(def_id) => {
                 let codegen_fn_attrs = tcx.codegen_fn_attrs(def_id);
                 let section_name = codegen_fn_attrs.link_section;
 
@@ -406,13 +430,19 @@ fn define_all_allocs(tcx: TyCtxt<'_>, module: &mut dyn Module, cx: &mut Constant
 
                 let alloc = tcx.eval_static_initializer(def_id).unwrap();
 
-                let data_id = data_id_for_static(
-                    tcx,
-                    module,
-                    def_id,
-                    true,
-                    alloc.inner().mutability == Mutability::Mut,
-                );
+                let data_id = if let TodoItem::ThreadLocalImage(_) = todo_item {
+                    let symbol_name = tcx.symbol_name(Instance::mono(tcx, def_id)).name;
+                    let linkage = crate::linkage::get_static_linkage(tcx, def_id);
+                    module.declare_data(symbol_name, linkage, false, false).unwrap()
+                } else {
+                    data_id_for_static(
+                        tcx,
+                        module,
+                        def_id,
+                        true,
+                        alloc.inner().mutability == Mutability::Mut,
+                    )
+                };
                 (data_id, alloc, section_name)
             }
         };

@@ -11,7 +11,7 @@ use rustc_span::Symbol;
 use rustc_target::callconv::FnAbi;
 use rustc_target::spec::{Arch, HasTargetSpec, Target};
 
-use crate::constant::ConstantCx;
+use crate::constant::{ConstantCx, ThreadLocalKey};
 use crate::debuginfo::FunctionDebugContext;
 use crate::prelude::*;
 
@@ -279,6 +279,8 @@ pub(crate) struct FunctionCx<'m, 'clif, 'tcx: 'm> {
     pub(crate) target_config: TargetFrontendConfig, // Cached from module
     pub(crate) pointer_type: Type,                  // Cached from module
     pub(crate) constants_cx: ConstantCx,
+    /// Set by a JIT: thread-local accesses become calls to its runtime.
+    pub(crate) thread_local_key: Option<ThreadLocalKey<'m>>,
     pub(crate) func_debug_cx: Option<FunctionDebugContext>,
 
     pub(crate) cgu_name: Symbol,
