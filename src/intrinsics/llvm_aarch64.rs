@@ -29,6 +29,31 @@ pub(super) fn codegen_aarch64_llvm_intrinsic_call<'tcx>(
             ret.write_cvalue(fx, val);
         }
 
+        _ if intrinsic.starts_with("llvm.aarch64.neon.st1x2.v")
+            || intrinsic.starts_with("llvm.aarch64.neon.st1x3.v")
+            || intrinsic.starts_with("llvm.aarch64.neon.st1x4.v") =>
+        {
+            // https://support.arm.com/documentation/ddi0602/2026-09/SIMD-FP-Instructions/ST1--multiple-structures---Store-multiple-single-element-structures-from-one--two--three--or-four-registers-
+            let [registers @ .., ptr] = args else {
+                bug_on_incorrect_arg_count(intrinsic);
+            };
+
+            let ptr = Pointer::new(codegen_operand(fx, &ptr.node).load_scalar(fx));
+            let mut offset = Size::ZERO;
+
+            for register in registers {
+                let val = codegen_operand(fx, &register.node);
+                let (lane_count, _lane_ty) = val.layout().ty.simd_size_and_type(fx.tcx);
+
+                for lane_idx in 0..lane_count {
+                    let lane = val.value_lane(fx, lane_idx);
+                    let lane_ptr = ptr.offset_i64(fx, offset.bytes() as i64);
+                    CPlace::for_ptr(lane_ptr, lane.layout()).write_cvalue(fx, lane);
+                    offset += lane.layout().size;
+                }
+            }
+        }
+
         _ if intrinsic.starts_with("llvm.aarch64.neon.abs.v") => {
             intrinsic_args!(fx, args => (a); intrinsic);
 
