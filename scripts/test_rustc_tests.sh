@@ -27,7 +27,6 @@ git checkout -- tests/ui/entry-point/auxiliary/bad_main_functions.rs
 
 # vendor intrinsics
 rm tests/ui/simd/dont-invalid-bitcast-x86_64.rs # unimplemented llvm.x86.sse41.round.ps
-rm tests/ui/simd/intrinsic/generic-arithmetic-pass.rs # unimplemented simd_funnel_{shl,shr}
 rm -r tests/ui/scalable-vectors # scalable vectors are unsupported
 
 # exotic linkages
